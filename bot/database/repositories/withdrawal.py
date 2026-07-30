@@ -1,7 +1,6 @@
-from datetime import datetime, date
+from datetime import datetime
 
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, update
 
 from bot.database.models import Withdrawal
 from bot.database.repositories.base import BaseRepository
@@ -36,17 +35,25 @@ class WithdrawalRepository(BaseRepository):
         return result.scalar() or 0
 
     async def approve(self, withdrawal_id: int) -> Withdrawal | None:
-        w = await self.session.get(Withdrawal, withdrawal_id)
-        if w and w.status == "pending":
-            w.status = "approved"
-            w.processed_at = datetime.utcnow()
-            await self.session.commit()
-        return w
+        result = await self.session.execute(
+            update(Withdrawal)
+            .where(Withdrawal.id == withdrawal_id, Withdrawal.status == "pending")
+            .values(status="approved", processed_at=datetime.utcnow())
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return None
+        await self.session.commit()
+        return await self.session.get(Withdrawal, withdrawal_id)
 
     async def reject(self, withdrawal_id: int) -> Withdrawal | None:
-        w = await self.session.get(Withdrawal, withdrawal_id)
-        if w and w.status == "pending":
-            w.status = "rejected"
-            w.processed_at = datetime.utcnow()
-            await self.session.commit()
-        return w
+        result = await self.session.execute(
+            update(Withdrawal)
+            .where(Withdrawal.id == withdrawal_id, Withdrawal.status == "pending")
+            .values(status="rejected", processed_at=datetime.utcnow())
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return None
+        await self.session.flush()
+        return await self.session.get(Withdrawal, withdrawal_id)

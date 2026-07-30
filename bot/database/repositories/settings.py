@@ -1,6 +1,10 @@
+import math
+
+from sqlalchemy import Float, String, cast, func, update
+
 from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
-
+from bot.services.phone import DEFAULT_ALLOWED_COUNTRY_CODES
 
 DEFAULT_SETTINGS: dict[str, str] = {
     "referral_reward": "3",
@@ -8,9 +12,14 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "bonus_max": "1.0",
     "bonus_enabled": "1",
     "withdraw_enabled": "1",
+    "withdraw_min": "15",
     "games_enabled": "1",
+    "tasks_enabled": "1",
     "tasks_reward": "0.3",
     "min_tasks_for_referral": "3",
+    "duel_commission": "20",
+    "duel_min_refs": "3",
+    "lottery_min_refs": "3",
     "payments_channel_id": "",
     "payments_channel_link": "",
     "admin_channel_id": "",
@@ -83,7 +92,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "auction_enabled": "1",
     "auction_commission": "0.20",
     # Sponsor wall
-    "sponsor_max_channels": "10",
+    "sponsor_max_channels": "6",
+    "phone_verification_enabled": "1",
+    "phone_allowed_codes": ",".join(DEFAULT_ALLOWED_COUNTRY_CODES),
     # PiarFlow
     "piarflow_max_sponsors": "100",
     # Wheel/Cases stats
@@ -106,22 +117,24 @@ class SettingsRepository(BaseRepository):
         return DEFAULT_SETTINGS.get(key, default)
 
     async def get_float(self, key: str, default: float = 0.0) -> float:
-        val = await self.get(key)
+        val = await self.get(key, str(default))
         try:
-            return float(val)
+            number = float(val)
+            return number if math.isfinite(number) else default
         except (ValueError, TypeError):
             return default
 
     async def get_int(self, key: str, default: int = 0) -> int:
-        val = await self.get(key)
+        val = await self.get(key, str(default))
         try:
-            return int(val)
-        except (ValueError, TypeError):
+            number = float(val)
+            return int(number) if math.isfinite(number) else default
+        except (ValueError, TypeError, OverflowError):
             return default
 
     async def get_bool(self, key: str, default: bool = True) -> bool:
-        val = await self.get(key)
-        return val == "1"
+        val = await self.get(key, "1" if default else "0")
+        return val.strip().lower() in {"1", "true", "yes", "on"}
 
     async def set(self, key: str, value: str) -> None:
         row = await self.session.get(BotSettings, key)
@@ -131,16 +144,27 @@ class SettingsRepository(BaseRepository):
             self.session.add(BotSettings(key=key, value=value))
         await self.session.commit()
 
-    async def add_float(self, key: str, delta: float) -> None:
+    async def stage(self, key: str, value: str) -> None:
         row = await self.session.get(BotSettings, key)
-        current = 0.0
         if row:
-            try:
-                current = float(row.value)
-            except (ValueError, TypeError):
-                pass
-            row.value = str(round(current + delta, 4))
+            row.value = value
         else:
+            self.session.add(BotSettings(key=key, value=value))
+        await self.session.flush()
+
+    async def add_float(self, key: str, delta: float) -> None:
+        result = await self.session.execute(
+            update(BotSettings)
+            .where(BotSettings.key == key)
+            .values(
+                value=cast(
+                    func.round(cast(BotSettings.value, Float) + delta, 4),
+                    String,
+                )
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount == 0:
             self.session.add(BotSettings(key=key, value=str(round(delta, 4))))
 
     async def seed_defaults(self) -> None:
@@ -148,4 +172,10 @@ class SettingsRepository(BaseRepository):
             existing = await self.session.get(BotSettings, key)
             if existing is None:
                 self.session.add(BotSettings(key=key, value=value))
+            elif key == "sponsor_max_channels":
+                try:
+                    if int(float(existing.value)) > 6:
+                        existing.value = "6"
+                except (TypeError, ValueError, OverflowError):
+                    existing.value = "6"
         await self.session.commit()

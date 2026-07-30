@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +18,7 @@ def _format_top(users: list, field: str, title: str, label: str) -> str:
     lines = [f"🏆 <b>{title}</b>\n"]
     for i, u in enumerate(users, 1):
         medal = MEDALS[i - 1] if i <= 3 else f"{i}."
-        name = f"@{u.username}" if u.username else u.first_name
+        name = escape(f"@{u.username}" if u.username else u.first_name)
         value = float(getattr(u, field))
         lines.append(f"{medal} {name} — <b>{value:.0f} {label}</b>")
     return "\n".join(lines)

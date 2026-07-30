@@ -2,13 +2,20 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, ForeignKey, Integer,
-    Numeric, String, Text, func,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from bot.database.engine import Base
-
 
 # ─── User ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +29,20 @@ class User(Base):
     referrals_count: Mapped[int] = mapped_column(Integer, default=0)
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     referral_reward_given: Mapped[bool] = mapped_column(Boolean, default=False)
+    referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    phone_country_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    phone_rejection_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    country_notice_message_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    country_notice_pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
+    sponsor_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sponsor_wave_two: Mapped[str | None] = mapped_column(Text, nullable=True)
     tasks_completed_count: Mapped[int] = mapped_column(Integer, default=0)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -33,6 +53,38 @@ class User(Base):
     # game-specific counters (ported from SrvNkreferal)
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
     darts_bullseye_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ReferralReactivation(Base):
+    """Immutable ledger entry for a rewarded referral return."""
+
+    __tablename__ = "referral_reactivations"
+    __table_args__ = (
+        UniqueConstraint(
+            "referred_user_id",
+            "inactive_since",
+            name="uq_referral_reactivation_cycle",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    referred_user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    referrer_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    inactive_since: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    returned_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    reward_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
 
 
 # ─── BotSettings ──────────────────────────────────────────────────────────────
@@ -142,6 +194,9 @@ class PromoCode(Base):
 
 class PromoUse(Base):
     __tablename__ = "promo_uses"
+    __table_args__ = (
+        UniqueConstraint("code_id", "user_id", name="uq_promo_use_code_user"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code_id: Mapped[int] = mapped_column(Integer, ForeignKey("promo_codes.id", ondelete="CASCADE"))
@@ -171,6 +226,9 @@ class Task(Base):
 
 class TaskCompletion(Base):
     __tablename__ = "task_completions"
+    __table_args__ = (
+        UniqueConstraint("task_id", "user_id", name="uq_task_completion_task_user"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"))

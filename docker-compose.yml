@@ -1,26 +1,32 @@
-version: "3.9"
-
 services:
-  postgres:
-    image: postgres:16-alpine
+  bot:
+    build: .
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: referal
-      POSTGRES_USER: referal
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
+      DATA_DIR: /app/data
+      DATABASE_URL: sqlite+aiosqlite:////app/data/bot.db
+      REDIS_URL: redis://redis:6379/0
+      INSTANCE_LOCK_PATH: /app/data/bot-instance.lock
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - botdata:/app/data
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     volumes:
       - redisdata:/data
 
 volumes:
-  pgdata:
+  botdata:
   redisdata:

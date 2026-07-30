@@ -20,7 +20,6 @@ def games_menu_kb(configs: dict) -> InlineKeyboardMarkup:
     btns = []
     for game in enabled:
         cfg = configs[game]
-        min_bet = cfg.get("min_bet", 1.0)
         coeff_label = cfg.get("coeff_label", "")
         btns.append(InlineKeyboardButton(
             text=f"{GAME_LABELS[game]} | {coeff_label}",

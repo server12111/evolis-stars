@@ -6,8 +6,8 @@ logger = logging.getLogger(__name__)
 TGRASS_API = "https://tgrass.space/offers"
 
 
-async def check_tgrass(user_id: int, code: str, max_offers: int = 0) -> list[dict]:
-    """Returns list of unsubscribed channels [{name, url}]. Empty = all subscribed."""
+async def check_tgrass(user_id: int, code: str, max_offers: int = 0) -> list[dict] | None:
+    """Return unsubscribed channels; return None when the integration is unavailable."""
     if not code:
         return []
     body: dict = {"tg_user_id": user_id, "is_premium": False, "lang": "ru"}
@@ -20,6 +20,9 @@ async def check_tgrass(user_id: int, code: str, max_offers: int = 0) -> list[dic
                 json=body,
                 headers={"Auth": code, "Content-Type": "application/json"},
             ) as resp:
+                if resp.status >= 400:
+                    logger.warning("TGrass returned HTTP %s", resp.status)
+                    return None
                 data = await resp.json(content_type=None)
                 status = data.get("status", "")
                 if status == "no_offers":
@@ -32,4 +35,4 @@ async def check_tgrass(user_id: int, code: str, max_offers: int = 0) -> list[dic
                 ]
     except Exception as e:
         logger.warning("TGrass check error: %s", e)
-    return []
+    return None

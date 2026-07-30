@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import Router
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
@@ -27,11 +29,12 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
     template = await repo.get_text("profile")
     photo = await repo.get_photo("profile")
 
-    username_display = f"@{db_user.username}" if db_user.username else "не установлен"
+    username_display = escape(f"@{db_user.username}") if db_user.username else "не установлен"
+    first_name = escape(db_user.first_name)
 
     try:
         text = template.format(
-            name=db_user.first_name,
+            name=first_name,
             user_id=db_user.user_id,
             username=username_display,
             balance=f"{float(db_user.stars_balance):.2f}",
@@ -40,7 +43,7 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
     except (KeyError, ValueError):
         text = (
             f"👤 <b>Профиль</b>\n\n"
-            f"Имя: <b>{db_user.first_name}</b>\n"
+            f"Имя: <b>{first_name}</b>\n"
             f"ID: <code>{db_user.user_id}</code>\n"
             f"Username: {username_display}\n\n"
             f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n"

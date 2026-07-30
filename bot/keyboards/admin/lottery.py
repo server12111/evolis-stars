@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
@@ -19,6 +19,6 @@ def lottery_end_type_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎟 По кол-ву билетов", callback_data="lottery_end:tickets"))
     builder.row(InlineKeyboardButton(text="⏰ По времени", callback_data="lottery_end:time"))
-    builder.row(InlineKeyboardButton(text="💰 По сумме комиссии", callback_data="lottery_end:commission"))
+    builder.row(InlineKeyboardButton(text="💰 По сумме сбора", callback_data="lottery_end:commission"))
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin:lottery"))
     return builder.as_markup()

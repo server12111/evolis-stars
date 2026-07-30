@@ -1,16 +1,20 @@
+import math
+from datetime import datetime, timedelta
+
 from aiogram import Router
-from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
-from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.lottery import LotteryRepository
-from bot.keyboards.admin.games import games_admin_kb, game_config_kb, cancel_kb as lottery_cancel_kb
+from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.admin.stats import _is_admin
+from bot.keyboards.admin.games import cancel_kb as lottery_cancel_kb
+from bot.keyboards.admin.games import game_config_kb, games_admin_kb
 from bot.keyboards.admin.lottery import lottery_admin_kb, lottery_end_type_kb
 from bot.keyboards.admin.main import back_to_admin_kb
 from bot.states.admin import AdminGameStates, AdminLotteryStates
-from bot.handlers.admin.stats import _is_admin
 
 router = Router()
 
@@ -22,6 +26,12 @@ GAME_SETTINGS = {
     "darts": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
     "slots": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
 }
+
+
+def _lottery_end_value(end_type: str, value: float) -> float:
+    if end_type == "time":
+        return (datetime.utcnow() + timedelta(hours=value)).timestamp()
+    return value
 
 
 @router.callback_query(lambda c: c.data == "admin:games")
@@ -102,7 +112,7 @@ async def msg_game_value(message: Message, state: FSMContext, session: AsyncSess
     if not _is_admin(db_user): return
     try:
         value = float(message.text.strip().replace(",", "."))
-        if value <= 0: raise ValueError
+        if not math.isfinite(value) or value <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:")
         return
@@ -150,7 +160,11 @@ async def msg_lottery_price(message: Message, state: FSMContext, db_user: User) 
     if not _is_admin(db_user): return
     try:
         price = float(message.text.strip().replace(",", "."))
-        if price <= 0: raise ValueError
+        if not math.isfinite(price):
+            raise ValueError
+        price = round(price, 2)
+        if price <= 0:
+            raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=lottery_cancel_kb())
         return
@@ -181,7 +195,7 @@ async def cb_lottery_end_type(callback: CallbackQuery, db_user: User, state: FSM
     prompts = {
         "tickets": "🎟 Введи кол-во билетов для розыгрыша:",
         "time": "⏰ Введи кол-во часов до розыгрыша:",
-        "commission": "💰 Введи сумму комиссии для розыгрыша (⭐):",
+        "commission": "💰 Введи общую сумму сбора для розыгрыша (⭐):",
     }
     await state.set_state(AdminLotteryStates.enter_end_value)
     await callback.message.answer(prompts[end_type], reply_markup=lottery_cancel_kb())
@@ -193,18 +207,33 @@ async def msg_lottery_end_value(message: Message, state: FSMContext, session: As
     if not _is_admin(db_user): return
     try:
         val = float(message.text.strip().replace(",", "."))
-        if val <= 0: raise ValueError
+        if not math.isfinite(val) or val <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=lottery_cancel_kb())
         return
     data = await state.get_data()
+    if data["end_type"] == "tickets":
+        if not val.is_integer():
+            await message.answer(
+                "❌ Количество билетов должно быть целым числом:",
+                reply_markup=lottery_cancel_kb(),
+            )
+            return
+        ticket_limit = int(data["ticket_limit"])
+        if ticket_limit > 0 and int(val) > ticket_limit:
+            await message.answer(
+                f"❌ Условие розыгрыша не может превышать лимит {ticket_limit} билетов:",
+                reply_markup=lottery_cancel_kb(),
+            )
+            return
+    end_value = _lottery_end_value(data["end_type"], val)
     await state.clear()
     repo = LotteryRepository(session)
     lottery = await repo.create(
         ticket_price=data["ticket_price"],
         ticket_limit=data["ticket_limit"],
         end_type=data["end_type"],
-        end_value=val,
+        end_value=end_value,
     )
     await message.answer(
         f"✅ <b>Лотерея #{lottery.id} создана!</b>\n\nЦена билета: {float(lottery.ticket_price):.1f} ⭐",
@@ -226,11 +255,15 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
         await callback.answer("❌ Нет участников.", show_alert=True)
         return
     prize = float(active.prize_pool)
-    await repo.finish(active, winner_id)
     winner = await session.get(User, winner_id)
     if winner:
         winner.stars_balance = round(float(winner.stars_balance) + prize, 2)
-        await session.commit()
+    if not await repo.finish(active, winner_id):
+        await callback.answer(
+            "Лотерея уже изменилась. Повторите розыгрыш.",
+            show_alert=True,
+        )
+        return
     try:
         await callback.bot.send_message(
             winner_id,
@@ -251,6 +284,17 @@ async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, sessi
     if not active:
         await callback.answer("Нет активной лотереи.", show_alert=True)
         return
-    await repo.cancel(active)
+    if active.tickets_sold > 0:
+        await callback.answer(
+            "❌ Нельзя отменить лотерею с купленными билетами. Проведите розыгрыш.",
+            show_alert=True,
+        )
+        return
+    if not await repo.cancel(active):
+        await callback.answer(
+            "❌ Лотерея уже изменилась; отмена невозможна.",
+            show_alert=True,
+        )
+        return
     await callback.answer("✅ Лотерея отменена.")
     await cb_lottery(callback, db_user, session)

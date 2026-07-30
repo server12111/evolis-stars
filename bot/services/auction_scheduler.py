@@ -40,16 +40,15 @@ async def auction_loop(bot: Bot) -> None:
                 winner_share = round(float(round_.prize_pool) * (1 - commission), 2)
 
                 winner_id = round_.current_bidder_id
-                await repo.finish(round_)
 
                 if winner_id:
                     user_repo = UserRepository(session)
                     winner = await user_repo.get(winner_id)
                     if winner:
                         winner.stars_balance = round(float(winner.stars_balance) + winner_share, 2)
-                        await session.commit()
+                    if not await repo.finish(round_):
+                        continue
                     try:
-                        time_txt = round_.end_at.strftime("%d.%m %H:%M")
                         await bot.send_message(
                             winner_id,
                             f"🏆 <b>Вы выиграли аукцион!</b>\n\n"
@@ -62,12 +61,13 @@ async def auction_loop(bot: Bot) -> None:
                         pass
                     logger.info("Auction round %s finished. Winner %s, prize %.2f", round_.id, winner_id, winner_share)
                 else:
-                    await session.commit()
+                    if not await repo.finish(round_):
+                        continue
                     logger.info("Auction round %s finished with no bids.", round_.id)
 
                 # Create next round
                 await repo.create_new()
                 logger.info("Auction: new round started")
 
-        except Exception as e:
-            logger.error("Auction scheduler error: %s", e)
+        except Exception:
+            logger.exception("Auction scheduler error")

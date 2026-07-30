@@ -1,18 +1,17 @@
 from datetime import datetime
 
-from aiogram import Router, Bot
+from aiogram import Bot, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
 from bot.database.repositories.lottery import LotteryRepository
+from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.lottery import lottery_menu_kb
+from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 router = Router()
-
-_MIN_REFS = 3
-
 
 def _lottery_text(lottery, user_tickets: int, balance: float) -> str:
     from bot.database.repositories.lottery import COMMISSION
@@ -38,9 +37,13 @@ def _lottery_text(lottery, user_tickets: int, balance: float) -> str:
 
 @router.callback_query(lambda c: c.data == "game:lottery")
 async def cb_lottery(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
-    if db_user.referrals_count < _MIN_REFS:
+    min_refs = max(
+        0,
+        await SettingsRepository(session).get_int("lottery_min_refs", 3),
+    )
+    if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {_MIN_REFS} реферала. Твоих: {db_user.referrals_count}/{_MIN_REFS}",
+            f"❌ Нужно минимум {min_refs} реферала. Твоих: {db_user.referrals_count}/{min_refs}",
             show_alert=True,
         )
         return
@@ -73,6 +76,16 @@ async def cb_lottery(callback: CallbackQuery, session: AsyncSession, db_user: Us
 
 @router.callback_query(lambda c: c.data == "game:lottery_buy")
 async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user: User, bot: Bot) -> None:
+    min_refs = max(
+        0,
+        await SettingsRepository(session).get_int("lottery_min_refs", 3),
+    )
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} реферала.",
+            show_alert=True,
+        )
+        return
     repo = LotteryRepository(session)
     lottery = await repo.get_active()
     if not lottery:
@@ -92,16 +105,32 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         return
 
     if lottery.channel_id:
+        chat_id = telegram_chat_id(lottery.channel_id)
+        if chat_id is None:
+            await callback.answer(
+                "⚠️ Канал лотереи настроен неверно. Сообщите администратору.",
+                show_alert=True,
+            )
+            return
         try:
-            member = await bot.get_chat_member(lottery.channel_id, db_user.user_id)
-            if member.status in ("left", "kicked", "banned"):
+            member = await bot.get_chat_member(chat_id, db_user.user_id)
+            if not is_subscribed(member):
                 await callback.answer(f"❌ Подпишитесь на {lottery.channel_id}", show_alert=True)
                 return
         except Exception:
-            pass
+            await callback.answer(
+                "⚠️ Не удалось проверить подписку на канал. Попробуйте ещё раз позже.",
+                show_alert=True,
+            )
+            return
 
     db_user.stars_balance -= lottery.ticket_price
-    await repo.buy_ticket(lottery, db_user.user_id)
+    if not await repo.buy_ticket(lottery, db_user.user_id):
+        await callback.answer(
+            "Лотерея уже изменилась. Обновите её и попробуйте снова.",
+            show_alert=True,
+        )
+        return
 
     await callback.answer(f"✅ Билет куплен! (-{float(lottery.ticket_price):.0f} ⭐)")
 
@@ -112,7 +141,11 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
             winner = await u_repo.get(winner_id)
             if winner:
                 winner.stars_balance += lottery.prize_pool
-            await repo.finish(lottery, winner_id)
+            if not await repo.finish(lottery, winner_id):
+                await callback.message.answer(
+                    "Розыгрыш уже выполняется. Обновите лотерею."
+                )
+                return
             try:
                 await bot.send_message(winner_id, f"🎉 <b>Вы выиграли лотерею!</b>\n🏆 Приз: <b>{float(lottery.prize_pool):.2f} ⭐</b>", parse_mode="HTML")
             except Exception:

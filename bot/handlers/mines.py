@@ -1,3 +1,4 @@
+import math
 import random
 
 from aiogram import Router
@@ -77,7 +78,7 @@ async def cb_mines_bet_custom(callback: CallbackQuery, state: FSMContext) -> Non
 async def msg_mines_bet_custom(message: Message, state: FSMContext, session: AsyncSession, db_user: User) -> None:
     try:
         bet = float(message.text.strip().replace(",", "."))
-        if bet <= 0:
+        if not math.isfinite(bet) or bet <= 0:
             raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=mines_cancel_kb())
@@ -292,9 +293,6 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
     data = await state.get_data()
     bet = data.get("bet", 0)
     gems = data.get("gems", 0)
-    board = data.get("board", [0] * 25)
-    opened = data.get("opened", [])
-
     if gems == 0:
         # No gems opened — just refund and exit
         db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
@@ -313,7 +311,7 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
         )
     except Exception:
         await callback.message.answer(
-            f"🏠 <b>Главное меню</b>",
+            "🏠 <b>Главное меню</b>",
             parse_mode="HTML", reply_markup=main_menu_kb(),
         )
 

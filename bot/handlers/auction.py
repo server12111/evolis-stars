@@ -1,16 +1,17 @@
+import math
 from datetime import datetime
 from decimal import Decimal
 
 from aiogram import Router
-from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
 from bot.database.repositories.auction import AuctionRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
-from bot.keyboards.auction import auction_kb, auction_cancel_kb
+from bot.keyboards.auction import auction_cancel_kb, auction_kb
 from bot.states.games import AuctionStates
 
 router = Router()
@@ -96,8 +97,10 @@ async def cb_auction_menu(callback: CallbackQuery, db_user: User, session: Async
 async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     try:
         extra = float(callback.data.split(":")[2])
+        if not math.isfinite(extra) or extra < 1:
+            raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("Неверная сумма.", show_alert=True)
+        await callback.answer("Минимальное повышение ставки: 1 ⭐.", show_alert=True)
         return
 
     repo = AuctionRepository(session)
@@ -129,7 +132,17 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
     prev_bidder_id = round_.current_bidder_id
 
     db_user.stars_balance = round(float(db_user.stars_balance) - extra, 2)
-    await repo.place_bid(round_, db_user.user_id, Decimal(str(total_bid)), Decimal(str(extra)))
+    if not await repo.place_bid(
+        round_,
+        db_user.user_id,
+        Decimal(str(total_bid)),
+        Decimal(str(extra)),
+    ):
+        await callback.answer(
+            "Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
+            show_alert=True,
+        )
+        return
 
     # Notify previous leader
     if prev_bidder_id and prev_bidder_id != db_user.user_id:
@@ -175,10 +188,13 @@ async def cb_auction_bid_custom(callback: CallbackQuery, state: FSMContext) -> N
 async def msg_auction_custom(message: Message, state: FSMContext, db_user: User, session: AsyncSession) -> None:
     try:
         extra = float(message.text.strip().replace(",", "."))
-        if extra <= 0:
+        if not math.isfinite(extra):
+            raise ValueError
+        extra = round(extra, 2)
+        if extra < 1:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=auction_cancel_kb())
+        await message.answer("❌ Минимальное повышение — 1 ⭐:", reply_markup=auction_cancel_kb())
         return
 
     repo = AuctionRepository(session)
@@ -212,7 +228,18 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
         total_bid = min_bid
 
     db_user.stars_balance = round(float(db_user.stars_balance) - extra, 2)
-    await repo.place_bid(round_, db_user.user_id, Decimal(str(total_bid)), Decimal(str(extra)))
+    if not await repo.place_bid(
+        round_,
+        db_user.user_id,
+        Decimal(str(total_bid)),
+        Decimal(str(extra)),
+    ):
+        await message.answer(
+            "Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
+            reply_markup=auction_kb(True),
+        )
+        await state.clear()
+        return
     await state.clear()
 
     if prev_bidder_id and prev_bidder_id != db_user.user_id:

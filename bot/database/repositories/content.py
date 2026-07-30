@@ -1,5 +1,4 @@
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import ContentItem
 from bot.database.repositories.base import BaseRepository

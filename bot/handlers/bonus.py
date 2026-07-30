@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import User
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
-from bot.keyboards.main import back_to_menu_kb
 
 router = Router()
 

@@ -33,6 +33,10 @@ class AdminSettingsStates(StatesGroup):
     enter_value = State()
 
 
+class AdminPhoneCodesStates(StatesGroup):
+    enter_code = State()
+
+
 class AdminMediaStates(StatesGroup):
     enter_text = State()
     enter_photo = State()

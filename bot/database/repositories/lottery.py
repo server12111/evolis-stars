@@ -1,8 +1,8 @@
 import random
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, update
 
 from bot.database.models import Lottery, LotteryTicket
 from bot.database.repositories.base import BaseRepository
@@ -26,13 +26,29 @@ class LotteryRepository(BaseRepository):
         )
         return result.scalar() or 0
 
-    async def buy_ticket(self, lottery: Lottery, user_id: int) -> None:
-        lottery.tickets_sold += 1
+    async def buy_ticket(self, lottery: Lottery, user_id: int) -> bool:
         prize_add = round(float(lottery.ticket_price) * (1 - COMMISSION), 2)
-        lottery.total_collected = round(float(lottery.total_collected) + float(lottery.ticket_price), 2)
-        lottery.prize_pool = round(float(lottery.prize_pool) + prize_add, 2)
+        result = await self.session.execute(
+            update(Lottery)
+            .where(
+                Lottery.id == lottery.id,
+                Lottery.status == "active",
+                Lottery.tickets_sold == lottery.tickets_sold,
+            )
+            .values(
+                tickets_sold=Lottery.tickets_sold + 1,
+                total_collected=Lottery.total_collected + lottery.ticket_price,
+                prize_pool=Lottery.prize_pool + Decimal(str(prize_add)),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return False
         self.session.add(LotteryTicket(lottery_id=lottery.id, user_id=user_id))
         await self.session.commit()
+        await self.session.refresh(lottery)
+        return True
 
     async def get_participants(self, lottery_id: int) -> list[tuple]:
         result = await self.session.execute(
@@ -52,15 +68,49 @@ class LotteryRepository(BaseRepository):
             return None
         return random.choice(tickets).user_id
 
-    async def finish(self, lottery: Lottery, winner_id: int) -> None:
+    async def finish(self, lottery: Lottery, winner_id: int) -> bool:
+        drawn_at = datetime.utcnow()
+        result = await self.session.execute(
+            update(Lottery)
+            .where(
+                Lottery.id == lottery.id,
+                Lottery.status == "active",
+                Lottery.tickets_sold == lottery.tickets_sold,
+                Lottery.prize_pool == lottery.prize_pool,
+            )
+            .values(
+                status="finished",
+                winner_id=winner_id,
+                drawn_at=drawn_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return False
         lottery.status = "finished"
         lottery.winner_id = winner_id
-        lottery.drawn_at = datetime.utcnow()
+        lottery.drawn_at = drawn_at
         await self.session.commit()
+        return True
 
-    async def cancel(self, lottery: Lottery) -> None:
+    async def cancel(self, lottery: Lottery) -> bool:
+        result = await self.session.execute(
+            update(Lottery)
+            .where(
+                Lottery.id == lottery.id,
+                Lottery.status == "active",
+                Lottery.tickets_sold == 0,
+            )
+            .values(status="finished")
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return False
         lottery.status = "finished"
         await self.session.commit()
+        return True
 
     async def create(
         self,

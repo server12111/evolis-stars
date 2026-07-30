@@ -1,17 +1,70 @@
+import html
+import logging
+import math
+
 from aiogram import Router
-from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import User
+from bot.config import get_settings
+from bot.database.models import User, Withdrawal
+from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
-from bot.keyboards.admin.users import users_menu_kb, user_actions_kb, cancel_kb
-from bot.keyboards.admin.main import back_to_admin_kb
-from bot.states.admin import AdminUserStates
 from bot.handlers.admin.stats import _is_admin
+from bot.keyboards.admin.main import back_to_admin_kb
+from bot.keyboards.admin.users import cancel_kb, user_actions_kb, users_menu_kb
+from bot.states.admin import AdminUserStates
 
 router = Router()
+settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+async def _update_public_withdrawal_status(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    withdrawal: Withdrawal,
+    status: str,
+    status_icon: str,
+) -> None:
+    if not withdrawal.channel_message_id:
+        return
+
+    payments_channel_id = (
+        settings.payments_channel_id
+        or await SettingsRepository(session).get("payments_channel_id")
+    )
+    if not payments_channel_id:
+        return
+
+    user = await UserRepository(session).get(withdrawal.user_id)
+    username_display = (
+        f"@{user.username}"
+        if user and user.username
+        else html.escape(user.first_name if user else str(withdrawal.user_id))
+    )
+    text = (
+        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>\n\n"
+        f"👤 Пользователь: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
+        f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
+        f"{status_icon} Статус: <b>{status}</b>"
+    )
+    try:
+        await callback.bot.edit_message_text(
+            chat_id=int(payments_channel_id),
+            message_id=withdrawal.channel_message_id,
+            text=text,
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Cannot update withdrawal %s in payments channel %s: %s",
+            withdrawal.id,
+            payments_channel_id,
+            exc,
+        )
 
 
 @router.callback_query(lambda c: c.data == "admin:users")
@@ -71,7 +124,7 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
     text = (
         f"👤 <b>Пользователь</b>\n\n"
         f"ID: <code>{target.user_id}</code>\n"
-        f"Имя: <b>{target.first_name}</b>\n"
+        f"Имя: <b>{html.escape(target.first_name)}</b>\n"
         f"Username: {username_display}\n"
         f"💰 Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>\n"
         f"👥 Рефералов: <b>{target.referrals_count}</b>\n"
@@ -137,7 +190,7 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
     await state.clear()
     try:
         amount = float(message.text.strip().replace(",", "."))
-        if amount <= 0: raise ValueError
+        if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число.")
         return
@@ -168,7 +221,7 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
     await state.clear()
     try:
         amount = float(message.text.strip().replace(",", "."))
-        if amount <= 0: raise ValueError
+        if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число.")
         return
@@ -239,6 +292,7 @@ async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession, db
         )
     except Exception:
         pass
+    await _update_public_withdrawal_status(callback, session, w, "Принято", "✅")
     await callback.answer("✅ Одобрено")
 
 
@@ -259,7 +313,7 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_
     user = await u_repo.get(w.user_id)
     if user:
         user.stars_balance += w.amount
-        await session.commit()
+    await session.commit()
 
     try:
         await callback.message.edit_text(
@@ -276,4 +330,5 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_
         )
     except Exception:
         pass
+    await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌")
     await callback.answer("❌ Отклонено")

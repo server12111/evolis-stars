@@ -35,7 +35,8 @@ async def lottery_time_check_loop(bot: Bot) -> None:
                 if winner:
                     winner.stars_balance += lottery.prize_pool
 
-                await repo.finish(lottery, winner_id)
+                if not await repo.finish(lottery, winner_id):
+                    continue
 
                 try:
                     await bot.send_message(
@@ -49,5 +50,5 @@ async def lottery_time_check_loop(bot: Bot) -> None:
                     pass
 
                 logger.info("Lottery %s auto-drawn, winner %s, prize %.2f", lottery.id, winner_id, lottery.prize_pool)
-        except Exception as e:
-            logger.error("Lottery scheduler error: %s", e)
+        except Exception:
+            logger.exception("Lottery scheduler error")

@@ -1,29 +1,41 @@
 import asyncio
+import math
 from datetime import datetime, timedelta
+from html import escape
 
-from aiogram import Router, Bot
-from aiogram.types import CallbackQuery, Message
+from aiogram import Bot, Router
 from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import User, Duel
 from bot.database.engine import SessionFactory
+from bot.database.models import Duel, User
+from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.duel import (
-    duel_menu_kb, active_duels_kb, duel_view_kb,
-    duel_creator_kb, duel_roll_kb, back_to_duel_kb, duel_confirm_kb,
+    active_duels_kb,
+    back_to_duel_kb,
+    duel_confirm_kb,
+    duel_creator_kb,
+    duel_menu_kb,
+    duel_roll_kb,
+    duel_view_kb,
 )
+from bot.services.background import spawn_background
 from bot.states.duel import DuelStates
-from sqlalchemy import select
 
 router = Router()
 
 DUEL_EXPIRE_MINUTES = 15
+CONFIRM_TIMEOUT_MINUTES = 5
 DICE_TIMEOUT_MINUTES = 10
-COMMISSION = 0.20
 
-_expire_tasks: dict[int, asyncio.Task] = {}
-_dice_tasks: dict[int, asyncio.Task] = {}
-_MIN_REFS = 3
+async def _duel_rules(session: AsyncSession) -> tuple[int, float]:
+    repo = SettingsRepository(session)
+    min_refs = max(0, await repo.get_int("duel_min_refs", 3))
+    commission_percent = await repo.get_float("duel_commission", 20.0)
+    commission = min(1.0, max(0.0, commission_percent / 100))
+    return min_refs, commission
 
 
 async def _notify(bot: Bot, user_id: int, text: str, kb=None) -> None:
@@ -33,77 +45,36 @@ async def _notify(bot: Bot, user_id: int, text: str, kb=None) -> None:
         pass
 
 
-async def _expire_waiting_duel(duel_id: int, creator_id: int, amount: float, bot: Bot) -> None:
-    await asyncio.sleep(DUEL_EXPIRE_MINUTES * 60)
-    _expire_tasks.pop(duel_id, None)
-    async with SessionFactory() as session:
-        duel = await session.get(Duel, duel_id)
-        if not duel or duel.status != "waiting":
-            return
-        creator = await session.get(User, creator_id)
-        if creator:
-            creator.stars_balance = round(float(creator.stars_balance) + amount, 2)
-        duel.status = "cancelled"
-        await session.commit()
-    await _notify(bot, creator_id,
-                  f"⏰ <b>Дуэль #{duel_id} отменена</b>\n\nНикто не присоединился за {DUEL_EXPIRE_MINUTES} мин.\n"
-                  f"💫 <b>{amount:.0f} ⭐</b> возвращено.", back_to_duel_kb())
-
-
-async def _dice_timeout(duel_id: int, bot: Bot) -> None:
-    await asyncio.sleep(DICE_TIMEOUT_MINUTES * 60)
-    _dice_tasks.pop(duel_id, None)
-    async with SessionFactory() as session:
-        duel = await session.get(Duel, duel_id)
-        if not duel or duel.status != "active":
-            return
-        c_rolled = duel.creator_roll is not None
-        j_rolled = duel.joiner_roll is not None
-        if c_rolled == j_rolled:
-            duel.status = "finished"
-            if not c_rolled:
-                creator = await session.get(User, duel.creator_id)
-                joiner = await session.get(User, duel.joiner_id)
-                if creator:
-                    creator.stars_balance = round(float(creator.stars_balance) + float(duel.amount), 2)
-                if joiner:
-                    joiner.stars_balance = round(float(joiner.stars_balance) + float(duel.amount), 2)
-                await session.commit()
-                await _notify(bot, duel.creator_id, f"⏰ Дуэль #{duel_id}: время вышло, никто не сделал ход.\n💫 Ставка возвращена.")
-                await _notify(bot, duel.joiner_id, f"⏰ Дуэль #{duel_id}: время вышло, никто не сделал ход.\n💫 Ставка возвращена.")
-            else:
-                await session.commit()
-            return
-        duel.status = "finished"
-        if c_rolled and not j_rolled:
-            creator = await session.get(User, duel.creator_id)
-            if creator: creator.stars_balance += duel.amount
-            await session.commit()
-            await _notify(bot, duel.creator_id, f"⏰ Дуэль #{duel_id}: соперник не бросил кубик.\n💫 Ставка возвращена.")
-            await _notify(bot, duel.joiner_id, f"⏰ Дуэль #{duel_id}: вы не успели бросить кубик.\n❌ Ставка сгорела.")
-        else:
-            joiner = await session.get(User, duel.joiner_id)
-            if joiner: joiner.stars_balance += duel.amount
-            await session.commit()
-            await _notify(bot, duel.joiner_id, f"⏰ Дуэль #{duel_id}: соперник не бросил кубик.\n💫 Ставка возвращена.")
-            await _notify(bot, duel.creator_id, f"⏰ Дуэль #{duel_id}: вы не успели бросить кубик.\n❌ Ставка сгорела.")
-
-
 async def _delayed_resolve(duel_id: int, bot: Bot) -> None:
     await asyncio.sleep(4)
     async with SessionFactory() as session:
         duel = await session.get(Duel, duel_id)
-        if duel and duel.creator_roll is not None and duel.joiner_roll is not None:
+        if (
+            duel
+            and duel.status == "active"
+            and duel.creator_roll is not None
+            and duel.joiner_roll is not None
+        ):
             await _resolve_duel(duel, session, bot)
 
 
 async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
-    task = _dice_tasks.pop(duel.id, None)
-    if task: task.cancel()
-
+    if duel.status != "active":
+        return
+    claim = await session.execute(
+        update(Duel)
+        .where(Duel.id == duel.id, Duel.status == "active")
+        .values(status="settling")
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        return
+    duel.status = "settling"
     c_roll, j_roll = duel.creator_roll, duel.joiner_roll
+    _, commission = await _duel_rules(session)
     total = float(duel.amount) * 2
-    winner_amount = round(total * (1 - COMMISSION), 2)
+    winner_amount = round(total * (1 - commission), 2)
     duel.status = "finished"
 
     if c_roll == j_roll:
@@ -119,9 +90,8 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
         return
 
     winner_id = duel.creator_id if c_roll > j_roll else duel.joiner_id
-    loser_id = duel.joiner_id if c_roll > j_roll else duel.creator_id
     winner = await session.get(User, winner_id)
-    winner_name = winner.first_name if winner else "Игрок"
+    winner_name = escape(winner.first_name) if winner else "Игрок"
     if winner: winner.stars_balance = round(float(winner.stars_balance) + winner_amount, 2)
     duel.winner_id = winner_id
     await session.commit()
@@ -133,12 +103,17 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
 
 
 @router.callback_query(lambda c: c.data == "duel:menu")
-async def cb_duel_menu(callback: CallbackQuery, db_user: User) -> None:
-    if db_user.referrals_count < _MIN_REFS:
-        await callback.answer(f"❌ Нужно минимум {_MIN_REFS} реферала. У тебя: {db_user.referrals_count}", show_alert=True)
+async def cb_duel_menu(
+    callback: CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+) -> None:
+    min_refs, commission = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await callback.answer(f"❌ Нужно минимум {min_refs} реферала. У тебя: {db_user.referrals_count}", show_alert=True)
         return
     text = (f"⚔️ <b>Дуэли</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\n"
-            f"Бросайте кубик против соперника!\nПобедитель получает <b>80%</b> банка.")
+            f"Бросайте кубик против соперника!\nПобедитель получает <b>{(1 - commission) * 100:.0f}%</b> банка.")
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=duel_menu_kb())
     except Exception:
@@ -147,7 +122,19 @@ async def cb_duel_menu(callback: CallbackQuery, db_user: User) -> None:
 
 
 @router.callback_query(lambda c: c.data == "duel:create")
-async def cb_duel_create(callback: CallbackQuery, state: FSMContext, db_user: User) -> None:
+async def cb_duel_create(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db_user: User,
+    session: AsyncSession,
+) -> None:
+    min_refs, _ = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} реферала.",
+            show_alert=True,
+        )
+        return
     await state.set_state(DuelStates.enter_amount)
     try:
         await callback.message.edit_text(
@@ -156,16 +143,21 @@ async def cb_duel_create(callback: CallbackQuery, state: FSMContext, db_user: Us
         )
     except Exception:
         await callback.message.answer(
-            f"⚔️ Введи сумму ставки:", reply_markup=back_to_duel_kb(),
+            "⚔️ Введи сумму ставки:", reply_markup=back_to_duel_kb(),
         )
     await callback.answer()
 
 
 @router.message(DuelStates.enter_amount)
 async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSession, db_user: User) -> None:
+    min_refs, _ = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await state.clear()
+        await message.answer(f"❌ Нужно минимум {min_refs} реферала.")
+        return
     try:
         amount = float(message.text.strip().replace(",", "."))
-        if amount <= 0: raise ValueError
+        if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:")
         return
@@ -180,9 +172,6 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
     session.add(duel)
     await session.flush()
     await session.commit()
-
-    task = asyncio.create_task(_expire_waiting_duel(duel.id, db_user.user_id, amount, message.bot))
-    _expire_tasks[duel.id] = task
 
     await message.answer(
         f"⚔️ <b>Дуэль #{duel.id} создана!</b>\n\n💰 Ставка: <b>{amount:.0f} ⭐</b>\n⏳ Ожидание соперника...",
@@ -200,11 +189,19 @@ async def cb_duel_cancel(callback: CallbackQuery, session: AsyncSession, db_user
     if duel.creator_id != db_user.user_id:
         await callback.answer("❌ Не ваша дуэль.", show_alert=True)
         return
+    claim = await session.execute(
+        update(Duel)
+        .where(Duel.id == duel_id, Duel.status == "waiting")
+        .values(status="cancelled")
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        await callback.answer("❌ Нельзя отменить.", show_alert=True)
+        return
     db_user.stars_balance += duel.amount
     duel.status = "cancelled"
     await session.commit()
-    task = _expire_tasks.pop(duel_id, None)
-    if task: task.cancel()
     try:
         await callback.message.edit_text(
             f"❌ <b>Дуэль #{duel_id} отменена.</b>\n\n💫 <b>{float(duel.amount):.0f} ⭐</b> возвращено.",
@@ -217,6 +214,13 @@ async def cb_duel_cancel(callback: CallbackQuery, session: AsyncSession, db_user
 
 @router.callback_query(lambda c: c.data == "duel:active")
 async def cb_duel_active(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
+    min_refs, _ = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} реферала.",
+            show_alert=True,
+        )
+        return
     now = datetime.utcnow()
     duels = (await session.execute(
         select(Duel).where(Duel.status == "waiting", Duel.creator_id != db_user.user_id, Duel.expires_at > now)
@@ -239,6 +243,13 @@ async def cb_duel_active(callback: CallbackQuery, session: AsyncSession, db_user
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:view:"))
 async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
+    min_refs, commission = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} реферала.",
+            show_alert=True,
+        )
+        return
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "waiting" or duel.expires_at < datetime.utcnow():
@@ -251,9 +262,9 @@ async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: 
     mins_left = max(0, int((duel.expires_at - datetime.utcnow()).total_seconds() // 60))
     try:
         await callback.message.edit_text(
-            f"⚔️ <b>Дуэль #{duel.id}</b>\n\n👤 Создатель: <b>{creator.first_name if creator else 'Игрок'}</b>\n"
+            f"⚔️ <b>Дуэль #{duel.id}</b>\n\n👤 Создатель: <b>{escape(creator.first_name) if creator else 'Игрок'}</b>\n"
             f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n⏳ Истекает: <b>{mins_left} мин</b>\n\n"
-            f"Победитель получит <b>{float(duel.amount) * 2 * 0.8:.0f} ⭐</b>",
+            f"Победитель получит <b>{float(duel.amount) * 2 * (1 - commission):.0f} ⭐</b>",
             parse_mode="HTML", reply_markup=duel_view_kb(duel.id),
         )
     except Exception:
@@ -263,6 +274,13 @@ async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:join:"))
 async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
+    min_refs, _ = await _duel_rules(session)
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} реферала.",
+            show_alert=True,
+        )
+        return
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "waiting" or duel.expires_at < datetime.utcnow():
@@ -275,22 +293,40 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
         await callback.answer(f"❌ Нужно {float(duel.amount):.0f} ⭐", show_alert=True)
         return
 
+    expires_at = datetime.utcnow() + timedelta(minutes=CONFIRM_TIMEOUT_MINUTES)
+    claim = await session.execute(
+        update(Duel)
+        .where(
+            Duel.id == duel_id,
+            Duel.status == "waiting",
+            Duel.expires_at > datetime.utcnow(),
+        )
+        .values(
+            joiner_id=db_user.user_id,
+            status="confirming",
+            expires_at=expires_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        await callback.answer("❌ Дуэль уже занята.", show_alert=True)
+        return
+
     db_user.stars_balance -= duel.amount
     duel.joiner_id = db_user.user_id
     duel.status = "confirming"
+    duel.expires_at = expires_at
     await session.commit()
-
-    task = _expire_tasks.pop(duel_id, None)
-    if task: task.cancel()
 
     creator = await session.get(User, duel.creator_id)
     await _notify(callback.bot, duel.creator_id,
-                  f"⚔️ <b>Дуэль #{duel_id}</b>\n\n👤 <b>{db_user.first_name}</b> хочет вступить!\n"
+                  f"⚔️ <b>Дуэль #{duel_id}</b>\n\n👤 <b>{escape(db_user.first_name)}</b> хочет вступить!\n"
                   f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\nПодтвердить?",
                   duel_confirm_kb(duel_id))
     try:
         await callback.message.edit_text(
-            f"⏳ Ожидание подтверждения от <b>{creator.first_name if creator else 'создателя'}</b>...",
+            f"⏳ Ожидание подтверждения от <b>{escape(creator.first_name) if creator else 'создателя'}</b>...",
             parse_mode="HTML", reply_markup=back_to_duel_kb(),
         )
     except Exception:
@@ -305,13 +341,30 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     if not duel or duel.status != "confirming" or duel.creator_id != db_user.user_id:
         await callback.answer("❌ Недоступно.", show_alert=True)
         return
+    expires_at = datetime.utcnow() + timedelta(minutes=DICE_TIMEOUT_MINUTES)
+    claim = await session.execute(
+        update(Duel)
+        .where(
+            Duel.id == duel_id,
+            Duel.status == "confirming",
+            Duel.creator_id == db_user.user_id,
+            Duel.expires_at > datetime.utcnow(),
+        )
+        .values(status="active", expires_at=expires_at)
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        await callback.answer("❌ Время подтверждения истекло.", show_alert=True)
+        return
     duel.status = "active"
+    duel.expires_at = expires_at
     await session.commit()
     roll_kb = duel_roll_kb(duel_id)
     joiner = await session.get(User, duel.joiner_id)
     try:
         await callback.message.edit_text(
-            f"🔥 <b>Дуэль #{duel_id} началась!</b>\n\n⚔️ Соперник: <b>{joiner.first_name if joiner else 'Игрок'}</b>\n"
+            f"🔥 <b>Дуэль #{duel_id} началась!</b>\n\n⚔️ Соперник: <b>{escape(joiner.first_name) if joiner else 'Игрок'}</b>\n"
             f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик!",
             parse_mode="HTML", reply_markup=roll_kb,
         )
@@ -319,10 +372,8 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
         pass
     await callback.answer()
     await _notify(callback.bot, duel.joiner_id,
-                  f"🔥 <b>Дуэль #{duel_id} подтверждена!</b>\n\n⚔️ Соперник: <b>{db_user.first_name}</b>\n"
+                  f"🔥 <b>Дуэль #{duel_id} подтверждена!</b>\n\n⚔️ Соперник: <b>{escape(db_user.first_name)}</b>\n"
                   f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик!", roll_kb)
-    dice_task = asyncio.create_task(_dice_timeout(duel_id, callback.bot))
-    _dice_tasks[duel_id] = dice_task
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:decline_join:"))
@@ -332,11 +383,30 @@ async def cb_duel_decline_join(callback: CallbackQuery, session: AsyncSession, d
     if not duel or duel.status != "confirming" or duel.creator_id != db_user.user_id:
         await callback.answer("❌ Недоступно.", show_alert=True)
         return
-    creator = await session.get(User, duel.creator_id)
-    joiner = await session.get(User, duel.joiner_id)
-    if creator: creator.stars_balance += duel.amount
-    if joiner: joiner.stars_balance += duel.amount
+    claim = await session.execute(
+        update(Duel)
+        .where(
+            Duel.id == duel_id,
+            Duel.status == "confirming",
+            Duel.creator_id == db_user.user_id,
+        )
+        .values(status="settling")
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        await callback.answer("❌ Дуэль уже обработана.", show_alert=True)
+        return
     joiner_id = duel.joiner_id
+    participant_ids = [duel.creator_id]
+    if joiner_id is not None:
+        participant_ids.append(joiner_id)
+    await session.execute(
+        update(User)
+        .where(User.user_id.in_(participant_ids))
+        .values(stars_balance=User.stars_balance + duel.amount)
+        .execution_options(synchronize_session=False)
+    )
     duel.status = "cancelled"
     await session.commit()
     try:
@@ -382,7 +452,10 @@ async def cb_duel_roll(callback: CallbackQuery, session: AsyncSession, db_user: 
     await session.commit()
 
     if duel.creator_roll is not None and duel.joiner_roll is not None:
-        asyncio.create_task(_delayed_resolve(duel_id, callback.bot))
+        spawn_background(
+            _delayed_resolve(duel_id, callback.bot),
+            name=f"resolve-duel-{duel_id}",
+        )
     else:
         other_id = duel.joiner_id if is_creator else duel.creator_id
         await _notify(callback.bot, other_id,
@@ -408,13 +481,13 @@ async def cb_duel_history(callback: CallbackQuery, session: AsyncSession, db_use
     for d in duels[:10]:
         creator = await session.get(User, d.creator_id)
         joiner = await session.get(User, d.joiner_id) if d.joiner_id else None
-        c_name = f"@{creator.username}" if creator and creator.username else (creator.first_name if creator else "?")
-        j_name = f"@{joiner.username}" if joiner and joiner.username else (joiner.first_name if joiner else "?")
+        c_name = escape(f"@{creator.username}" if creator and creator.username else (creator.first_name if creator else "?"))
+        j_name = escape(f"@{joiner.username}" if joiner and joiner.username else (joiner.first_name if joiner else "?"))
         if d.winner_id is None:
             result = "🤝 Ничья"
         else:
             winner = await session.get(User, d.winner_id)
-            result = f"🏆 {winner.first_name if winner else '?'}"
+            result = f"🏆 {escape(winner.first_name) if winner else '?'}"
         lines.append(f"⚔️ #{d.id} | {c_name} vs {j_name} | {float(d.amount):.0f}⭐ | {result}")
 
     text = "📜 <b>История дуэлей</b>\n\n" + "\n".join(lines)

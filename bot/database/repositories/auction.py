@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from bot.database.models import AuctionRound, AuctionBid
 from bot.database.repositories.base import BaseRepository
@@ -22,18 +22,53 @@ class AuctionRepository(BaseRepository):
         await self.session.refresh(round_)
         return round_
 
-    async def place_bid(self, round_: AuctionRound, user_id: int, new_bid: Decimal, paid: Decimal) -> None:
+    async def place_bid(self, round_: AuctionRound, user_id: int, new_bid: Decimal, paid: Decimal) -> bool:
+        result = await self.session.execute(
+            update(AuctionRound)
+            .where(
+                AuctionRound.id == round_.id,
+                AuctionRound.status == "active",
+                AuctionRound.current_bid == round_.current_bid,
+            )
+            .values(
+                current_bid=new_bid,
+                current_bidder_id=user_id,
+                prize_pool=AuctionRound.prize_pool + paid,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return False
         bid = AuctionBid(round_id=round_.id, user_id=user_id, amount=new_bid)
         self.session.add(bid)
         round_.current_bid = new_bid
         round_.current_bidder_id = user_id
         round_.prize_pool = Decimal(str(round(float(round_.prize_pool) + float(paid), 2)))
         await self.session.commit()
+        return True
 
-    async def finish(self, round_: AuctionRound) -> None:
+    async def finish(self, round_: AuctionRound) -> bool:
+        result = await self.session.execute(
+            update(AuctionRound)
+            .where(
+                AuctionRound.id == round_.id,
+                AuctionRound.status == "active",
+                AuctionRound.current_bid == round_.current_bid,
+            )
+            .values(
+                status="finished",
+                winner_id=round_.current_bidder_id,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return False
         round_.status = "finished"
         round_.winner_id = round_.current_bidder_id
         await self.session.commit()
+        return True
 
     async def get_bids(self, round_id: int) -> list[AuctionBid]:
         result = await self.session.execute(

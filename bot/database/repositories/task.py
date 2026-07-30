@@ -1,5 +1,5 @@
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import Task, TaskCompletion
 from bot.database.repositories.base import BaseRepository
@@ -37,13 +37,25 @@ class TaskRepository(BaseRepository):
     async def mark_completed(self, task_id: int, user_id: int) -> bool:
         if await self.is_completed(task_id, user_id):
             return False
-        task = await self.session.get(Task, task_id)
-        if not task:
+        result = await self.session.execute(
+            update(Task)
+            .where(
+                Task.id == task_id,
+                or_(Task.max_completions == 0, Task.completions_count < Task.max_completions),
+            )
+            .values(completions_count=Task.completions_count + 1)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
             return False
-        task.completions_count += 1
+
         self.session.add(TaskCompletion(task_id=task_id, user_id=user_id))
-        await self.session.commit()
-        return True
+        try:
+            await self.session.flush()
+            return True
+        except IntegrityError:
+            await self.session.rollback()
+            return False
 
     async def create(
         self,

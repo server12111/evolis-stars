@@ -6,8 +6,8 @@ logger = logging.getLogger(__name__)
 BOTOHUB_API = "https://botohub.me/get-tasks"
 
 
-async def check_botohub(user_id: int, api_key: str) -> list[dict]:
-    """Returns list of unsubscribed channels [{name, url}]. Empty = all subscribed."""
+async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
+    """Return unsubscribed channels; return None when the integration is unavailable."""
     if not api_key:
         return []
     try:
@@ -17,6 +17,9 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict]:
                 json={"chat_id": user_id},
                 headers={"Auth": api_key, "Content-Type": "application/json"},
             ) as resp:
+                if resp.status >= 400:
+                    logger.warning("BotoHub returned HTTP %s", resp.status)
+                    return None
                 data = await resp.json(content_type=None)
                 if data.get("completed") or data.get("skip"):
                     return []
@@ -28,4 +31,4 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict]:
                 ]
     except Exception as e:
         logger.warning("BotoHub check error: %s", e)
-    return []
+    return None

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+import math
 
 from aiogram import Router
 from aiogram.types import CallbackQuery, Message
@@ -55,7 +55,7 @@ async def msg_promo_reward(message: Message, state: FSMContext, db_user: User) -
     if not _is_admin(db_user): return
     try:
         reward = float(message.text.strip().replace(",", "."))
-        if reward <= 0: raise ValueError
+        if not math.isfinite(reward) or reward <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=promo_cancel_kb())
         return
@@ -89,7 +89,6 @@ async def msg_promo_limit(message: Message, state: FSMContext, session: AsyncSes
 async def cb_promo_del(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     if not _is_admin(db_user): return
     pid = int(callback.data.split(":")[2])
-    repo = PromoRepository(session)
     promo = await session.get(PromoCode, pid)
     if not promo:
         await callback.answer("❌ Промокод не найден.", show_alert=True)

@@ -1,10 +1,14 @@
 import asyncio
+from datetime import datetime
 
-from aiogram import Router, Bot
+from aiogram import Bot, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardRemove,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,11 +16,35 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.content import ContentRepository
+from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
 from bot.services.adv import send_ad
+from bot.services.background import spawn_background
 from bot.services.captcha import generate_fruit_captcha
-from bot.services.referral import notify_referrer_joined, check_referral_reward, notify_user_sponsors_verified, notify_referrer_sponsors_verified
+from bot.services.country_notice import ensure_country_notice
+from bot.services.phone import (
+    matching_country_code,
+    normalize_phone,
+    phone_rejected_text,
+    phone_request_keyboard,
+    prompt_phone,
+)
+from bot.services.referral import (
+    check_referral_reward,
+    mark_referral_phone_accepted,
+    notify_referrer_joined,
+    notify_referrer_phone_rejected,
+    notify_referrer_sponsors_verified,
+    notify_user_sponsors_verified,
+    reward_returning_referral,
+)
+from bot.services.sponsor_results import all_configured_integrations_failed
+from bot.services.sponsor_waves import (
+    evaluate_waves,
+    sponsor_wave_markup,
+    sponsor_wave_text,
+)
 from bot.states.captcha import CaptchaStates
 
 router = Router()
@@ -47,6 +75,24 @@ async def _send_main_menu(message: Message, user: User, session: AsyncSession) -
         await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
 
 
+async def _show_captcha(message: Message, state: FSMContext) -> None:
+    target, grid = generate_fruit_captcha()
+    await state.set_state(CaptchaStates.waiting)
+    await state.update_data(captcha_target=target)
+    await message.answer(
+        _captcha_text(target),
+        parse_mode="HTML",
+        reply_markup=_captcha_kb(target, grid),
+    )
+
+
+async def _phone_verification_enabled(session: AsyncSession) -> bool:
+    return await SettingsRepository(session).get_bool(
+        "phone_verification_enabled",
+        True,
+    )
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
@@ -54,25 +100,43 @@ async def cmd_start(
     db_user: User,
     is_new_user: bool,
     bot: Bot,
+    state: FSMContext,
+    previous_last_seen_at: datetime | None = None,
 ) -> None:
     args = message.text.split() if message.text else []
     ref_param = args[1] if len(args) > 1 else None
 
-    if is_new_user and ref_param and ref_param.startswith("ref_"):
+    if ref_param and ref_param.startswith("ref_"):
         try:
             referrer_id = int(ref_param[4:])
             if referrer_id != db_user.user_id:
-                user_repo = UserRepository(session)
-                referrer = await user_repo.get(referrer_id)
-                if referrer and not referrer.is_blocked:
-                    db_user.referrer_id = referrer_id
-                    referrer.referrals_count += 1
-                    await session.commit()
-                    await notify_referrer_joined(referrer_id, db_user, session, bot)
+                if is_new_user:
+                    user_repo = UserRepository(session)
+                    referrer = await user_repo.get(referrer_id)
+                    if referrer and not referrer.is_blocked:
+                        db_user.referrer_id = referrer_id
+                        await session.commit()
+                        await notify_referrer_joined(
+                            referrer_id,
+                            db_user,
+                            session,
+                            bot,
+                        )
+                else:
+                    await reward_returning_referral(
+                        db_user,
+                        referrer_id,
+                        previous_last_seen_at,
+                        session,
+                        bot,
+                    )
         except (ValueError, IndexError):
             pass
 
-    asyncio.create_task(send_ad(settings.botohub_views_key, db_user.user_id, hi=is_new_user))
+    spawn_background(
+        send_ad(settings.botohub_views_key, db_user.user_id, hi=is_new_user),
+        name=f"send-ad-{db_user.user_id}",
+    )
 
     # Admins bypass sponsor wall
     if db_user.is_admin or db_user.user_id in settings.admin_id_list:
@@ -83,52 +147,79 @@ async def cmd_start(
 
     # Show sponsor wall if not verified yet
     if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
-        from bot.services.tgrass import check_tgrass
-        from bot.services.botohub import check_botohub
-        from bot.database.repositories.settings import SettingsRepository
         import asyncio as _asyncio
+
+        from bot.services.botohub import check_botohub
+        from bot.services.tgrass import check_tgrass
 
         tgrass_result, botohub_result = await _asyncio.gather(
             check_tgrass(db_user.user_id, settings.tgrass_code),
             check_botohub(db_user.user_id, settings.botohub_key),
             return_exceptions=True,
         )
-        botohub_list = botohub_result if isinstance(botohub_result, list) else []
-        tgrass_list = tgrass_result if isinstance(tgrass_result, list) else []
-        unsubscribed = botohub_list + tgrass_list
-
-        if unsubscribed:
-            import time as _time
-            from bot.database.repositories.settings import SettingsRepository as _SR
-            s_repo = _SR(session)
-            max_ch = await s_repo.get_int("sponsor_max_channels", 10)
-            shown = unsubscribed[:max_ch] if max_ch > 0 else unsubscribed
-            await s_repo.set(f"sw:{db_user.user_id}", str(int(_time.time())))
-
-            builder = InlineKeyboardBuilder()
-            btns = [
-                InlineKeyboardButton(text="📢 Подписаться", url=ch.get("url", ""))
-                for ch in shown if ch.get("url")
-            ]
-            for i in range(0, len(btns), 2):
-                builder.row(*btns[i:i+2])
-            builder.row(InlineKeyboardButton(text="✅ Я подписался на все каналы", callback_data="sponsor_check"))
-
+        integration_error = all_configured_integrations_failed(
+            tgrass_configured=bool(settings.tgrass_code),
+            tgrass_result=tgrass_result,
+            botohub_configured=bool(settings.botohub_key),
+            botohub_result=botohub_result,
+        )
+        if integration_error:
             await message.answer(
-                "📢 <b>Подписка на спонсоров</b>\n\n"
-                "Для использования бота необходимо подписаться на все каналы ниже.\n\n"
-                "После подписки нажми <b>«Я подписался»</b>.",
+                "⚠️ Не удалось проверить подписки прямо сейчас. Попробуйте отправить /start ещё раз через несколько секунд."
+            )
+            return
+        wave_size = min(
+            6,
+            max(1, await SettingsRepository(session).get_int(
+                "sponsor_max_channels",
+                6,
+            )),
+        )
+        wave_state = evaluate_waves(
+            db_user,
+            tgrass_result=tgrass_result,
+            botohub_result=botohub_result,
+            wave_size=wave_size,
+        )
+        await session.commit()
+        if wave_state.status == "unavailable":
+            await message.answer(
+                "⚠️ Не удалось проверить обязательных спонсоров. "
+                "Попробуйте отправить /start ещё раз через несколько секунд."
+            )
+            return
+        if wave_state.status == "pending":
+            await message.answer(
+                sponsor_wave_text(
+                    wave_state.wave,
+                    wave_state.total_waves,
+                ),
                 parse_mode="HTML",
-                reply_markup=builder.as_markup(),
+                reply_markup=sponsor_wave_markup(wave_state.items or []),
             )
             return
 
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
+        await prompt_phone(message, state)
+        return
+
+    if not db_user.sponsors_verified:
+        await _show_captcha(message, state)
+        return
+
+    await ensure_country_notice(db_user, session, bot)
     await _send_main_menu(message, db_user, session)
 
 
 @router.callback_query(lambda c: c.data == "menu:main")
 async def cb_main_menu(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
-    asyncio.create_task(send_ad(settings.botohub_views_key, db_user.user_id, hi=False))
+    spawn_background(
+        send_ad(settings.botohub_views_key, db_user.user_id, hi=False),
+        name=f"send-ad-{db_user.user_id}",
+    )
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
     photo = await repo.get_photo("welcome")
@@ -155,32 +246,21 @@ async def cb_sponsor_check(
     state: FSMContext,
     bot: Bot,
 ) -> None:
-    from bot.services.tgrass import check_tgrass
     from bot.services.botohub import check_botohub
+    from bot.services.tgrass import check_tgrass
 
-    # If no sponsor services configured — skip captcha, mark verified directly
+    # Old sponsor buttons can survive configuration changes. Keep the current
+    # phone-toggle setting and captcha flow even when providers are removed.
     if not settings.tgrass_code and not settings.botohub_key:
-        db_user.sponsors_verified = True
-        await session.commit()
-        await check_referral_reward(db_user, session, bot)
-        if not db_user.referral_reward_given:
-            await notify_user_sponsors_verified(db_user, session, bot)
-            await notify_referrer_sponsors_verified(db_user, session, bot)
-        repo = ContentRepository(session)
-        text = await repo.get_text("welcome")
-        photo = await repo.get_photo("welcome")
+        if (
+            await _phone_verification_enabled(session)
+            and not db_user.phone_verified
+        ):
+            await callback.answer()
+            await prompt_phone(callback.message, state)
+            return
         await callback.answer()
-        if photo:
-            try:
-                await callback.message.delete()
-            except Exception:
-                pass
-            await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
-        else:
-            try:
-                await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
-            except Exception:
-                await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+        await _show_captcha(callback.message, state)
         return
 
     tgrass_result, botohub_result = await asyncio.gather(
@@ -189,74 +269,150 @@ async def cb_sponsor_check(
         return_exceptions=True,
     )
 
-    unsubscribed: list[dict] = []
-    if isinstance(tgrass_result, list):
-        unsubscribed.extend(tgrass_result)
-    if isinstance(botohub_result, list):
-        unsubscribed.extend(botohub_result)
-
-    if unsubscribed:
-        import time as _time
-        from bot.database.repositories.settings import SettingsRepository
-        s_repo = SettingsRepository(session)
-
-        ts_key = f"sw:{db_user.user_id}"
-        last_shown = int(float(await s_repo.get(ts_key, "0") or "0"))
-        now = int(_time.time())
-        cooldown = 900  # 15 минут
-
-        if last_shown > 0 and (now - last_shown) < cooldown:
-            await callback.answer(
-                "❌ Вы ещё не подписались на все каналы. Попробуйте позже.",
-                show_alert=True,
-            )
-            return
-
-        # Show next batch and record timestamp
-        await s_repo.set(ts_key, str(now))
-        max_ch = await s_repo.get_int("sponsor_max_channels", 10)
-        shown = unsubscribed[:max_ch] if max_ch > 0 else unsubscribed
-        total_left = len(unsubscribed)
-
-        builder = InlineKeyboardBuilder()
-        btns = [
-            InlineKeyboardButton(text="📢 Подписаться", url=ch.get("url", ""))
-            for ch in shown if ch.get("url")
-        ]
-        for i in range(0, len(btns), 2):
-            builder.row(*btns[i:i+2])
-        builder.row(InlineKeyboardButton(text="✅ Я подписался на все каналы", callback_data="sponsor_check"))
-
-        text = (
-            "📢 <b>Подписка на спонсоров</b>\n\n"
-            "Для использования бота необходимо подписаться на все каналы ниже.\n\n"
-            "После подписки нажми <b>«Я подписался»</b>."
+    integration_error = all_configured_integrations_failed(
+        tgrass_configured=bool(settings.tgrass_code),
+        tgrass_result=tgrass_result,
+        botohub_configured=bool(settings.botohub_key),
+        botohub_result=botohub_result,
+    )
+    if integration_error:
+        await callback.answer(
+            "⚠️ Интеграция временно недоступна. Попробуйте ещё раз позже.",
+            show_alert=True,
         )
-        try:
-            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-        except Exception:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
-        await callback.answer()
         return
 
-    # All subscribed — show fruit captcha
-    target, grid = generate_fruit_captcha()
-    await state.set_state(CaptchaStates.waiting)
-    await state.update_data(captcha_target=target)
+    previous_wave = db_user.sponsor_wave
+    wave_size = min(
+        6,
+        max(1, await SettingsRepository(session).get_int(
+            "sponsor_max_channels",
+            6,
+        )),
+    )
+    wave_state = evaluate_waves(
+        db_user,
+        tgrass_result=tgrass_result,
+        botohub_result=botohub_result,
+        wave_size=wave_size,
+    )
+    await session.commit()
 
-    try:
-        await callback.message.edit_text(
-            _captcha_text(target),
-            parse_mode="HTML",
-            reply_markup=_captcha_kb(target, grid),
+    if wave_state.status == "unavailable":
+        await callback.answer(
+            "⚠️ Не удалось проверить спонсоров. Попробуйте ещё раз позже.",
+            show_alert=True,
         )
-    except Exception:
-        await callback.message.answer(
-            _captcha_text(target),
-            parse_mode="HTML",
-            reply_markup=_captcha_kb(target, grid),
+        return
+
+    if wave_state.status == "pending":
+        text = sponsor_wave_text(
+            wave_state.wave,
+            wave_state.total_waves,
         )
+        markup = sponsor_wave_markup(wave_state.items or [])
+        try:
+            await callback.message.edit_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        except Exception:
+            await callback.message.answer(
+                text,
+                parse_mode="HTML",
+                reply_markup=markup,
+            )
+        if previous_wave == 1 and wave_state.wave == 2:
+            await callback.answer(
+                "Готово! Теперь подпишись на оставшиеся каналы."
+            )
+        else:
+            await callback.answer(
+                "Вы подписались ещё не на все обязательные каналы.",
+                show_alert=True,
+            )
+        return
+
+    # All subscribed — request the phone before the captcha.
     await callback.answer()
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
+        await prompt_phone(callback.message, state)
+        return
+    await _show_captcha(callback.message, state)
+
+
+@router.message(F.contact)
+async def msg_phone_contact(
+    message: Message,
+    db_user: User,
+    session: AsyncSession,
+    state: FSMContext,
+    bot: Bot,
+) -> None:
+    if db_user.phone_verified:
+        await state.clear()
+        await message.answer(
+            "✅ Номер уже подтверждён.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+
+    contact = message.contact
+    if not contact or contact.user_id != message.from_user.id:
+        await message.answer(
+            "❌ Отправьте именно свой номер кнопкой ниже.",
+            reply_markup=phone_request_keyboard(),
+        )
+        return
+
+    if (
+        (settings.tgrass_code or settings.botohub_key)
+        and not db_user.sponsors_verified
+        and db_user.sponsor_wave != 3
+    ):
+        await state.clear()
+        await message.answer(
+            "❌ Сначала подпишись на всех обязательных спонсоров. "
+            "Отправь /start, чтобы продолжить."
+        )
+        return
+
+    if not await _phone_verification_enabled(session):
+        await state.clear()
+        await message.answer(
+            "✅ Проверка номера сейчас отключена.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await _show_captcha(message, state)
+        return
+
+    normalized = normalize_phone(contact.phone_number)
+    from bot.database.repositories.settings import SettingsRepository
+
+    codes = await SettingsRepository(session).get("phone_allowed_codes")
+    country_code = matching_country_code(normalized, codes)
+    db_user.phone_number = normalized or None
+    db_user.phone_country_code = country_code
+    db_user.phone_verified = country_code is not None
+    await session.commit()
+
+    if not country_code:
+        await notify_referrer_phone_rejected(db_user, session, bot)
+        await message.answer(phone_rejected_text(), reply_markup=phone_request_keyboard())
+        return
+
+    await mark_referral_phone_accepted(db_user, session, bot)
+    await state.clear()
+    await message.answer(
+        f"✅ Номер принят (код страны +{country_code}).",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    await _show_captcha(message, state)
 
 
 @router.callback_query(CaptchaStates.waiting, lambda c: c.data and c.data.startswith("captcha:"))
@@ -267,6 +423,29 @@ async def cb_captcha_pick(
     state: FSMContext,
     bot: Bot,
 ) -> None:
+    if (
+        (settings.tgrass_code or settings.botohub_key)
+        and not db_user.sponsors_verified
+        and db_user.sponsor_wave != 3
+    ):
+        await state.clear()
+        await callback.answer(
+            "Сначала подпишись на всех обязательных спонсоров.",
+            show_alert=True,
+        )
+        await callback.message.answer(
+            "Отправь /start, чтобы продолжить подписку."
+        )
+        return
+
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
+        await callback.answer()
+        await prompt_phone(callback.message, state)
+        return
+
     data = await state.get_data()
     target = data.get("captcha_target", "")
     picked = callback.data[8:]  # strip "captcha:"
@@ -293,6 +472,7 @@ async def cb_captcha_pick(
     if not db_user.referral_reward_given:
         await notify_user_sponsors_verified(db_user, session, bot)
         await notify_referrer_sponsors_verified(db_user, session, bot)
+    await ensure_country_notice(db_user, session, bot)
 
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")

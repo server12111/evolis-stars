@@ -1,7 +1,6 @@
 from datetime import datetime, date
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import GameSession
 from bot.database.repositories.base import BaseRepository

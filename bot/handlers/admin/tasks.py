@@ -1,3 +1,6 @@
+import math
+import logging
+
 from aiogram import Router
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
@@ -11,6 +14,7 @@ from bot.states.admin import AdminTaskStates
 from bot.handlers.admin.stats import _is_admin
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 @router.callback_query(lambda c: c.data == "admin:tasks")
@@ -42,10 +46,28 @@ async def cb_task_view(callback: CallbackQuery, db_user: User, session: AsyncSes
         f"👥 Выполнено: <b>{task.completions_count}</b>\n"
         f"📊 Лимит: <b>{task.max_completions or '∞'}</b>"
     )
-    try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=task_view_kb(tid, task.is_active))
-    except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=task_view_kb(tid, task.is_active))
+    kb = task_view_kb(tid, task.is_active)
+    if task.photo_file_id:
+        try:
+            await callback.message.answer_photo(
+                task.photo_file_id,
+                caption=text,
+                parse_mode="HTML",
+                reply_markup=kb,
+            )
+        except Exception as exc:
+            logger.warning("Failed to show photo for admin task %s: %s", tid, exc)
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            try:
+                await callback.message.delete()
+            except Exception:
+                pass
+    else:
+        try:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -124,7 +146,7 @@ async def msg_task_reward(message: Message, state: FSMContext, db_user: User) ->
     if not _is_admin(db_user): return
     try:
         reward = float(message.text.strip().replace(",", "."))
-        if reward <= 0: raise ValueError
+        if not math.isfinite(reward) or reward <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=task_cancel_kb())
         return

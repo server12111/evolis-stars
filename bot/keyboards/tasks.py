@@ -1,3 +1,5 @@
+import hashlib
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -37,11 +39,13 @@ def task_detail_kb(task_id: int, url: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def pf_task_id(url: str) -> str:
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
 def pf_task_detail_kb(url: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    # Use link prefix (45 chars) as stable task identifier in callback data
-    # "pf_task:check:" = 14 chars + 45 = 59 bytes < 64 Telegram limit
-    link_key = url[:45] if url else ""
+    link_key = pf_task_id(url) if url else ""
     if url:
         builder.row(InlineKeyboardButton(text="📲 Подписаться на канал", url=url, style="primary"))
     builder.row(InlineKeyboardButton(text="✅ Проверить выполнение", callback_data=f"pf_task:check:{link_key}", style="success"))

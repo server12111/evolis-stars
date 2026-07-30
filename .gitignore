@@ -1,0 +1,11 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.py[cod]
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.bot-instance.lock
+data/

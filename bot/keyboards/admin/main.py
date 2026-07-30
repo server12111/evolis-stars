@@ -20,6 +20,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin:settings"),
         InlineKeyboardButton(text="🖼 Медиа и тексты", callback_data="admin:media"),
     )
+    builder.row(InlineKeyboardButton(text="🌍 Коды номеров", callback_data="admin:phone_codes"))
     return builder.as_markup()
 
 

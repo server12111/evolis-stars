@@ -1,3 +1,4 @@
+import math
 import random
 
 from aiogram import Router
@@ -71,7 +72,7 @@ async def cb_tower_custom(callback: CallbackQuery, state: FSMContext) -> None:
 async def msg_tower_bet(message: Message, state: FSMContext, session: AsyncSession, db_user: User) -> None:
     try:
         bet = float(message.text.strip().replace(",", "."))
-        if bet <= 0:
+        if not math.isfinite(bet) or bet <= 0:
             raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=tower_cancel_kb())
@@ -221,9 +222,6 @@ async def cb_tower_cashout(callback: CallbackQuery, state: FSMContext, session: 
     bet = data["bet"]
     level = data["level"]
     max_levels = data["max_levels"]
-    mines = data["mines"]
-    history = data["history"]
-
     if level == 0:
         await callback.answer("Сначала пройди хотя бы один уровень!", show_alert=True)
         return

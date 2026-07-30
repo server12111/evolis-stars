@@ -1,7 +1,6 @@
-from datetime import datetime, date
+from datetime import date, datetime
 
-from sqlalchemy import select, func, desc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, func, select
 
 from bot.database.models import User
 from bot.database.repositories.base import BaseRepository
@@ -17,14 +16,15 @@ class UserRepository(BaseRepository):
         username: str | None,
         first_name: str,
         referrer_id: int | None = None,
-    ) -> tuple[User, bool]:
+    ) -> tuple[User, bool, datetime | None]:
         user = await self.session.get(User, user_id)
         if user:
+            previous_last_seen_at = user.last_seen_at
             user.username = username
             user.first_name = first_name
             user.last_seen_at = datetime.utcnow()
             await self.session.commit()
-            return user, False
+            return user, False, previous_last_seen_at
         user = User(
             user_id=user_id,
             username=username,
@@ -33,7 +33,41 @@ class UserRepository(BaseRepository):
         )
         self.session.add(user)
         await self.session.commit()
-        return user, True
+        return user, True, None
+
+    async def inactive_rewarded_referrals(
+        self,
+        referrer_id: int,
+        inactive_before: datetime,
+        offset: int = 0,
+        limit: int = 8,
+    ) -> tuple[list[User], int, int]:
+        filters = (
+            User.referrer_id == referrer_id,
+            User.referral_counted.is_(True),
+            User.referral_reward_given.is_(True),
+            User.is_blocked.is_(False),
+            User.last_seen_at <= inactive_before,
+        )
+        total = (
+            await self.session.execute(
+                select(func.count(User.user_id)).where(*filters)
+            )
+        ).scalar() or 0
+        contactable_filter = (*filters, User.username.is_not(None), User.username != "")
+        contactable = (
+            await self.session.execute(
+                select(func.count(User.user_id)).where(*contactable_filter)
+            )
+        ).scalar() or 0
+        result = await self.session.execute(
+            select(User)
+            .where(*contactable_filter)
+            .order_by(User.last_seen_at.asc(), User.user_id.asc())
+            .offset(max(0, offset))
+            .limit(max(1, limit))
+        )
+        return list(result.scalars().all()), int(total), int(contactable)
 
     async def total_count(self) -> int:
         result = await self.session.execute(select(func.count(User.user_id)))

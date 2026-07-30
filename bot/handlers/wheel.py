@@ -1,3 +1,5 @@
+import math
+
 from aiogram import Router, Bot
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
@@ -65,7 +67,7 @@ async def cb_wheel_custom(callback: CallbackQuery, state: FSMContext) -> None:
 async def msg_wheel_bet(message: Message, state: FSMContext, session: AsyncSession, bot: Bot, db_user: User) -> None:
     try:
         bet = float(message.text.strip().replace(",", "."))
-        if bet < 1:
+        if not math.isfinite(bet) or bet < 1:
             raise ValueError
     except (ValueError, AttributeError):
         await message.answer("⚠️ Введи число 1 или больше.", reply_markup=wheel_cancel_kb())

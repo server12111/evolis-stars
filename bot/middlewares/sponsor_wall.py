@@ -2,30 +2,109 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
-from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject, Update, Message, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
+from aiogram import BaseMiddleware, Bot
+from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
+from bot.database.repositories.settings import SettingsRepository
+from bot.services.country_notice import ensure_country_notice
+from bot.services.sponsor_results import all_configured_integrations_failed
+from bot.services.sponsor_waves import (
+    evaluate_waves,
+    sponsor_wave_markup,
+    sponsor_wave_text,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
 _BYPASS_PREFIXES = (
-    "/start", "/admin",
-    "admin:", "wall_check", "sponsor_check", "captcha:",
+    "/start",
+    "/admin",
+    "admin:",
+    "wall_check",
+    "sponsor_check",
+    "captcha:",
 )
 
 
-def _should_skip(cb_data: str | None, msg_text: str | None) -> bool:
-    if msg_text and any(msg_text.startswith(p) for p in _BYPASS_PREFIXES):
+def _should_skip(callback_data: str | None, message_text: str | None) -> bool:
+    if message_text and any(
+        message_text.startswith(prefix) for prefix in _BYPASS_PREFIXES
+    ):
         return True
-    if cb_data and any(cb_data.startswith(p) for p in _BYPASS_PREFIXES):
+    if callback_data and any(
+        callback_data.startswith(prefix) for prefix in _BYPASS_PREFIXES
+    ):
         return True
     return False
+
+
+async def _prompt_phone(
+    inner: Message | CallbackQuery,
+    state: Any,
+) -> None:
+    from bot.services.phone import prompt_phone
+
+    if isinstance(inner, Message):
+        await prompt_phone(inner, state)
+    elif inner.message:
+        await prompt_phone(inner.message, state)
+        await inner.answer()
+
+
+async def _phone_required(session: AsyncSession, user: User) -> bool:
+    if user.phone_verified:
+        return False
+    return await SettingsRepository(session).get_bool(
+        "phone_verification_enabled",
+        True,
+    )
+
+
+async def _show_wave(
+    inner: Message | CallbackQuery,
+    *,
+    wave: int,
+    total_waves: int,
+    items: list[dict],
+) -> None:
+    text = sponsor_wave_text(wave, total_waves)
+    markup = sponsor_wave_markup(items)
+    if isinstance(inner, Message):
+        await inner.answer(text, parse_mode="HTML", reply_markup=markup)
+        return
+
+    if not inner.message:
+        await inner.answer()
+        return
+    try:
+        await inner.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+    except Exception:
+        await inner.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+    await inner.answer()
+
+
+async def _show_retry(inner: Message | CallbackQuery) -> None:
+    text = (
+        "⚠️ Не удалось проверить обязательных спонсоров.\n\n"
+        "Попробуйте нажать кнопку проверки ещё раз через несколько секунд."
+    )
+    if isinstance(inner, Message):
+        await inner.answer(text)
+    elif inner.message:
+        await inner.message.answer(text)
+        await inner.answer()
 
 
 class SponsorWallMiddleware(BaseMiddleware):
@@ -47,103 +126,107 @@ class SponsorWallMiddleware(BaseMiddleware):
             inner = event.message or event.callback_query
         elif isinstance(event, (Message, CallbackQuery)):
             inner = event
+        if inner is None:
+            return await handler(event, data)
 
-        cb_data = inner.data if isinstance(inner, CallbackQuery) else None
-        msg_text = inner.text if isinstance(inner, Message) else None
+        callback_data = inner.data if isinstance(inner, CallbackQuery) else None
+        message_text = inner.text if isinstance(inner, Message) else None
+        if _should_skip(callback_data, message_text):
+            return await handler(event, data)
 
-        if _should_skip(cb_data, msg_text):
+        # The contact must reach the FSM phone handler.
+        if isinstance(inner, Message) and inner.contact:
+            return await handler(event, data)
+
+        session: AsyncSession | None = data.get("session")
+        state = data.get("state")
+        bot: Bot | None = data.get("bot")
+        if session is None or state is None:
             return await handler(event, data)
 
         if db_user.sponsors_verified:
+            if await _phone_required(session, db_user):
+                await _prompt_phone(inner, state)
+                return
+            if bot:
+                await ensure_country_notice(db_user, session, bot)
             return await handler(event, data)
 
-        uid = db_user.user_id
-        logger.info("WALL uid=%s tgrass=%r botohub=%r", uid, bool(settings.tgrass_code), bool(settings.botohub_key))
-
-        # No sponsor services configured — auto-verify
         if not settings.tgrass_code and not settings.botohub_key:
-            logger.info("WALL uid=%s auto-verify (no services)", uid)
-            db_user.sponsors_verified = True
-            session: AsyncSession = data.get("session")
-            if session:
-                await session.commit()
-            return await handler(event, data)
+            if await _phone_required(session, db_user):
+                await _prompt_phone(inner, state)
+                return
+            from bot.handlers.start import _show_captcha
 
-        session: AsyncSession = data.get("session")
-        from bot.services.tgrass import check_tgrass
+            target_message = inner if isinstance(inner, Message) else inner.message
+            if target_message:
+                await _show_captcha(target_message, state)
+            if isinstance(inner, CallbackQuery):
+                await inner.answer()
+            return
+
         from bot.services.botohub import check_botohub
-        from bot.database.repositories.settings import SettingsRepository
+        from bot.services.tgrass import check_tgrass
 
         tgrass_result, botohub_result = await asyncio.gather(
             check_tgrass(db_user.user_id, settings.tgrass_code),
             check_botohub(db_user.user_id, settings.botohub_key),
             return_exceptions=True,
         )
-
-        logger.info("WALL uid=%s tgrass_result=%s botohub_result=%s", uid, type(tgrass_result).__name__, type(botohub_result).__name__)
-        if isinstance(tgrass_result, list):
-            logger.info("WALL uid=%s tgrass_count=%d", uid, len(tgrass_result))
-        else:
-            logger.warning("WALL uid=%s tgrass_error=%s", uid, tgrass_result)
-        if isinstance(botohub_result, list):
-            logger.info("WALL uid=%s botohub_count=%d", uid, len(botohub_result))
-        else:
-            logger.warning("WALL uid=%s botohub_error=%s", uid, botohub_result)
-
-        botohub_list = botohub_result if isinstance(botohub_result, list) else []
-        tgrass_list = tgrass_result if isinstance(tgrass_result, list) else []
-        unsubscribed = botohub_list + tgrass_list
-
-        logger.info("WALL uid=%s total_unsubscribed=%d (botohub=%d tgrass=%d)",
-                    uid, len(unsubscribed), len(botohub_list), len(tgrass_list))
-
-        if not unsubscribed:
-            logger.info("WALL uid=%s all-subscribed → verify", uid)
-            db_user.sponsors_verified = True
-            await session.commit()
-            from bot.services.referral import check_referral_reward, notify_user_sponsors_verified, notify_referrer_sponsors_verified
-            await check_referral_reward(db_user, session, data.get("bot"))
-            if not db_user.referral_reward_given:
-                bot = data.get("bot")
-                if bot:
-                    await notify_user_sponsors_verified(db_user, session, bot)
-                    await notify_referrer_sponsors_verified(db_user, session, bot)
-            return await handler(event, data)
-
-        # Limit shown channels — BotoHub first, TGrass fills remainder
-        s_repo = SettingsRepository(session)
-        max_ch = await s_repo.get_int("sponsor_max_channels", 10)
-        if max_ch > 0:
-            tgrass_slots = max(0, max_ch - len(botohub_list))
-            shown = (botohub_list[:max_ch] + tgrass_list[:tgrass_slots])[:max_ch]
-        else:
-            shown = unsubscribed
-
-        # Record timestamp so 15-min cooldown applies before showing next batch
-        import time as _time
-        await s_repo.set(f"sw:{uid}", str(int(_time.time())))
-
-        builder = InlineKeyboardBuilder()
-        btns = [
-            InlineKeyboardButton(text="📢 Подписаться", url=ch.get("url", ""))
-            for ch in shown if ch.get("url")
-        ]
-        for i in range(0, len(btns), 2):
-            builder.row(*btns[i:i+2])
-        builder.row(InlineKeyboardButton(text="✅ Я подписался на все каналы", callback_data="sponsor_check"))
-
-        text = (
-            "📢 <b>Подписка на спонсоров</b>\n\n"
-            "Для использования бота необходимо подписаться на все каналы ниже.\n\n"
-            "После подписки нажми <b>«Я подписался»</b>."
+        logger.info(
+            "WALL uid=%s tgrass=%s botohub=%s",
+            db_user.user_id,
+            type(tgrass_result).__name__,
+            type(botohub_result).__name__,
         )
 
-        if isinstance(inner, Message):
-            await inner.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
-        elif isinstance(inner, CallbackQuery):
-            try:
-                await inner.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-            except Exception:
-                await inner.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
+        if all_configured_integrations_failed(
+            tgrass_configured=bool(settings.tgrass_code),
+            tgrass_result=tgrass_result,
+            botohub_configured=bool(settings.botohub_key),
+            botohub_result=botohub_result,
+        ):
+            await _show_retry(inner)
+            return
+
+        wave_size = min(
+            6,
+            max(1, await SettingsRepository(session).get_int(
+                "sponsor_max_channels",
+                6,
+            )),
+        )
+        wave_state = evaluate_waves(
+            db_user,
+            tgrass_result=tgrass_result,
+            botohub_result=botohub_result,
+            wave_size=wave_size,
+        )
+        await session.commit()
+
+        if wave_state.status == "unavailable":
+            await _show_retry(inner)
+            return
+        if wave_state.status == "pending":
+            await _show_wave(
+                inner,
+                wave=wave_state.wave,
+                total_waves=wave_state.total_waves,
+                items=wave_state.items or [],
+            )
+            return
+
+        if await _phone_required(session, db_user):
+            await _prompt_phone(inner, state)
+            return
+
+        # Sponsor waves and phone are complete; keep the user behind the wall
+        # until the existing anti-bot captcha is also passed.
+        from bot.handlers.start import _show_captcha
+
+        target_message = inner if isinstance(inner, Message) else inner.message
+        if target_message:
+            await _show_captcha(target_message, state)
+        if isinstance(inner, CallbackQuery):
             await inner.answer()
         return

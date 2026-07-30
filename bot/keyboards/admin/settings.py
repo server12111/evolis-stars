@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Числовые настройки — по одной в ряд
@@ -8,6 +8,10 @@ NUMERIC_SETTINGS = [
     ("bonus_max", "💰 Макс. бонус"),
     ("tasks_reward", "📋 Награда за задание"),
     ("min_tasks_for_referral", "📊 Мин. заданий для реферала"),
+    ("withdraw_min", "⭐ Мин. сумма вывода"),
+    ("duel_commission", "⚔️ Комиссия дуэлей"),
+    ("duel_min_refs", "⚔️ Мин. рефералов для дуэлей"),
+    ("lottery_min_refs", "🎟 Мин. рефералов для лотереи"),
     ("sponsor_max_channels", "📢 Макс. каналов спонсоров"),
 ]
 
@@ -33,6 +37,8 @@ def settings_kb() -> InlineKeyboardMarkup:
     for i in range(0, len(toggle_buttons), 2):
         builder.row(*toggle_buttons[i:i+2])
 
+    builder.row(InlineKeyboardButton(text="🌍 Коды разрешённых стран", callback_data="admin:phone_codes"))
+
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"))
     return builder.as_markup()
 
@@ -41,3 +47,20 @@ def settings_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="❌ Отмена", callback_data="admin:settings"),
     ]])
+
+
+def phone_codes_kb(phone_enabled: bool = True) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=(
+                    "✅ Проверка номера включена"
+                    if phone_enabled
+                    else "❌ Проверка номера выключена"
+                ),
+                callback_data="admin:phone_toggle",
+            )
+        ],
+        [InlineKeyboardButton(text="➕ Добавить код", callback_data="admin:phone_codes_add")],
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main")],
+    ])

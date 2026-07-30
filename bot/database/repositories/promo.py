@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import PromoCode, PromoUse
 from bot.database.repositories.base import BaseRepository
@@ -24,18 +24,28 @@ class PromoRepository(BaseRepository):
         return result.scalar_one_or_none() is not None
 
     async def use(self, promo: PromoCode, user_id: int) -> bool:
-        if not promo.is_active:
+        now = datetime.utcnow()
+        result = await self.session.execute(
+            update(PromoCode)
+            .where(
+                PromoCode.id == promo.id,
+                PromoCode.is_active == True,
+                or_(PromoCode.expires_at.is_(None), PromoCode.expires_at >= now),
+                or_(PromoCode.usage_limit == 0, PromoCode.used_count < PromoCode.usage_limit),
+            )
+            .values(used_count=PromoCode.used_count + 1)
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
             return False
-        if promo.expires_at and promo.expires_at < datetime.utcnow():
-            return False
-        if promo.usage_limit > 0 and promo.used_count >= promo.usage_limit:
-            return False
-        if await self.already_used(promo.id, user_id):
-            return False
-        promo.used_count += 1
+
         self.session.add(PromoUse(code_id=promo.id, user_id=user_id))
-        await self.session.commit()
-        return True
+        try:
+            await self.session.flush()
+            return True
+        except IntegrityError:
+            await self.session.rollback()
+            return False
 
     async def create(
         self,

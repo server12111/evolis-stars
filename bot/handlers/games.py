@@ -1,4 +1,4 @@
-from datetime import datetime, date
+import math
 
 from aiogram import Router, Bot
 from aiogram.types import CallbackQuery, Message
@@ -224,6 +224,9 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
         return
 
     repo = SettingsRepository(session)
+    if not await repo.get_bool("games_enabled", True):
+        await callback.answer("🎮 Игры временно недоступны.", show_alert=True)
+        return
     if not await repo.get_bool(f"game_{game_type}_enabled", True):
         await callback.answer("Игра временно отключена.", show_alert=True)
         return
@@ -270,7 +273,7 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
 
     try:
         bet = float(message.text.strip().replace(",", "."))
-        if bet <= 0: raise ValueError
+        if not math.isfinite(bet) or bet <= 0: raise ValueError
     except (ValueError, AttributeError):
         await message.answer("❌ Введи положительное число:", reply_markup=game_cancel_kb())
         return
