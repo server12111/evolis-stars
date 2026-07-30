@@ -55,15 +55,6 @@ async def _prompt_phone(
         await inner.answer()
 
 
-async def _phone_required(session: AsyncSession, user: User) -> bool:
-    if user.phone_verified:
-        return False
-    return await SettingsRepository(session).get_bool(
-        "phone_verification_enabled",
-        True,
-    )
-
-
 async def _show_wave(
     inner: Message | CallbackQuery,
     *,
@@ -145,7 +136,7 @@ class SponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if db_user.sponsors_verified:
-            if await _phone_required(session, db_user):
+            if not db_user.phone_verified:
                 await _prompt_phone(inner, state)
                 return
             if bot:
@@ -153,7 +144,7 @@ class SponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if not settings.tgrass_code and not settings.botohub_key:
-            if await _phone_required(session, db_user):
+            if not db_user.phone_verified:
                 await _prompt_phone(inner, state)
                 return
             from bot.handlers.start import _show_captcha
@@ -216,7 +207,7 @@ class SponsorWallMiddleware(BaseMiddleware):
             )
             return
 
-        if await _phone_required(session, db_user):
+        if not db_user.phone_verified:
             await _prompt_phone(inner, state)
             return
 

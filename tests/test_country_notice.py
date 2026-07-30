@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from bot.services.country_notice import ensure_country_notice
 
@@ -46,11 +46,7 @@ class CountryNoticeTests(unittest.IsolatedAsyncioTestCase):
         )
         session = SimpleNamespace(commit=AsyncMock())
 
-        with patch(
-            "bot.services.country_notice.SettingsRepository.get_bool",
-            AsyncMock(return_value=True),
-        ):
-            await ensure_country_notice(user, session, bot)
+        await ensure_country_notice(user, session, bot)
 
         bot.send_message.assert_awaited_once()
         bot.pin_chat_message.assert_awaited_once_with(
@@ -59,29 +55,6 @@ class CountryNoticeTests(unittest.IsolatedAsyncioTestCase):
             disable_notification=True,
         )
         self.assertTrue(user.country_notice_pinned)
-
-    async def test_notice_is_not_shown_when_phone_check_is_disabled(self) -> None:
-        user = SimpleNamespace(
-            user_id=1,
-            phone_verified=True,
-            sponsors_verified=True,
-            country_notice_message_id=None,
-            country_notice_pinned=False,
-        )
-        bot = SimpleNamespace(
-            send_message=AsyncMock(),
-            pin_chat_message=AsyncMock(),
-        )
-        session = SimpleNamespace(commit=AsyncMock())
-
-        with patch(
-            "bot.services.country_notice.SettingsRepository.get_bool",
-            AsyncMock(return_value=False),
-        ):
-            await ensure_country_notice(user, session, bot)
-
-        bot.send_message.assert_not_awaited()
-        bot.pin_chat_message.assert_not_awaited()
 
 
 if __name__ == "__main__":

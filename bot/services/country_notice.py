@@ -4,7 +4,6 @@ from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
-from bot.database.repositories.settings import SettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +37,6 @@ async def ensure_country_notice(
     # Never show the referral-country notice during onboarding. Both checks
     # must be complete first, even if this helper is called from another flow.
     if not user.sponsors_verified or not user.phone_verified:
-        return
-    if not await SettingsRepository(session).get_bool(
-        "phone_verification_enabled",
-        True,
-    ):
         return
 
     if user.country_notice_message_id is None:

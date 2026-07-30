@@ -93,7 +93,6 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "auction_commission": "0.20",
     # Sponsor wall
     "sponsor_max_channels": "6",
-    "phone_verification_enabled": "1",
     "phone_allowed_codes": ",".join(DEFAULT_ALLOWED_COUNTRY_CODES),
     # PiarFlow
     "piarflow_max_sponsors": "100",
