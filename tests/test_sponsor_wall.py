@@ -48,6 +48,10 @@ class SponsorWallSecurityTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(),
             ) as show_captcha,
             patch(
+                "bot.handlers.start.SettingsRepository.get_bool",
+                AsyncMock(return_value=True),
+            ),
+            patch(
                 "bot.handlers.start._send_main_menu",
                 AsyncMock(),
             ) as main_menu,
@@ -64,6 +68,51 @@ class SponsorWallSecurityTests(unittest.IsolatedAsyncioTestCase):
         show_captcha.assert_awaited_once()
         main_menu.assert_not_awaited()
         self.assertFalse(db_user.sponsors_verified)
+
+    async def test_start_skips_phone_when_admin_disables_check(self) -> None:
+        incoming = message("/start")
+        db_user = SimpleNamespace(
+            user_id=100,
+            is_admin=False,
+            sponsors_verified=False,
+            phone_verified=False,
+        )
+        session = SimpleNamespace(commit=AsyncMock())
+
+        def close_background(coroutine, **_kwargs):
+            coroutine.close()
+
+        with (
+            patch.object(start_settings, "tgrass_code", ""),
+            patch.object(start_settings, "botohub_key", ""),
+            patch(
+                "bot.handlers.start.spawn_background",
+                side_effect=close_background,
+            ),
+            patch(
+                "bot.handlers.start.SettingsRepository.get_bool",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "bot.handlers.start.prompt_phone",
+                AsyncMock(),
+            ) as prompt,
+            patch(
+                "bot.handlers.start._show_captcha",
+                AsyncMock(),
+            ) as show_captcha,
+        ):
+            await cmd_start(
+                incoming,
+                session,
+                db_user,
+                False,
+                SimpleNamespace(),
+                SimpleNamespace(),
+            )
+
+        prompt.assert_not_awaited()
+        show_captcha.assert_awaited_once()
 
     async def test_incomplete_wave_never_reaches_feature_handler(self) -> None:
         saved = [
@@ -158,6 +207,10 @@ class SponsorWallSecurityTests(unittest.IsolatedAsyncioTestCase):
                 "bot.middlewares.sponsor_wall.SettingsRepository.get_int",
                 AsyncMock(return_value=6),
             ),
+            patch(
+                "bot.middlewares.sponsor_wall.SettingsRepository.get_bool",
+                AsyncMock(return_value=True),
+            ),
         ):
             await SponsorWallMiddleware()(
                 handler,
@@ -172,6 +225,50 @@ class SponsorWallSecurityTests(unittest.IsolatedAsyncioTestCase):
 
         handler.assert_not_awaited()
         prompt.assert_awaited_once()
+
+    async def test_disabled_phone_check_goes_directly_to_captcha(self) -> None:
+        db_user = SimpleNamespace(
+            user_id=100,
+            is_admin=False,
+            sponsors_verified=False,
+            phone_verified=False,
+            sponsor_wave=0,
+            sponsor_wave_one=None,
+            sponsor_wave_two=None,
+        )
+        session = SimpleNamespace(commit=AsyncMock())
+        handler = AsyncMock()
+
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch(
+                "bot.middlewares.sponsor_wall.SettingsRepository.get_bool",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "bot.handlers.start._show_captcha",
+                AsyncMock(),
+            ) as show_captcha,
+            patch(
+                "bot.middlewares.sponsor_wall._prompt_phone",
+                AsyncMock(),
+            ) as prompt,
+        ):
+            await SponsorWallMiddleware()(
+                handler,
+                message(),
+                {
+                    "db_user": db_user,
+                    "session": session,
+                    "state": object(),
+                    "bot": None,
+                },
+            )
+
+        prompt.assert_not_awaited()
+        show_captcha.assert_awaited_once()
+        handler.assert_not_awaited()
 
     async def test_no_providers_still_require_captcha_after_phone(self) -> None:
         db_user = SimpleNamespace(

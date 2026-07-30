@@ -86,6 +86,13 @@ async def _show_captcha(message: Message, state: FSMContext) -> None:
     )
 
 
+async def _phone_verification_enabled(session: AsyncSession) -> bool:
+    return await SettingsRepository(session).get_bool(
+        "phone_verification_enabled",
+        True,
+    )
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
@@ -192,7 +199,10 @@ async def cmd_start(
             )
             return
 
-    if not db_user.phone_verified:
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
         await prompt_phone(message, state)
         return
 
@@ -239,10 +249,13 @@ async def cb_sponsor_check(
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
 
-    # Old sponsor buttons can survive configuration changes. Phone and captcha
-    # are still mandatory even when no sponsor provider is configured now.
+    # Old sponsor buttons can survive configuration changes. Keep the current
+    # phone-toggle setting and captcha flow even when providers are removed.
     if not settings.tgrass_code and not settings.botohub_key:
-        if not db_user.phone_verified:
+        if (
+            await _phone_verification_enabled(session)
+            and not db_user.phone_verified
+        ):
             await callback.answer()
             await prompt_phone(callback.message, state)
             return
@@ -323,7 +336,10 @@ async def cb_sponsor_check(
 
     # All subscribed — request the phone before the captcha.
     await callback.answer()
-    if not db_user.phone_verified:
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
         await prompt_phone(callback.message, state)
         return
     await _show_captcha(callback.message, state)
@@ -363,6 +379,15 @@ async def msg_phone_contact(
             "❌ Сначала подпишись на всех обязательных спонсоров. "
             "Отправь /start, чтобы продолжить."
         )
+        return
+
+    if not await _phone_verification_enabled(session):
+        await state.clear()
+        await message.answer(
+            "✅ Проверка номера сейчас отключена.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await _show_captcha(message, state)
         return
 
     normalized = normalize_phone(contact.phone_number)
@@ -413,7 +438,10 @@ async def cb_captcha_pick(
         )
         return
 
-    if not db_user.phone_verified:
+    if (
+        await _phone_verification_enabled(session)
+        and not db_user.phone_verified
+    ):
         await callback.answer()
         await prompt_phone(callback.message, state)
         return

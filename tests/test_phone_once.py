@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
-from bot.database.models import User
+from bot.database.models import BotSettings, User
+from bot.handlers.admin.settings import cb_phone_toggle
 from bot.handlers.start import msg_phone_contact
 from bot.services.phone import prompt_phone
 from bot.states.phone import PhoneStates
@@ -95,6 +96,87 @@ class PhoneVerificationOnceTests(unittest.IsolatedAsyncioTestCase):
             saved = await session.get(User, 901)
             self.assertTrue(saved.phone_verified)
             self.assertEqual(saved.phone_country_code, "7")
+
+    async def test_admin_can_disable_phone_check_from_codes_menu(self) -> None:
+        async with self.sessions() as session:
+            admin = User(
+                user_id=902,
+                first_name="Admin",
+                is_admin=True,
+            )
+            session.add_all(
+                (
+                    admin,
+                    BotSettings(
+                        key="phone_verification_enabled",
+                        value="1",
+                    ),
+                )
+            )
+            await session.commit()
+            callback = SimpleNamespace(
+                data="admin:phone_toggle",
+                message=SimpleNamespace(
+                    edit_text=AsyncMock(),
+                    answer=AsyncMock(),
+                ),
+                answer=AsyncMock(),
+            )
+
+            await cb_phone_toggle(callback, admin, session)
+
+            setting = await session.get(
+                BotSettings,
+                "phone_verification_enabled",
+            )
+
+        self.assertEqual(setting.value, "0")
+        markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
+        toggle = markup.inline_keyboard[0][0]
+        self.assertEqual(toggle.callback_data, "admin:phone_toggle")
+        self.assertIn("выключена", toggle.text)
+
+    async def test_contact_is_not_stored_after_admin_disables_check(self) -> None:
+        async with self.sessions() as session:
+            user = User(
+                user_id=903,
+                first_name="User",
+                sponsor_wave=3,
+                sponsors_verified=False,
+            )
+            session.add_all(
+                (
+                    user,
+                    BotSettings(
+                        key="phone_verification_enabled",
+                        value="0",
+                    ),
+                )
+            )
+            await session.commit()
+            message = SimpleNamespace(
+                contact=SimpleNamespace(
+                    user_id=user.user_id,
+                    phone_number="+7 999 123-45-67",
+                ),
+                from_user=SimpleNamespace(id=user.user_id),
+                answer=AsyncMock(),
+            )
+            state = AsyncMock()
+
+            await msg_phone_contact(
+                message,
+                user,
+                session,
+                state,
+                AsyncMock(),
+            )
+
+        async with self.sessions() as session:
+            saved = await session.get(User, 903)
+            self.assertFalse(saved.phone_verified)
+            self.assertIsNone(saved.phone_number)
+        self.assertGreaterEqual(message.answer.await_count, 2)
 
 
 if __name__ == "__main__":

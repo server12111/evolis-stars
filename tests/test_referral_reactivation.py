@@ -104,6 +104,44 @@ class ReferralReactivationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(saved_referrer.stars_balance), 3.0)
         self.assertTrue(saved_referred.referral_reward_given)
 
+    async def test_disabled_phone_check_does_not_block_referral_reward(self) -> None:
+        async with self.sessions() as session:
+            referrer = User(
+                user_id=720,
+                first_name="Referrer",
+                stars_balance=Decimal(0),
+            )
+            referred = User(
+                user_id=721,
+                first_name="Referred",
+                referrer_id=720,
+                phone_verified=False,
+                sponsors_verified=True,
+                tasks_completed_count=3,
+            )
+            session.add_all(
+                (
+                    referrer,
+                    referred,
+                    BotSettings(
+                        key="phone_verification_enabled",
+                        value="0",
+                    ),
+                )
+            )
+            await session.commit()
+
+            await check_referral_reward(referred, session)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 720)
+            saved_referred = await session.get(User, 721)
+
+        self.assertEqual(float(saved_referrer.stars_balance), 3.0)
+        self.assertEqual(saved_referrer.referrals_count, 1)
+        self.assertTrue(saved_referred.referral_counted)
+        self.assertTrue(saved_referred.referral_reward_given)
+
 
 if __name__ == "__main__":
     unittest.main()

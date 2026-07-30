@@ -54,6 +54,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     withdraw_on = await repo.get_bool("withdraw_enabled", True)
     games_on = await repo.get_bool("games_enabled", True)
     tasks_on = await repo.get_bool("tasks_enabled", True)
+    phone_on = await repo.get_bool("phone_verification_enabled", True)
     codes = allowed_country_codes(await repo.get("phone_allowed_codes"))
     codes_text = ", ".join(f"+{code}" for code in codes)
 
@@ -63,6 +64,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Мин. заданий для реф.: <b>{min_tasks}</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
+        f"📱 Проверка номера: <b>{'включена' if phone_on else 'выключена'}</b>\n"
         f"🌍 Коды номеров: <b>{codes_text}</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
         f"⭐ Вывод: {'✅' if withdraw_on else '❌'}\n"
@@ -82,6 +84,7 @@ async def cb_phone_codes(callback: CallbackQuery, db_user: User, session: AsyncS
         await callback.answer("❌ Нет доступа.", show_alert=True)
         return
     repo = SettingsRepository(session)
+    phone_on = await repo.get_bool("phone_verification_enabled", True)
     codes = allowed_country_codes(await repo.get("phone_allowed_codes"))
     lines = [
         f"+{code} — {COUNTRY_CODE_NAMES.get(code, 'добавленный код')}"
@@ -89,14 +92,39 @@ async def cb_phone_codes(callback: CallbackQuery, db_user: User, session: AsyncS
     ]
     text = (
         "🌍 <b>Разрешённые коды номеров</b>\n\n"
+        f"Проверка номера: <b>{'✅ включена' if phone_on else '❌ выключена'}</b>\n\n"
         + "\n".join(lines)
-        + "\n\nМожно добавить один или несколько кодов через запятую, например: <code>995, +48</code>."
+        + "\n\nМожно добавить один или несколько кодов через запятую, например: <code>995, +48</code>.\n"
+        "При выключенной проверке эти коды сохраняются, но бот не запрашивает контакт."
     )
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=phone_codes_kb())
+        await callback.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=phone_codes_kb(phone_on),
+        )
     except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=phone_codes_kb())
+        await callback.message.answer(
+            text,
+            parse_mode="HTML",
+            reply_markup=phone_codes_kb(phone_on),
+        )
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "admin:phone_toggle")
+async def cb_phone_toggle(
+    callback: CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+) -> None:
+    if not _is_admin(db_user):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    repo = SettingsRepository(session)
+    current = await repo.get_bool("phone_verification_enabled", True)
+    await repo.set("phone_verification_enabled", "0" if current else "1")
+    await cb_phone_codes(callback, db_user, session)
 
 
 @router.callback_query(lambda c: c.data == "admin:phone_codes_add")

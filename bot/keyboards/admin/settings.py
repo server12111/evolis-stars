@@ -49,8 +49,18 @@ def settings_cancel_kb() -> InlineKeyboardMarkup:
     ]])
 
 
-def phone_codes_kb() -> InlineKeyboardMarkup:
+def phone_codes_kb(phone_enabled: bool = True) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=(
+                    "✅ Проверка номера включена"
+                    if phone_enabled
+                    else "❌ Проверка номера выключена"
+                ),
+                callback_data="admin:phone_toggle",
+            )
+        ],
         [InlineKeyboardButton(text="➕ Добавить код", callback_data="admin:phone_codes_add")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main")],
     ])

@@ -141,11 +141,13 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not user.referrer_id:
         logger.info("REFERRAL uid=%d: skip — no referrer_id", user.user_id)
         return
-    if not user.phone_verified:
+
+    repo = SettingsRepository(session)
+    phone_enabled = await repo.get_bool("phone_verification_enabled", True)
+    if phone_enabled and not user.phone_verified:
         logger.info("REFERRAL uid=%d: skip — phone_verified=False", user.user_id)
         return
 
-    repo = SettingsRepository(session)
     min_tasks = await repo.get_int("min_tasks_for_referral", 3)
     reward = await get_referral_reward(session)
 
@@ -154,6 +156,13 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         logger.info("REFERRAL uid=%d: skip — sponsors_verified=False (tgrass=%r botohub=%r)",
                     user.user_id, bool(settings.tgrass_code), bool(settings.botohub_key))
         return
+    if not phone_enabled and not user.referral_counted:
+        await mark_referral_phone_accepted(
+            user,
+            session,
+            bot,
+            phone_check_enabled=False,
+        )
     if user.tasks_completed_count < min_tasks:
         logger.info("REFERRAL uid=%d: skip — tasks %d < min %d",
                     user.user_id, user.tasks_completed_count, min_tasks)
@@ -193,7 +202,13 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             logger.warning("Failed to notify referrer %s: %s", referrer.user_id, e)
 
 
-async def mark_referral_phone_accepted(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
+async def mark_referral_phone_accepted(
+    user: User,
+    session: AsyncSession,
+    bot: Bot | None = None,
+    *,
+    phone_check_enabled: bool = True,
+) -> None:
     """Count a referral exactly once, after the referred user's phone passes."""
     if not user.referrer_id or user.referral_counted:
         return
@@ -217,9 +232,14 @@ async def mark_referral_phone_accepted(user: User, session: AsyncSession, bot: B
     )
     if bot:
         try:
+            accepted_reason = (
+                "прошёл проверку номера"
+                if phone_check_enabled
+                else "прошёл обязательную проверку"
+            )
             await bot.send_message(
                 referrer.user_id,
-                f"✅ Реферал {username_display} прошёл проверку номера и теперь засчитан. "
+                f"✅ Реферал {username_display} {accepted_reason} и теперь засчитан. "
                 "Награда будет начислена после выполнения остальных условий.",
             )
         except Exception as e:
