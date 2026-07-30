@@ -463,6 +463,17 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         db_user.user_id,
         [full_link],
     )
+    # PiarFlow может не успеть обновить статус подписки сразу — делаем 2 повторные проверки
+    if not subscribed:
+        for _ in range(2):
+            await asyncio.sleep(1.5)
+            subscribed = await check_sponsors(
+                settings.piarflow_key,
+                db_user.user_id,
+                [full_link],
+            )
+            if subscribed:
+                break
     if not subscribed:
         try:
             await callback.message.edit_text(
