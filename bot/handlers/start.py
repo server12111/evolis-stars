@@ -22,6 +22,7 @@ from bot.keyboards.main import main_menu_kb
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
 from bot.services.referral import (
+    check_referral_reward,
     notify_referrer_joined,
     notify_referrer_sponsors_verified,
     notify_user_sponsors_verified,
