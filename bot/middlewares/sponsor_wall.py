@@ -123,11 +123,6 @@ class SponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if db_user.sponsors_verified:
-            if await _phone_required(session, db_user):
-                await _prompt_phone(inner, state)
-                return
-            if bot:
-                await ensure_country_notice(db_user, session, bot)
             return await handler(event, data)
 
         if not settings.tgrass_code and not settings.botohub_key:
