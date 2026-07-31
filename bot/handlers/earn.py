@@ -44,6 +44,10 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         f"👑 <b>VIP система</b>\nПри достижении 50 рефералов вы получаете статус VIP и дополнительные +1 ⭐ за каждого следующего реферала!\n\n"
         f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n🔗 Твоя ссылка:\n<code>{ref_link}</code>"
     )
+    
+    if template and "За одного обычного реферала:" in template:
+        template = _default_text
+        
     if "{" in template:
         try:
             text = template.format(
