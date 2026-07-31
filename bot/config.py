@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     botohub_key: str = ""
     botohub_views_key: str = ""
     piarflow_key: str = ""
+    flyerhub_key: str = ""
 
     bot_username: str = ""
 

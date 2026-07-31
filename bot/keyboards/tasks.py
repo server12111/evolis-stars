@@ -56,6 +56,18 @@ def pf_task_detail_kb(url: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def fh_task_detail_kb(url: str, signature: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if url:
+        builder.row(InlineKeyboardButton(text="📲 Перейти к заданию", url=url, style="primary"))
+    builder.row(InlineKeyboardButton(text="✅ Проверить выполнение", callback_data=f"fh_task:check:{signature}", style="success"))
+    builder.row(
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"),
+        InlineKeyboardButton(text="⏭ Пропустить", callback_data=f"fh_task:skip:{signature}"),
+    )
+    return builder.as_markup()
+
+
 def tasks_not_available_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Проверить подписку", callback_data="sponsor_check"),

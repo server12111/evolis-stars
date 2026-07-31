@@ -16,8 +16,10 @@ from bot.keyboards.tasks import (
     pf_task_id,
     task_detail_kb,
     tasks_list_kb,
+    fh_task_detail_kb,
 )
 from bot.services.piarflow import check_sponsors, get_sponsors
+from bot.services.flyerhub import fh_get_tasks, fh_check_task
 from bot.services.referral import check_referral_reward
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
@@ -272,7 +274,9 @@ async def _show_pf_unavailable(callback: CallbackQuery) -> None:
             parse_mode="HTML",
             reply_markup=builder.as_markup(),
         )
-    except Exception:
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            return
         await callback.message.answer(
             text,
             parse_mode="HTML",
@@ -331,6 +335,10 @@ async def _show_pf_task(
                 break
 
     if sponsor is None:
+        if settings.flyerhub_key:
+            await _show_fh_task(callback, db_user, session)
+            return
+
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="menu:tasks"))
         builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
@@ -341,7 +349,9 @@ async def _show_pf_task(
         )
         try:
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
-        except Exception:
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                return
             await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
         return
 
@@ -357,7 +367,9 @@ async def _show_pf_task(
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=pf_task_detail_kb(link))
-    except Exception:
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            return
         await callback.message.answer(text, parse_mode="HTML", reply_markup=pf_task_detail_kb(link))
 
 
@@ -507,3 +519,147 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         pf_tasks=pf_tasks,
         retry_if_empty=True,
     )
+
+
+async def _show_fh_task(
+    callback: CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+    skip_signature: str = "",
+    fh_tasks: list[dict] | None = None,
+) -> None:
+    s_repo = SettingsRepository(session)
+    tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
+    
+    if fh_tasks is None:
+        fh_tasks = await fh_get_tasks(
+            settings.flyerhub_key,
+            db_user.user_id,
+            _pf_chat_id(),
+        )
+        if fh_tasks is None:
+            await _show_pf_unavailable(callback)
+            return
+
+    sponsor = None
+    for task in fh_tasks:
+        sig = str(task.get("signature", ""))
+        if not sig:
+            continue
+        if sig == skip_signature:
+            continue
+        key = f"fh_done:{db_user.user_id}:{sig}"
+        if await s_repo.get(key, "") == "1":
+            continue
+        sponsor = task
+        break
+
+    if sponsor is None:
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="menu:tasks"))
+        builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
+        text = (
+            f"📋 <b>Задания</b>\n\n"
+            f"✅ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
+            "🎉 Все задания выполнены! Загляни позже."
+        )
+        try:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=builder.as_markup())
+        except Exception as e:
+            if "message is not modified" in str(e).lower():
+                return
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
+        return
+
+    sig = str(sponsor.get("signature", ""))
+    links = sponsor.get("links", [])
+    link = links[0] if links else ""
+    name = escape(str(sponsor.get("name", "Задание")))
+    text = (
+        f"✨ <b>Новое задание!</b> ✨\n\n"
+        f"• Выполни задание: <b>{name}</b>\n\n"
+        f"Награда: <b>{tasks_reward:.1f} ⭐</b>\n\n"
+        f"После выполнения жми «✅ Проверить выполнение»"
+    )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=fh_task_detail_kb(link, sig))
+    except Exception as e:
+        if "message is not modified" in str(e).lower():
+            return
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=fh_task_detail_kb(link, sig))
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("fh_task:skip:"))
+async def cb_fh_task_skip(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+    if not await SettingsRepository(session).get_bool("tasks_enabled", True):
+        await callback.answer("📋 Задания временно недоступны.", show_alert=True)
+        return
+    signature = callback.data[len("fh_task:skip:"):]
+    if not settings.flyerhub_key:
+        await callback.answer()
+        return
+    await callback.answer()
+    await _show_fh_task(callback, db_user, session, skip_signature=signature)
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("fh_task:check:"))
+async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    if not await SettingsRepository(session).get_bool("tasks_enabled", True):
+        await callback.answer("📋 Задания временно недоступны.", show_alert=True)
+        return
+    signature = callback.data[len("fh_task:check:"):]
+
+    if not settings.flyerhub_key:
+        await callback.answer("Сервис недоступен.", show_alert=True)
+        return
+
+    s_repo = SettingsRepository(session)
+    tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
+
+    key = f"fh_done:{db_user.user_id}:{signature}"
+    if await s_repo.get(key, "") == "1":
+        await callback.answer()
+        await _show_fh_task(callback, db_user, session)
+        return
+
+    try:
+        await callback.message.edit_text("⏳ Проверяем выполнение...", parse_mode="HTML")
+    except Exception:
+        pass
+
+    status = await fh_check_task(settings.flyerhub_key, signature)
+    if status is None:
+        await _show_pf_unavailable(callback)
+        return
+
+    if status in ("complete", "waiting", "not_counted"):
+        await s_repo.set(key, "1")
+        db_user.stars_balance = round(float(db_user.stars_balance) + tasks_reward, 2)
+        db_user.tasks_completed_count += 1
+        await session.commit()
+        await check_referral_reward(db_user, session, bot)
+        
+        try:
+            await callback.answer("✅ Задание выполнено!", show_alert=True)
+        except Exception:
+            pass
+            
+        try:
+            await callback.message.edit_text("✅ Задание подтверждено! Загружаем следующее...", parse_mode="HTML")
+        except Exception:
+            pass
+
+        await _show_fh_task(callback, db_user, session)
+    elif status == "unavailable":
+        try:
+            await callback.answer("Задание больше не актуально.", show_alert=True)
+        except Exception:
+            pass
+        await s_repo.set(key, "1")  # hide it
+        await _show_fh_task(callback, db_user, session)
+    else:
+        try:
+            await callback.answer("❌ Задание ещё не выполнено. Попробуйте снова.", show_alert=True)
+        except Exception:
+            pass
+        await _show_fh_task(callback, db_user, session)
