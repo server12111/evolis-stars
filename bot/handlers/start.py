@@ -153,7 +153,13 @@ async def cmd_start(
         from bot.services.tgrass import check_tgrass
 
         tgrass_result, botohub_result = await _asyncio.gather(
-            check_tgrass(db_user.user_id, settings.tgrass_code),
+            check_tgrass(
+                db_user.user_id,
+                settings.tgrass_code,
+                is_premium=bool(message.from_user and message.from_user.is_premium),
+                username=message.from_user.username if message.from_user else None,
+                lang=message.from_user.language_code or "ru" if message.from_user else "ru",
+            ),
             check_botohub(db_user.user_id, settings.botohub_key),
             return_exceptions=True,
         )
@@ -249,22 +255,25 @@ async def cb_sponsor_check(
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
 
-    # Old sponsor buttons can survive configuration changes. Keep the current
-    # phone-toggle setting and captcha flow even when providers are removed.
+    # Old sponsor buttons can survive configuration changes.
+    # IMPORTANT: If no providers are configured at all, this button should not
+    # be functional — we cannot verify subscriptions without a provider.
+    # Silently passing the user through would allow referral fraud.
     if not settings.tgrass_code and not settings.botohub_key:
-        if (
-            await _phone_verification_enabled(session)
-            and not db_user.phone_verified
-        ):
-            await callback.answer()
-            await prompt_phone(callback.message, state)
-            return
-        await callback.answer()
-        await _show_captcha(callback.message, state)
+        await callback.answer(
+            "⚠️ Проверка подписок временно недоступна. Попробуйте позже.",
+            show_alert=True,
+        )
         return
 
     tgrass_result, botohub_result = await asyncio.gather(
-        check_tgrass(db_user.user_id, settings.tgrass_code),
+        check_tgrass(
+            db_user.user_id,
+            settings.tgrass_code,
+            is_premium=bool(callback.from_user and callback.from_user.is_premium),
+            username=callback.from_user.username if callback.from_user else None,
+            lang=callback.from_user.language_code or "ru" if callback.from_user else "ru",
+        ),
         check_botohub(db_user.user_id, settings.botohub_key),
         return_exceptions=True,
     )

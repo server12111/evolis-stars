@@ -407,19 +407,17 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         await callback.answer("Сервис недоступен.", show_alert=True)
         return
 
-    # Acknowledge immediately so Telegram dismisses the spinner
-    await callback.answer()
-
     s_repo = SettingsRepository(session)
     max_sponsors = await s_repo.get_int("piarflow_max_sponsors", 100)
     tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
 
     key = f"pf_done:{db_user.user_id}:{link_key}"
     if await s_repo.get(key, "") == "1":
+        await callback.answer()
         await _show_pf_task(callback, db_user, session)
         return
 
-    # Show loading state while API calls run
+    # Показываем индикатор загрузки пока идёт проверка API
     try:
         await callback.message.edit_text("⏳ Проверяем подписку...", parse_mode="HTML")
     except Exception:
@@ -463,18 +461,9 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         db_user.user_id,
         [full_link],
     )
-    # PiarFlow может не успеть обновить статус подписки сразу — делаем 2 повторные проверки
+
     if not subscribed:
-        for _ in range(2):
-            await asyncio.sleep(1.5)
-            subscribed = await check_sponsors(
-                settings.piarflow_key,
-                db_user.user_id,
-                [full_link],
-            )
-            if subscribed:
-                break
-    if not subscribed:
+        await callback.answer("❌ Вы не подписаны. Подпишитесь и нажмите «Проверить».", show_alert=True)
         try:
             await callback.message.edit_text(
                 "❌ Вы не подписаны на канал. Подпишитесь и нажмите «Проверить».",
@@ -490,6 +479,11 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
     db_user.tasks_completed_count += 1
     await session.commit()
     await check_referral_reward(db_user, session, bot)
+    # Показываем флешку «Задание выполнено» сверху экрана
+    try:
+        await callback.answer("✅ Задание выполнено!", show_alert=True)
+    except Exception:
+        pass
     if pf_tasks is None:
         pf_tasks = await get_sponsors(
             settings.piarflow_key,

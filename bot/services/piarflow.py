@@ -48,8 +48,19 @@ async def get_sponsors(
                     if not isinstance(sponsors, list):
                         logger.warning("PiarFlow get_sponsors returned invalid sponsors")
                         return None
-                    logger.info("PiarFlow get_sponsors user_id=%d chat_id=%d → %d sponsors", user_id, chat_id, len(sponsors))
-                    return sponsors
+                    enriched = []
+                    for sp in sponsors:
+                        if not isinstance(sp, dict):
+                            continue
+                        link = str(sp.get("link", ""))
+                        if not link:
+                            continue
+                        enriched.append({**sp, "name": "Канал"})
+                    logger.info(
+                        "PiarFlow get_sponsors user_id=%d chat_id=%d → %d sponsors",
+                        user_id, chat_id, len(enriched),
+                    )
+                    return enriched
         except Exception as e:
             logger.warning("PiarFlow get_sponsors error: %s", e)
             return None
@@ -89,8 +100,11 @@ async def check_sponsors(api_key: str, user_id: int, links: list[str]) -> bool:
                         for sponsor in sponsors
                         if isinstance(sponsor, dict) and sponsor.get("link")
                     }
+                    # Docs: status can be "subscribed", "unsubscribed", or "not_counted".
+                    # "not_counted" means task is done but not paid — treat as subscribed.
+                    _DONE_STATUSES = {"subscribed", "not_counted"}
                     return all(
-                        statuses.get(link) == "subscribed"
+                        statuses.get(link) in _DONE_STATUSES
                         for link in links
                     )
         except Exception as e:

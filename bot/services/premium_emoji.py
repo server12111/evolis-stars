@@ -251,8 +251,11 @@ def _decorate_button(button: InlineKeyboardButton | KeyboardButton) -> None:
     callback_data = getattr(button, "callback_data", None) or ""
     if callback_data.startswith(_VISUAL_BUTTON_PREFIXES):
         return
-    if not button.icon_custom_emoji_id:
-        button.icon_custom_emoji_id = _button_icon(button.text)
+    if not getattr(button, "icon_custom_emoji_id", None):
+        try:
+            button.icon_custom_emoji_id = _button_icon(button.text)
+        except AttributeError:
+            pass
     clean_text = _strip_ordinary_emoji(button.text)
     if clean_text:
         button.text = clean_text
@@ -301,13 +304,14 @@ class PremiumEmojiMiddleware:
         method: TelegramMethod[Any],
     ) -> Any:
         changed = False
-        for field_name in ("text", "caption"):
-            value = getattr(method, field_name, None)
-            if isinstance(value, str):
-                decorated = decorate_message_text(value)
-                if decorated != value:
-                    setattr(method, field_name, decorated)
-                    changed = True
+        if type(method).__name__ != "AnswerCallbackQuery":
+            for field_name in ("text", "caption"):
+                value = getattr(method, field_name, None)
+                if isinstance(value, str):
+                    decorated = decorate_message_text(value)
+                    if decorated != value:
+                        setattr(method, field_name, decorated)
+                        changed = True
 
         markup = getattr(method, "reply_markup", None)
         if isinstance(markup, (InlineKeyboardMarkup, ReplyKeyboardMarkup)):

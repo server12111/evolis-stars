@@ -153,23 +153,44 @@ class SponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if not settings.tgrass_code and not settings.botohub_key:
-            if await _phone_required(session, db_user):
-                await _prompt_phone(inner, state)
-                return
-            from bot.handlers.start import _show_captcha
-
-            target_message = inner if isinstance(inner, Message) else inner.message
-            if target_message:
-                await _show_captcha(target_message, state)
+            # No providers configured — cannot verify subscriptions.
+            # Do not silently pass the user through to captcha, as this would
+            # allow bypassing the sponsor wall entirely without any real check.
+            # The sponsor wall is disabled functionally, so pass through safely
+            # only if sponsors_verified was already set by an admin action.
+            # In normal flow this branch is only hit if a leftover "sponsor_check"
+            # button is pressed after the providers were removed from config.
             if isinstance(inner, CallbackQuery):
-                await inner.answer()
+                await inner.answer(
+                    "⚠️ Проверка подписок временно недоступна.",
+                    show_alert=True,
+                )
             return
 
         from bot.services.botohub import check_botohub
         from bot.services.tgrass import check_tgrass
 
         tgrass_result, botohub_result = await asyncio.gather(
-            check_tgrass(db_user.user_id, settings.tgrass_code),
+            check_tgrass(
+                db_user.user_id,
+                settings.tgrass_code,
+                is_premium=bool(
+                    isinstance(inner, Message)
+                    and inner.from_user
+                    and inner.from_user.is_premium
+                    or isinstance(inner, CallbackQuery)
+                    and inner.from_user
+                    and inner.from_user.is_premium
+                ),
+                username=(
+                    inner.from_user.username
+                    if inner.from_user else None
+                ),
+                lang=(
+                    inner.from_user.language_code or "ru"
+                    if inner.from_user else "ru"
+                ),
+            ),
             check_botohub(db_user.user_id, settings.botohub_key),
             return_exceptions=True,
         )
@@ -216,7 +237,9 @@ class SponsorWallMiddleware(BaseMiddleware):
             )
             return
 
-        if await _phone_required(session, db_user):
+        # Only prompt phone if not already verified (guards against double-prompt
+        # when the user re-sends a message between phone confirm and captcha pass)
+        if not db_user.phone_verified and await _phone_required(session, db_user):
             await _prompt_phone(inner, state)
             return
 
