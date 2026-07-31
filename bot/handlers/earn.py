@@ -13,9 +13,14 @@ from bot.database.repositories.user import UserRepository
 from bot.keyboards.earn import earn_kb, return_referrals_kb
 from bot.services.referral import (
     REFERRAL_RETURN_DAYS,
+    check_referral_reward,
     format_stars,
-    get_referral_reward,
-    get_return_reward,
+    get_tg_reward,
+    get_web_reward,
+    notify_referrer_joined,
+    notify_referrer_sponsors_verified,
+    notify_user_sponsors_verified,
+    reward_returning_referral,
 )
 
 router = Router()
@@ -34,12 +39,12 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         cutoff,
         limit=1,
     )
-    ordinary_reward = await get_referral_reward(session)
-    return_reward = await get_return_reward(session)
+    tg_reward = await get_tg_reward(session)
+    web_reward = await get_web_reward(session)
 
     _default_text = (
         f"💸 <b>Заработать</b>\n\nПриглашай друзей по реферальной ссылке и получай звезды за каждого спонсора, на которого они подписались!\n\n"
-        f"🔹 Спонсоры Telegram: <b>0.5 ⭐</b>\n🔹 Web спонсоры: <b>0.25 ⭐</b>\n\n"
+        f"🔹 Спонсоры Telegram: <b>{format_stars(tg_reward)} ⭐</b>\n🔹 Web спонсоры: <b>{format_stars(web_reward)} ⭐</b>\n\n"
         f"<i>Для получения награды реферал должен подписаться на не менее 6 спонсоров.</i>\n\n"
         f"👑 <b>VIP система</b>\nПри достижении 50 рефералов вы получаете статус VIP и дополнительные +1 ⭐ за каждого следующего реферала!\n\n"
         f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n🔗 Твоя ссылка:\n<code>{ref_link}</code>"
@@ -54,9 +59,9 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
                 referrals=db_user.referrals_count,
                 link=ref_link,
                 balance=float(db_user.stars_balance),
-                reward=format_stars(ordinary_reward),
-                referral_reward=format_stars(ordinary_reward),
-                return_reward=format_stars(return_reward),
+                reward=format_stars(tg_reward), # fallback for old templates
+                referral_reward=format_stars(tg_reward), # fallback for old templates
+                return_reward=format_stars(tg_reward / Decimal("2")), # fallback
                 returnable=returnable_count,
             )
         except (KeyError, ValueError, IndexError):
@@ -67,8 +72,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         f"\n\n♻️ <b>Повторные приглашения</b>\n"
         f"Если засчитанный реферал не пользуется ботом <b>{REFERRAL_RETURN_DAYS} дней</b>, "
         "он автоматически появится в списке ниже. Отправь ему свою прежнюю ссылку: "
-        f"когда он вернётся по ней, ты получишь <b>{format_stars(return_reward)} ⭐</b> "
-        "— половину текущей обычной награды.\n\n"
+        f"когда он вернётся по ней, ты получишь <b>половину</b> от текущей награды за его спонсоров.\n\n"
         f"Сейчас можно вернуть: <b>{returnable_count}</b>"
     )
 

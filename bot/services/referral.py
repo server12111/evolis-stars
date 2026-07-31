@@ -25,23 +25,21 @@ def format_stars(value: Decimal | float) -> str:
     return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 
-async def get_referral_reward(session: AsyncSession) -> Decimal:
-    raw_reward = await SettingsRepository(session).get("referral_reward", "3")
+async def get_tg_reward(session: AsyncSession) -> Decimal:
+    raw_reward = await SettingsRepository(session).get("tg_sponsor_reward", "0.5")
     try:
-        ordinary_reward = Decimal(raw_reward)
+        reward = Decimal(raw_reward)
     except (InvalidOperation, TypeError):
-        ordinary_reward = Decimal("3")
-    if not ordinary_reward.is_finite():
-        ordinary_reward = Decimal("3")
-    return max(Decimal("0"), ordinary_reward).quantize(
-        _STAR_STEP,
-        rounding=ROUND_HALF_UP,
-    )
+        reward = Decimal("0.5")
+    return max(Decimal("0"), reward).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
-
-async def get_return_reward(session: AsyncSession) -> Decimal:
-    ordinary_reward = await get_referral_reward(session)
-    return (ordinary_reward / 2).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+async def get_web_reward(session: AsyncSession) -> Decimal:
+    raw_reward = await SettingsRepository(session).get("web_sponsor_reward", "0.25")
+    try:
+        reward = Decimal(raw_reward)
+    except (InvalidOperation, TypeError):
+        reward = Decimal("0.25")
+    return max(Decimal("0"), reward).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
 async def reward_returning_referral(
@@ -67,7 +65,28 @@ async def reward_returning_referral(
     if not referrer or referrer.is_blocked:
         return None
 
-    reward = await get_return_reward(session)
+    tg_reward = await get_tg_reward(session)
+    web_reward = await get_web_reward(session)
+    
+    # Check current sponsors count for returning user
+    from bot.services.sponsor_wall import calculate_sponsor_counts
+    # Wait, getting current sponsors requires checking all channels which is heavy,
+    # or just fetching from DB? 
+    # To keep it simple and match the plan, we just issue half of their historical reward, or current?
+    # Let's count current sponsors
+    db_sponsors = await UserRepository(session).get_user_sponsors(referred_user_id)
+    tg_count, web_count = 0, 0
+    for user_sponsor in db_sponsors:
+        if user_sponsor.sponsor.url:
+            url_lower = user_sponsor.sponsor.url.lower()
+            if "t.me" in url_lower or "telegram.me" in url_lower or "telegram.dog" in url_lower:
+                tg_count += 1
+            else:
+                web_count += 1
+
+    total_base_reward = (Decimal(str(tg_count)) * tg_reward) + (Decimal(str(web_count)) * web_reward)
+    reward = (total_base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+    
     if reward <= 0:
         return None
 
@@ -159,7 +178,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                 pass
         return
 
-    reward = Decimal(str(tg_count * 0.5 + web_count * 0.25))
+    tg_reward = await get_tg_reward(session)
+    web_reward = await get_web_reward(session)
+    reward = (Decimal(str(tg_count)) * tg_reward) + (Decimal(str(web_count)) * web_reward)
 
     user_repo = UserRepository(session)
     referrer = await user_repo.get(user.referrer_id)
