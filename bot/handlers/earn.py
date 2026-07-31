@@ -44,11 +44,15 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     web_reward = await get_web_reward(session)
 
     _default_text = (
-        f"💸 <b>Заработать</b>\n\nПриглашай друзей по реферальной ссылке и получай звезды за каждого спонсора, на которого они подписались!\n\n"
-        f"🔹 Спонсоры Telegram: <b>{format_stars(tg_reward)} ⭐</b>\n🔹 Web спонсоры: <b>{format_stars(web_reward)} ⭐</b>\n\n"
+        f"💸 <b>Заработать</b>\n\n"
+        f"Приглашай друзей по реферальной ссылке и получай звезды за каждого спонсора, на которого они подписались!\n\n"
+        f"🔹 Спонсоры Telegram: <b>{format_stars(tg_reward)} ⭐</b>\n"
+        f"🔹 Web спонсоры: <b>{format_stars(web_reward)} ⭐</b>\n\n"
         f"<i>Для получения награды реферал должен подписаться на не менее 6 спонсоров.</i>\n\n"
-        f"👑 <b>VIP система</b>\nПри достижении 50 рефералов вы получаете статус VIP и дополнительные +1 ⭐ за каждого следующего реферала!\n\n"
-        f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n🔗 Твоя ссылка:\n<code>{ref_link}</code>"
+        f"👑 <b>VIP система</b>\n"
+        f"При достижении 50 рефералов вы получаете статус VIP, а после 70 рефералов — дополнительные <b>+1 ⭐</b> за каждого следующего!\n\n"
+        f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n"
+        f"🔗 Твоя ссылка:\n<code>{ref_link}</code>"
     )
     
     if template and "За одного обычного реферала:" in template:
