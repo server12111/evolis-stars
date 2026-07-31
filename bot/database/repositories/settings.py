@@ -4,10 +4,18 @@ from sqlalchemy import Float, String, cast, func, update
 
 from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
-from bot.services.phone import DEFAULT_ALLOWED_COUNTRY_CODES
 
 DEFAULT_SETTINGS: dict[str, str] = {
-    "referral_reward": "3",
+    "tg_sponsor_reward": "0.5",
+    "web_sponsor_reward": "0.25",
+    "min_sponsors_for_reward": "6",
+    "referral_bonus_10": "0.1",
+    "referral_bonus_25": "0.3",
+    "referral_bonus_30": "0.4",
+    "referral_bonus_50": "0.7",
+    "referral_bonus_55": "0.8",
+    "referral_bonus_60": "0.9",
+    "referral_bonus_70": "1.0",
     "bonus_min": "0.1",
     "bonus_max": "1.0",
     "bonus_enabled": "1",
@@ -16,7 +24,6 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "games_enabled": "1",
     "tasks_enabled": "1",
     "tasks_reward": "0.3",
-    "min_tasks_for_referral": "3",
     "duel_commission": "20",
     "duel_min_refs": "3",
     "lottery_min_refs": "3",
@@ -92,9 +99,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "auction_enabled": "1",
     "auction_commission": "0.20",
     # Sponsor wall
-    "sponsor_max_channels": "6",
-    "phone_verification_enabled": "1",
-    "phone_allowed_codes": ",".join(DEFAULT_ALLOWED_COUNTRY_CODES),
+    "sponsor_max_channels": "10",
     # PiarFlow
     "piarflow_max_sponsors": "100",
     # Wheel/Cases stats
@@ -172,10 +177,4 @@ class SettingsRepository(BaseRepository):
             existing = await self.session.get(BotSettings, key)
             if existing is None:
                 self.session.add(BotSettings(key=key, value=value))
-            elif key == "sponsor_max_channels":
-                try:
-                    if int(float(existing.value)) > 6:
-                        existing.value = "6"
-                except (TypeError, ValueError, OverflowError):
-                    existing.value = "6"
         await self.session.commit()

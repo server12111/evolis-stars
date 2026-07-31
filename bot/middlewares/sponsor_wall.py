@@ -2,14 +2,13 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
-from aiogram import BaseMiddleware, Bot
+from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.settings import SettingsRepository
-from bot.services.country_notice import ensure_country_notice
 from bot.services.sponsor_results import all_configured_integrations_failed
 from bot.services.sponsor_waves import (
     evaluate_waves,
@@ -26,7 +25,6 @@ _BYPASS_PREFIXES = (
     "admin:",
     "wall_check",
     "sponsor_check",
-    "captcha:",
 )
 
 
@@ -85,6 +83,115 @@ async def _show_retry(inner: Message | CallbackQuery) -> None:
         await inner.answer()
 
 
+async def run_sponsor_wall_check(
+    inner: Message | CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+) -> bool:
+    """Check all configured sponsor providers and show the current wave.
+
+    Assumes the caller already verified at least one provider is configured.
+    Returns True when every wave is complete and the caller should proceed;
+    False when a wave or a retry message was already sent to the user.
+    """
+    from bot.services.botohub import check_botohub
+    from bot.services.tgrass import check_tgrass
+    from bot.services.piarflow import get_sponsors, check_sponsors
+    from bot.services.sponsor_waves import _current_items
+
+    piarflow_configured = bool(settings.piarflow_key)
+    if piarflow_configured:
+        saved_items = _current_items(db_user)
+        if saved_items:
+            piarflow_links = [
+                str(item.get("url", "")) for item in saved_items
+                if str(item.get("provider", "")) == "piarflow" and item.get("url")
+            ]
+            if piarflow_links:
+                await check_sponsors(
+                    settings.piarflow_key,
+                    db_user.user_id,
+                    piarflow_links,
+                )
+
+    tgrass_result, botohub_result, piarflow_result = await asyncio.gather(
+        check_tgrass(
+            db_user.user_id,
+            settings.tgrass_code,
+            is_premium=bool(inner.from_user and inner.from_user.is_premium),
+            username=(
+                inner.from_user.username
+                if inner.from_user else None
+            ),
+            lang=(
+                inner.from_user.language_code or "ru"
+                if inner.from_user else "ru"
+            ),
+        ),
+        check_botohub(db_user.user_id, settings.botohub_key),
+        get_sponsors(
+            settings.piarflow_key,
+            db_user.user_id,
+            db_user.user_id,
+            max_sponsors=20,
+        ) if piarflow_configured else asyncio.sleep(0),
+        return_exceptions=True,
+    )
+    if not piarflow_configured:
+        piarflow_result = None
+
+    logger.info(
+        "WALL uid=%s tgrass=%s botohub=%s piarflow=%s",
+        db_user.user_id,
+        type(tgrass_result).__name__,
+        type(botohub_result).__name__,
+        type(piarflow_result).__name__,
+    )
+
+    if all_configured_integrations_failed(
+        tgrass_configured=bool(settings.tgrass_code),
+        tgrass_result=tgrass_result,
+        botohub_configured=bool(settings.botohub_key),
+        botohub_result=botohub_result,
+        piarflow_configured=piarflow_configured,
+        piarflow_result=piarflow_result,
+    ):
+        await _show_retry(inner)
+        return False
+
+    wave_size = min(
+        20,
+        max(1, await SettingsRepository(session).get_int(
+            "sponsor_max_channels",
+            10,
+        )),
+    )
+    wave_state = evaluate_waves(
+        db_user,
+        tgrass_result=tgrass_result,
+        botohub_result=botohub_result,
+        piarflow_result=piarflow_result,
+        piarflow_configured=piarflow_configured,
+        wave_size=wave_size,
+    )
+    await session.commit()
+
+    if wave_state.status == "unavailable":
+        await _show_retry(inner)
+        return False
+    if wave_state.status == "pending":
+        await _show_wave(
+            inner,
+            wave=wave_state.wave,
+            total_waves=wave_state.total_waves,
+            items=wave_state.items or [],
+        )
+        return False
+
+    # Sponsor waves are complete; allow access.
+    return True
+
+
 class SponsorWallMiddleware(BaseMiddleware):
     async def __call__(
         self,
@@ -112,13 +219,8 @@ class SponsorWallMiddleware(BaseMiddleware):
         if _should_skip(callback_data, message_text):
             return await handler(event, data)
 
-        # The contact must reach the FSM phone handler.
-        if isinstance(inner, Message) and inner.contact:
-            return await handler(event, data)
-
         session: AsyncSession | None = data.get("session")
         state = data.get("state")
-        bot: Bot | None = data.get("bot")
         if session is None or state is None:
             return await handler(event, data)
 
@@ -127,12 +229,9 @@ class SponsorWallMiddleware(BaseMiddleware):
 
         if not settings.tgrass_code and not settings.botohub_key:
             # No providers configured — cannot verify subscriptions.
-            # Do not silently pass the user through to captcha, as this would
-            # allow bypassing the sponsor wall entirely without any real check.
-            # The sponsor wall is disabled functionally, so pass through safely
-            # only if sponsors_verified was already set by an admin action.
-            # In normal flow this branch is only hit if a leftover "sponsor_check"
-            # button is pressed after the providers were removed from config.
+            # In normal flow this branch is only hit if a leftover
+            # "sponsor_check" button is pressed after providers were removed
+            # from config; /start already auto-verifies in that case.
             if isinstance(inner, CallbackQuery):
                 await inner.answer(
                     "⚠️ Проверка подписок временно недоступна.",
@@ -140,105 +239,7 @@ class SponsorWallMiddleware(BaseMiddleware):
                 )
             return
 
-        from bot.services.botohub import check_botohub
-        from bot.services.tgrass import check_tgrass
-        from bot.services.piarflow import get_sponsors, check_sponsors
-        from bot.services.sponsor_waves import _current_items
-
-        if settings.piarflow_key:
-            saved_items = _current_items(db_user)
-            if saved_items:
-                piarflow_links = [
-                    str(item.get("url", "")) for item in saved_items
-                    if str(item.get("provider", "")) == "piarflow" and item.get("url")
-                ]
-                if piarflow_links:
-                    await check_sponsors(
-                        settings.piarflow_key,
-                        db_user.user_id,
-                        db_user.user_id,
-                        piarflow_links
-                    )
-
-        tgrass_result, botohub_result, piarflow_result = await asyncio.gather(
-            check_tgrass(
-                db_user.user_id,
-                settings.tgrass_code,
-                is_premium=bool(
-                    isinstance(inner, Message)
-                    and inner.from_user
-                    and inner.from_user.is_premium
-                    or isinstance(inner, CallbackQuery)
-                    and inner.from_user
-                    and inner.from_user.is_premium
-                ),
-                username=(
-                    inner.from_user.username
-                    if inner.from_user else None
-                ),
-                lang=(
-                    inner.from_user.language_code or "ru"
-                    if inner.from_user else "ru"
-                ),
-            ),
-            check_botohub(db_user.user_id, settings.botohub_key),
-            get_sponsors(
-                settings.piarflow_key,
-                db_user.user_id,
-                db_user.user_id,
-                max_sponsors=20
-            ) if settings.piarflow_key else asyncio.sleep(0),
-            return_exceptions=True,
-        )
-        if not settings.piarflow_key:
-            piarflow_result = None
-
-        logger.info(
-            "WALL uid=%s tgrass=%s botohub=%s piarflow=%s",
-            db_user.user_id,
-            type(tgrass_result).__name__,
-            type(botohub_result).__name__,
-            type(piarflow_result).__name__,
-        )
-
-        if all_configured_integrations_failed(
-            tgrass_configured=bool(settings.tgrass_code),
-            tgrass_result=tgrass_result,
-            botohub_configured=bool(settings.botohub_key),
-            botohub_result=botohub_result,
-            piarflow_configured=bool(settings.piarflow_key),
-            piarflow_result=piarflow_result,
-        ):
-            await _show_retry(inner)
+        if not await run_sponsor_wall_check(inner, db_user, session):
             return
 
-        wave_size = min(
-            20,
-            max(1, await SettingsRepository(session).get_int(
-                "sponsor_max_channels",
-                10,
-            )),
-        )
-        wave_state = evaluate_waves(
-            db_user,
-            tgrass_result=tgrass_result,
-            botohub_result=botohub_result,
-            piarflow_result=piarflow_result,
-            wave_size=wave_size,
-        )
-        await session.commit()
-
-        if wave_state.status == "unavailable":
-            await _show_retry(inner)
-            return
-        if wave_state.status == "pending":
-            await _show_wave(
-                inner,
-                wave=wave_state.wave,
-                total_waves=wave_state.total_waves,
-                items=wave_state.items or [],
-            )
-            return
-
-        # Sponsor waves are complete; allow access.
         return await handler(event, data)

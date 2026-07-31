@@ -9,15 +9,29 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.config import get_settings
 from bot.database.models import ReferralReactivation, User
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
+from bot.services.sponsor_waves import classify_sponsor_type
 
 logger = logging.getLogger(__name__)
 
 REFERRAL_RETURN_DAYS = 7
 _STAR_STEP = Decimal("0.01")
+
+# Referral-count thresholds (in ascending order) mapped to the settings key
+# holding that milestone's one-time bonus amount. Counts above the highest
+# threshold keep earning that same top-tier bonus for every new referral.
+MILESTONE_SETTINGS: list[tuple[int, str]] = [
+    (10, "referral_bonus_10"),
+    (25, "referral_bonus_25"),
+    (30, "referral_bonus_30"),
+    (50, "referral_bonus_50"),
+    (55, "referral_bonus_55"),
+    (60, "referral_bonus_60"),
+    (70, "referral_bonus_70"),
+]
+VIP_THRESHOLD = 50
 
 
 def format_stars(value: Decimal | float) -> str:
@@ -25,21 +39,57 @@ def format_stars(value: Decimal | float) -> str:
     return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 
-async def get_tg_reward(session: AsyncSession) -> Decimal:
-    raw_reward = await SettingsRepository(session).get("tg_sponsor_reward", "0.5")
+async def _get_decimal_setting(session: AsyncSession, key: str, default: str) -> Decimal:
+    raw = await SettingsRepository(session).get(key, default)
     try:
-        reward = Decimal(raw_reward)
+        value = Decimal(raw)
     except (InvalidOperation, TypeError):
-        reward = Decimal("0.5")
-    return max(Decimal("0"), reward).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+        value = Decimal(default)
+    return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+
+
+async def get_tg_reward(session: AsyncSession) -> Decimal:
+    return await _get_decimal_setting(session, "tg_sponsor_reward", "0.5")
+
 
 async def get_web_reward(session: AsyncSession) -> Decimal:
-    raw_reward = await SettingsRepository(session).get("web_sponsor_reward", "0.25")
-    try:
-        reward = Decimal(raw_reward)
-    except (InvalidOperation, TypeError):
-        reward = Decimal("0.25")
-    return max(Decimal("0"), reward).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+    return await _get_decimal_setting(session, "web_sponsor_reward", "0.25")
+
+
+async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
+    return await SettingsRepository(session).get_int("min_sponsors_for_reward", 6)
+
+
+async def get_milestone_bonus(session: AsyncSession, new_referrals_count: int) -> Decimal:
+    """One-time bonus for the exact milestone, or the top-tier bonus for every
+    referral once the referrer has passed the highest configured milestone."""
+    for threshold, key in MILESTONE_SETTINGS:
+        if new_referrals_count == threshold:
+            return await _get_decimal_setting(session, key, "0")
+    if new_referrals_count > MILESTONE_SETTINGS[-1][0]:
+        top_key = MILESTONE_SETTINGS[-1][1]
+        return await _get_decimal_setting(session, top_key, "0")
+    return Decimal("0")
+
+
+def _count_sponsor_types(user: User) -> tuple[int, int]:
+    """Count Telegram-resource vs web/other sponsors from the frozen waves."""
+    tg_count = 0
+    web_count = 0
+    for raw_wave in (user.sponsor_wave_one, user.sponsor_wave_two):
+        if not raw_wave:
+            continue
+        try:
+            items = json.loads(raw_wave)
+        except (TypeError, ValueError):
+            continue
+        for item in items:
+            url = item.get("url", "") if isinstance(item, dict) else ""
+            if classify_sponsor_type(url) == "tg":
+                tg_count += 1
+            else:
+                web_count += 1
+    return tg_count, web_count
 
 
 async def reward_returning_referral(
@@ -67,23 +117,9 @@ async def reward_returning_referral(
 
     tg_reward = await get_tg_reward(session)
     web_reward = await get_web_reward(session)
-    
-    # Check current sponsors count for returning user
-    from bot.services.sponsor_wall import calculate_sponsor_counts
-    # Wait, getting current sponsors requires checking all channels which is heavy,
-    # or just fetching from DB? 
-    # To keep it simple and match the plan, we just issue half of their historical reward, or current?
-    # Let's count current sponsors
+
     referred_user_id = user.user_id
-    db_sponsors = await UserRepository(session).get_user_sponsors(referred_user_id)
-    tg_count, web_count = 0, 0
-    for user_sponsor in db_sponsors:
-        if user_sponsor.sponsor.url:
-            url_lower = user_sponsor.sponsor.url.lower()
-            if "t.me" in url_lower or "telegram.me" in url_lower or "telegram.dog" in url_lower:
-                tg_count += 1
-            else:
-                web_count += 1
+    tg_count, web_count = _count_sponsor_types(user)
 
     total_base_reward = (Decimal(str(tg_count)) * tg_reward) + (Decimal(str(web_count)) * web_reward)
     reward = (total_base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
@@ -140,39 +176,18 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not user.sponsors_verified:
         return
 
-    tg_count = 0
-    web_count = 0
-    try:
-        if user.sponsor_wave_one:
-            wave_one = json.loads(user.sponsor_wave_one)
-            for s in wave_one:
-                url = s.get("url", "")
-                if "t.me/" in url or "telegram.me/" in url or "telegram.dog/" in url:
-                    tg_count += 1
-                else:
-                    web_count += 1
-        if user.sponsor_wave_two:
-            wave_two = json.loads(user.sponsor_wave_two)
-            for s in wave_two:
-                url = s.get("url", "")
-                if "t.me/" in url or "telegram.me/" in url or "telegram.dog/" in url:
-                    tg_count += 1
-                else:
-                    web_count += 1
-    except Exception as e:
-        logger.error(f"Failed to parse sponsor waves: {e}")
-        return
-
+    tg_count, web_count = _count_sponsor_types(user)
     total_sponsors = tg_count + web_count
-    
-    if total_sponsors < 6:
+
+    min_sponsors = await get_min_sponsors_for_reward(session)
+    if total_sponsors < min_sponsors:
         user.referral_reward_given = True
         await session.commit()
         if bot:
             try:
                 await bot.send_message(
                     user.referrer_id,
-                    f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум 6, было {total_sponsors})."
+                    f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {min_sponsors}, было {total_sponsors})."
                 )
             except:
                 pass
@@ -188,33 +203,15 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         return
 
     user.referral_reward_given = True
+    user.referral_counted = True
     new_referrals_count = referrer.referrals_count + 1
-    
-    # Explicitly pull is_vip as boolean from DB (fallback to False)
-    referrer_is_vip = getattr(referrer, 'is_vip', False)
 
-    bonus = Decimal("0")
-    became_vip = False
-
-    if new_referrals_count == 10:
-        bonus += Decimal("0.1")
-    elif new_referrals_count == 25:
-        bonus += Decimal("0.3")
-    elif new_referrals_count == 30:
-        bonus += Decimal("0.4")
-    elif new_referrals_count == 50:
-        bonus += Decimal("0.7")
+    referrer_is_vip = getattr(referrer, "is_vip", False)
+    became_vip = new_referrals_count >= VIP_THRESHOLD and not referrer_is_vip
+    if became_vip:
         referrer_is_vip = True
-        became_vip = True
-    elif new_referrals_count == 55:
-        bonus += Decimal("0.8")
-    elif new_referrals_count == 60:
-        bonus += Decimal("0.9")
-    elif new_referrals_count == 70:
-        bonus += Decimal("1.0")
-    elif new_referrals_count > 70:
-        bonus += Decimal("1.0")
 
+    bonus = await get_milestone_bonus(session, new_referrals_count)
     total_reward = reward + bonus
 
     await session.execute(
@@ -240,10 +237,14 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             if bonus > 0:
                 msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
             if became_vip:
-                msg += "\n🌟 Вы получили VIP-статус! При достижении 70 рефералов вы начнете получать бонус +1 ⭐ за каждого следующего!"
-            elif new_referrals_count > 70:
+                top_tier = MILESTONE_SETTINGS[-1][0]
+                msg += (
+                    f"\n🌟 Вы получили VIP-статус! При достижении {top_tier} рефералов "
+                    "вы начнете получать бонус +1 ⭐ за каждого следующего!"
+                )
+            elif new_referrals_count > MILESTONE_SETTINGS[-1][0]:
                 msg += "\n🌟 Включен VIP-бонус +1 ⭐!"
-                
+
             await bot.send_message(
                 referrer.user_id,
                 msg,
@@ -251,19 +252,6 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             )
         except:
             pass
-
-
-async def mark_referral_phone_accepted(
-    user: User,
-    session: AsyncSession,
-    bot: Bot | None = None,
-    *,
-    phone_check_enabled: bool = True,
-) -> None:
-    pass
-
-async def notify_referrer_phone_rejected(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
-    pass
 
 
 async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: Bot) -> None:
@@ -277,10 +265,6 @@ async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: 
         )
     except:
         pass
-
-
-async def notify_referrer_sponsors_verified(user: User, session: AsyncSession, bot: Bot) -> None:
-    pass
 
 
 async def notify_referrer_joined(referrer_id: int, new_user: User, session: AsyncSession, bot: Bot) -> None:

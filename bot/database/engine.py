@@ -34,7 +34,8 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # create_all does not alter an existing SQLite database. Keep startup
-        # backward-compatible for installations created before phone checks.
+        # backward-compatible for installations created before later columns
+        # were added.
         if settings.database_url.startswith("sqlite"):
             await conn.run_sync(_add_missing_user_columns)
 
@@ -43,12 +44,6 @@ def _add_missing_user_columns(connection) -> None:
     columns = {column["name"] for column in inspect(connection).get_columns("users")}
     additions = {
         "referral_counted": "BOOLEAN NOT NULL DEFAULT 0",
-        "phone_number": "VARCHAR(32)",
-        "phone_country_code": "VARCHAR(8)",
-        "phone_verified": "BOOLEAN NOT NULL DEFAULT 0",
-        "phone_rejection_notified": "BOOLEAN NOT NULL DEFAULT 0",
-        "country_notice_message_id": "INTEGER",
-        "country_notice_pinned": "BOOLEAN NOT NULL DEFAULT 0",
         "sponsor_wave": "INTEGER NOT NULL DEFAULT 0",
         "sponsor_wave_one": "TEXT",
         "sponsor_wave_two": "TEXT",

@@ -1,38 +1,24 @@
-import asyncio
 from datetime import datetime
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import (
-    CallbackQuery,
-    InlineKeyboardMarkup,
-    Message,
-    ReplyKeyboardRemove,
-)
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.content import ContentRepository
-from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
+from bot.middlewares.sponsor_wall import run_sponsor_wall_check
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
 from bot.services.referral import (
     check_referral_reward,
     notify_referrer_joined,
-    notify_referrer_sponsors_verified,
     notify_user_sponsors_verified,
     reward_returning_referral,
-)
-from bot.services.sponsor_results import all_configured_integrations_failed
-from bot.services.sponsor_waves import (
-    evaluate_waves,
-    sponsor_wave_markup,
-    sponsor_wave_text,
 )
 
 router = Router()
@@ -107,96 +93,12 @@ async def cmd_start(
 
     # Show sponsor wall if not verified yet
     if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
-        import asyncio as _asyncio
-
-        from bot.services.botohub import check_botohub
-        from bot.services.tgrass import check_tgrass
-
-        tgrass_result, botohub_result = await _asyncio.gather(
-            check_tgrass(
-                db_user.user_id,
-                settings.tgrass_code,
-                is_premium=bool(message.from_user and message.from_user.is_premium),
-                username=message.from_user.username if message.from_user else None,
-                lang=message.from_user.language_code or "ru" if message.from_user else "ru",
-            ),
-            check_botohub(db_user.user_id, settings.botohub_key),
-            return_exceptions=True,
-        )
-        integration_error = all_configured_integrations_failed(
-            tgrass_configured=bool(settings.tgrass_code),
-            tgrass_result=tgrass_result,
-            botohub_configured=bool(settings.botohub_key),
-            botohub_result=botohub_result,
-        )
-        if integration_error:
-            await message.answer(
-                "⚠️ Не удалось проверить подписки прямо сейчас. Попробуйте отправить /start ещё раз через несколько секунд."
-            )
-            return
-        wave_size = min(
-            10,
-            max(1, await SettingsRepository(session).get_int(
-                "sponsor_max_channels",
-                10,
-            )),
-        )
-        wave_state = evaluate_waves(
-            db_user,
-            tgrass_result=tgrass_result,
-            botohub_result=botohub_result,
-            wave_size=wave_size,
-        )
-        
-        if db_user.referrer_id and not db_user.referral_reward_given:
-            from bot.services.sponsor_waves import _load
-            from datetime import datetime, timezone
-            
-            total_sponsors = len(_load(db_user.sponsor_wave_one)) + len(_load(db_user.sponsor_wave_two))
-            if total_sponsors < 3:
-                rejected_referrer = db_user.referrer_id
-                db_user.referrer_id = None
-                
-                now = datetime.now(timezone.utc).replace(tzinfo=None)
-                is_recently_created = (now - db_user.created_at).total_seconds() < 86400
-                
-                if is_recently_created:
-                    import html
-                    username_display = (
-                        f"@{html.escape(message.from_user.username)}"
-                        if message.from_user and message.from_user.username
-                        else html.escape(message.from_user.first_name or str(message.from_user.id)) if message.from_user else "Пользователь"
-                    )
-                    try:
-                        await bot.send_message(
-                            rejected_referrer,
-                            f"❌ Пользователю <b>{username_display}</b> выдало меньше 6 спонсоров (от BotoHub и TGrass).\n"
-                            f"Награда за него не будет засчитана.",
-                            parse_mode="HTML"
-                        )
-                    except Exception:
-                        pass
-
-        await session.commit()
-        if wave_state.status == "unavailable":
-            await message.answer(
-                "⚠️ Не удалось проверить обязательных спонсоров. "
-                "Попробуйте отправить /start ещё раз через несколько секунд."
-            )
-            return
-        if wave_state.status == "pending":
-            await message.answer(
-                sponsor_wave_text(
-                    wave_state.wave,
-                    wave_state.total_waves,
-                ),
-                parse_mode="HTML",
-                reply_markup=sponsor_wave_markup(wave_state.items or []),
-            )
+        if not await run_sponsor_wall_check(message, db_user, session):
             return
 
     db_user.sponsors_verified = True
     await session.commit()
+    await notify_user_sponsors_verified(db_user, session, bot)
     await check_referral_reward(db_user, session, bot)
     await _send_main_menu(message, db_user, session)
 
@@ -233,9 +135,6 @@ async def cb_sponsor_check(
     state: FSMContext,
     bot: Bot,
 ) -> None:
-    from bot.services.botohub import check_botohub
-    from bot.services.tgrass import check_tgrass
-
     # Old sponsor buttons can survive configuration changes.
     # IMPORTANT: If no providers are configured at all, this button should not
     # be functional — we cannot verify subscriptions without a provider.
@@ -247,91 +146,14 @@ async def cb_sponsor_check(
         )
         return
 
-    tgrass_result, botohub_result = await asyncio.gather(
-        check_tgrass(
-            db_user.user_id,
-            settings.tgrass_code,
-            is_premium=bool(callback.from_user and callback.from_user.is_premium),
-            username=callback.from_user.username if callback.from_user else None,
-            lang=callback.from_user.language_code or "ru" if callback.from_user else "ru",
-        ),
-        check_botohub(db_user.user_id, settings.botohub_key),
-        return_exceptions=True,
-    )
-
-    integration_error = all_configured_integrations_failed(
-        tgrass_configured=bool(settings.tgrass_code),
-        tgrass_result=tgrass_result,
-        botohub_configured=bool(settings.botohub_key),
-        botohub_result=botohub_result,
-    )
-    if integration_error:
-        await callback.answer(
-            "⚠️ Интеграция временно недоступна. Попробуйте ещё раз позже.",
-            show_alert=True,
-        )
-        return
-
-    previous_wave = db_user.sponsor_wave
-    wave_size = min(
-        10,
-        max(1, await SettingsRepository(session).get_int(
-            "sponsor_max_channels",
-            10,
-        )),
-    )
-    wave_state = evaluate_waves(
-        db_user,
-        tgrass_result=tgrass_result,
-        botohub_result=botohub_result,
-        wave_size=wave_size,
-    )
-    await session.commit()
-
-    if wave_state.status == "unavailable":
-        await callback.answer(
-            "⚠️ Не удалось проверить спонсоров. Попробуйте ещё раз позже.",
-            show_alert=True,
-        )
-        return
-
-    if wave_state.status == "pending":
-        text = sponsor_wave_text(
-            wave_state.wave,
-            wave_state.total_waves,
-        )
-        markup = sponsor_wave_markup(wave_state.items or [])
-        try:
-            await callback.message.edit_text(
-                text,
-                parse_mode="HTML",
-                reply_markup=markup,
-            )
-        except Exception:
-            await callback.message.answer(
-                text,
-                parse_mode="HTML",
-                reply_markup=markup,
-            )
-        if previous_wave == 1 and wave_state.wave == 2:
-            await callback.answer(
-                "Готово! Теперь подпишись на оставшиеся каналы."
-            )
-        else:
-            await callback.answer(
-                "Вы подписались ещё не на все обязательные каналы.",
-                show_alert=True,
-            )
+    if not await run_sponsor_wall_check(callback, db_user, session):
         return
 
     # All subscribed
     db_user.sponsors_verified = True
     await session.commit()
+    await notify_user_sponsors_verified(db_user, session, bot)
     await check_referral_reward(db_user, session, bot)
-    
-    if not db_user.referral_reward_given:
-        await notify_user_sponsors_verified(db_user, session, bot)
-        await notify_referrer_sponsors_verified(db_user, session, bot)
 
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")

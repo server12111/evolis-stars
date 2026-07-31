@@ -18,6 +18,14 @@ router = Router()
 SETTING_LABELS = {
     "tg_sponsor_reward": ("🎁 Награда за TG спонсора", "число ⭐"),
     "web_sponsor_reward": ("🎁 Награда за Web спонсора", "число ⭐"),
+    "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
+    "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число ⭐"),
+    "referral_bonus_25": ("🏅 Бонус за 25 рефералов", "число ⭐"),
+    "referral_bonus_30": ("🏅 Бонус за 30 рефералов", "число ⭐"),
+    "referral_bonus_50": ("🏅 Бонус за 50 рефералов (VIP)", "число ⭐"),
+    "referral_bonus_55": ("🏅 Бонус за 55 рефералов", "число ⭐"),
+    "referral_bonus_60": ("🏅 Бонус за 60 рефералов", "число ⭐"),
+    "referral_bonus_70": ("🏅 Бонус за 70+ рефералов", "число ⭐"),
     "bonus_min": ("🎁 Мин. ежедн. бонус", "число ⭐"),
     "bonus_max": ("🎁 Макс. ежедн. бонус", "число ⭐"),
     "tasks_reward": ("📋 Награда за задание", "число ⭐"),
@@ -42,6 +50,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     repo = SettingsRepository(session)
     tg_reward = await repo.get_float("tg_sponsor_reward", 0.5)
     web_reward = await repo.get_float("web_sponsor_reward", 0.25)
+    min_sponsors = await repo.get_int("min_sponsors_for_reward", 6)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
     task_reward = await repo.get_float("tasks_reward", 0.3)
@@ -54,6 +63,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
         f"⚙️ <b>Глобальные настройки</b>\n\n"
         f"🎁 Награда за TG спонсора: <b>{tg_reward:.2f} ⭐</b>\n"
         f"🎁 Награда за Web спонсора: <b>{web_reward:.2f} ⭐</b>\n"
+        f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
@@ -100,10 +110,10 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         return
     repo = SettingsRepository(session)
     integer_keys = {
-        "min_tasks_for_referral",
         "duel_min_refs",
         "lottery_min_refs",
         "sponsor_max_channels",
+        "min_sponsors_for_reward",
     }
     if key in integer_keys and not val.is_integer():
         await message.answer(
@@ -111,9 +121,9 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
             reply_markup=settings_cancel_kb(),
         )
         return
-    if key == "sponsor_max_channels" and val > 10:
+    if key == "sponsor_max_channels" and val > 20:
         await message.answer(
-            "❌ За один раз можно показать не больше 10 спонсоров:",
+            "❌ За один раз можно показать не больше 20 спонсоров:",
             reply_markup=settings_cancel_kb(),
         )
         return

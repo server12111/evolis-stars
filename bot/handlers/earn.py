@@ -9,19 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
-from bot.database.repositories.content import ContentRepository
+from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.earn import earn_kb, return_referrals_kb
 from bot.services.referral import (
+    MILESTONE_SETTINGS,
     REFERRAL_RETURN_DAYS,
-    check_referral_reward,
+    VIP_THRESHOLD,
     format_stars,
+    get_milestone_bonus,
+    get_min_sponsors_for_reward,
     get_tg_reward,
     get_web_reward,
-    notify_referrer_joined,
-    notify_referrer_sponsors_verified,
-    notify_user_sponsors_verified,
-    reward_returning_referral,
 )
 
 router = Router()
@@ -42,37 +41,33 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     )
     tg_reward = await get_tg_reward(session)
     web_reward = await get_web_reward(session)
+    min_sponsors = await get_min_sponsors_for_reward(session)
+    top_tier, _ = MILESTONE_SETTINGS[-1]
+    top_bonus = await get_milestone_bonus(session, top_tier)
 
-    _default_text = (
-        f"💸 <b>Заработать</b>\n\n"
-        f"Приглашай друзей по реферальной ссылке и получай звезды за каждого спонсора, на которого они подписались!\n\n"
-        f"🔹 Спонсоры Telegram: <b>{format_stars(tg_reward)} ⭐</b>\n"
-        f"🔹 Web спонсоры: <b>{format_stars(web_reward)} ⭐</b>\n\n"
-        f"<i>Для получения награды реферал должен подписаться на не менее 6 спонсоров.</i>\n\n"
-        f"👑 <b>VIP система</b>\n"
-        f"При достижении 50 рефералов вы получаете статус VIP, а после 70 рефералов — дополнительные <b>+1 ⭐</b> за каждого следующего!\n\n"
-        f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n"
-        f"🔗 Твоя ссылка:\n<code>{ref_link}</code>"
+    format_kwargs = dict(
+        referrals=db_user.referrals_count,
+        link=ref_link,
+        balance=float(db_user.stars_balance),
+        tg_reward=format_stars(tg_reward),
+        web_reward=format_stars(web_reward),
+        min_sponsors=min_sponsors,
+        vip_threshold=VIP_THRESHOLD,
+        top_tier=top_tier,
+        top_bonus=format_stars(top_bonus),
+        reward=format_stars(tg_reward),  # fallback for old templates
+        referral_reward=format_stars(tg_reward),  # fallback for old templates
+        return_reward=format_stars(tg_reward / Decimal("2")),  # fallback
+        returnable=returnable_count,
     )
-    
-    if template and "За одного обычного реферала:" in template:
-        template = _default_text
-        
+
     if "{" in template:
         try:
-            text = template.format(
-                referrals=db_user.referrals_count,
-                link=ref_link,
-                balance=float(db_user.stars_balance),
-                reward=format_stars(tg_reward), # fallback for old templates
-                referral_reward=format_stars(tg_reward), # fallback for old templates
-                return_reward=format_stars(tg_reward / Decimal("2")), # fallback
-                returnable=returnable_count,
-            )
+            text = template.format(**format_kwargs)
         except (KeyError, ValueError, IndexError):
-            text = _default_text
+            text = DEFAULT_TEXTS["earn"].format(**format_kwargs)
     else:
-        text = _default_text
+        text = template
     text += (
         f"\n\n♻️ <b>Повторные приглашения</b>\n"
         f"Если засчитанный реферал не пользуется ботом <b>{REFERRAL_RETURN_DAYS} дней</b>, "

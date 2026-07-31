@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.database.models import User
 
 WAVE_SIZE = 10
+MAX_WAVE_SIZE = 20
 MAX_WAVES = 2
 
 ProviderResult = list[dict] | BaseException
@@ -30,6 +31,14 @@ def _key(item: dict) -> tuple[str, str]:
 
 def _url_key(item: dict) -> str:
     return str(item.get("url", "")).strip().rstrip("/").lower()
+
+
+def classify_sponsor_type(url: str) -> Literal["tg", "web"]:
+    """Classify a sponsor link as a Telegram resource or a web/other link."""
+    url_key = str(url or "").strip().lower()
+    if "t.me/" in url_key or "telegram.me/" in url_key or "telegram.dog/" in url_key:
+        return "tg"
+    return "web"
 
 
 def _decorate(items: list[dict], provider: str) -> list[dict]:
@@ -84,13 +93,15 @@ def initialize_waves(
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
     piarflow_result: ProviderResult = None,
-    wave_size: int = WAVE_SIZE,
+    wave_size: int | None = None,
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves."""
     if user.sponsor_wave in {1, 2}:
         return
 
-    wave_size = max(1, min(WAVE_SIZE, wave_size))
+    if wave_size is None:
+        wave_size = WAVE_SIZE
+    wave_size = max(1, min(MAX_WAVE_SIZE, wave_size))
     combined: list[dict] = []
     if isinstance(botohub_result, list):
         combined.extend(_decorate(botohub_result, "botohub"))
@@ -106,22 +117,14 @@ def initialize_waves(
         if not url_key or url_key in seen_urls:
             continue
         seen_urls.add(url_key)
-        if "t.me/" in url_key or "telegram.me/" in url_key or "telegram.dog/" in url_key:
-            item["type"] = "tg"
-        else:
-            item["type"] = "web"
+        item["type"] = classify_sponsor_type(url_key)
         unique.append(item)
         if len(unique) >= wave_size * MAX_WAVES:
             break
 
-    # Priority: TG > Web > Piarflow (or any custom order). Let's put Piarflow last or Web last?
-    # tg=0, web=1, piarflow=2
-    def _sort_key(x):
-        if x.get("provider") == "piarflow":
-            return 2
-        return 0 if x.get("type") == "tg" else 1
-
-    unique.sort(key=_sort_key)
+    # Telegram-resource sponsors are shown first, web/other sponsors last —
+    # regardless of which provider supplied them.
+    unique.sort(key=lambda x: 0 if x.get("type") == "tg" else 1)
 
     first = unique[:wave_size]
     second = unique[wave_size:wave_size * MAX_WAVES]
@@ -136,16 +139,20 @@ def evaluate_waves(
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
     piarflow_result: ProviderResult = None,
-    wave_size: int = WAVE_SIZE,
+    piarflow_configured: bool = False,
+    wave_size: int | None = None,
 ) -> SponsorWaveState:
     """Check only saved sponsors and advance through both waves in order."""
+    if wave_size is None:
+        wave_size = WAVE_SIZE
+
     # On the first request every configured provider must answer. Otherwise a
     # temporary outage could freeze waves without that provider's mandatory
     # sponsors and let the user pass them permanently.
     if user.sponsor_wave not in {1, 2, 3} and (
         not isinstance(tgrass_result, list)
         or not isinstance(botohub_result, list)
-        or (piarflow_result is not None and not isinstance(piarflow_result, list))
+        or (piarflow_configured and not isinstance(piarflow_result, list))
     ):
         return SponsorWaveState("unavailable")
 
@@ -200,7 +207,7 @@ def evaluate_waves(
                 "pending",
                 wave=wave,
                 total_waves=_total_waves(user),
-                items=remaining[:WAVE_SIZE],
+                items=remaining[:wave_size],
             )
 
         if wave == 1 and _load(user.sponsor_wave_two):
@@ -217,7 +224,7 @@ def sponsor_wave_markup(items: list[dict]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     buttons = [
         InlineKeyboardButton(text="Подписаться", url=str(item["url"]))
-        for item in items[:WAVE_SIZE]
+        for item in items
         if item.get("url")
     ]
     for index in range(0, len(buttons), 2):

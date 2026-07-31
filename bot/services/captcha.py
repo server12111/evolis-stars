@@ -14,14 +14,3 @@ def generate_captcha() -> tuple[str, int]:
         answer = a - b
         question = f"{a} - {b}"
     return question, answer
-
-
-_FRUITS = ["🍎", "🍊", "🍋", "🍇", "🍓", "🍒", "🥭", "🍑", "🍌"]
-
-
-def generate_fruit_captcha() -> tuple[str, list[str]]:
-    """Returns (target_emoji, shuffled_9_emoji_grid)."""
-    grid = _FRUITS.copy()
-    random.shuffle(grid)
-    target = random.choice(grid)
-    return target, grid

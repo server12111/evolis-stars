@@ -175,7 +175,6 @@ _BUTTON_KEYWORDS: tuple[tuple[str, str], ...] = (
 )
 
 _VISUAL_BUTTON_PREFIXES = (
-    "captcha:",
     "mines:open:",
     "mines:noop",
     "tower:pick:",
