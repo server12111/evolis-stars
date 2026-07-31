@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
+import time
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.task import TaskRepository
 from bot.keyboards.tasks import (
@@ -55,11 +56,15 @@ async def _find_next_pf_task(s_repo: SettingsRepository, db_user: User, pf_tasks
             f"pf_skipped:{db_user.user_id}:{link_id}",
             "",
         )
+        is_skipped = False
+        if skipped.isdigit() and int(time.time()) - int(skipped) < 900:
+            is_skipped = True
+            
         legacy_done = await s_repo.get(
             f"pf_done:{db_user.user_id}:{link[:30]}",
             "",
         )
-        if done != "1" and legacy_done != "1" and skipped != "1":
+        if done != "1" and legacy_done != "1" and not is_skipped:
             return idx, sp
     return None, None
 
@@ -400,7 +405,7 @@ async def cb_pf_task_skip(callback: CallbackQuery, db_user: User, session: Async
         await callback.answer()
         return
     s_repo = SettingsRepository(session)
-    await s_repo.set(f"pf_skipped:{db_user.user_id}:{link_key}", "1")
+    await s_repo.set(f"pf_skipped:{db_user.user_id}:{link_key}", str(int(time.time())))
     await callback.answer()
     await _show_pf_task(callback, db_user, session)
 
@@ -551,9 +556,14 @@ async def _show_fh_task(
         if sig == skip_signature:
             continue
         key = f"fh_done:{db_user.user_id}:{sig}"
-        skip_key = f"fh_skipped:{db_user.user_id}:{sig}"
-        if await s_repo.get(key, "") == "1" or await s_repo.get(skip_key, "") == "1":
+        if await s_repo.get(key, "") == "1":
             continue
+            
+        skip_key = f"fh_skipped:{db_user.user_id}:{sig}"
+        skipped = await s_repo.get(skip_key, "")
+        if skipped.isdigit() and int(time.time()) - int(skipped) < 900:
+            continue
+            
         sponsor = task
         break
 
@@ -603,7 +613,7 @@ async def cb_fh_task_skip(callback: CallbackQuery, db_user: User, session: Async
         return
     
     s_repo = SettingsRepository(session)
-    await s_repo.set(f"fh_skipped:{db_user.user_id}:{signature}", "1")
+    await s_repo.set(f"fh_skipped:{db_user.user_id}:{signature}", str(int(time.time())))
     await callback.answer()
     await _show_fh_task(callback, db_user, session)
 
