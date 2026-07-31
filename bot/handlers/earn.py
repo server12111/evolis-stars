@@ -126,8 +126,8 @@ async def cb_return_referrals(
             limit=RETURN_PAGE_SIZE,
         )
 
-    ordinary_reward = await get_referral_reward(session)
-    reward = await get_return_reward(session)
+    tg_reward = await get_tg_reward(session)
+    web_reward = await get_web_reward(session)
     without_username = max(0, total - contactable)
     if referrals:
         lines = []
@@ -149,8 +149,7 @@ async def cb_return_referrals(
     text = (
         "♻️ <b>Кого можно пригласить повторно</b>\n\n"
         f"{body}\n\n"
-        f"Обычная награда: <b>{format_stars(ordinary_reward)} ⭐</b>.\n"
-        f"За возврат по твоей ссылке: <b>{format_stars(reward)} ⭐</b>.\n"
+        f"Награда за возврат: <b>половина текущей награды за спонсоров</b> реферала.\n"
         f"Доступно всего: <b>{total}</b>"
     )
     if without_username:

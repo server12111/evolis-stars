@@ -74,6 +74,7 @@ async def reward_returning_referral(
     # or just fetching from DB? 
     # To keep it simple and match the plan, we just issue half of their historical reward, or current?
     # Let's count current sponsors
+    referred_user_id = user.user_id
     db_sponsors = await UserRepository(session).get_user_sponsors(referred_user_id)
     tg_count, web_count = 0, 0
     for user_sponsor in db_sponsors:
@@ -90,7 +91,6 @@ async def reward_returning_referral(
     if reward <= 0:
         return None
 
-    referred_user_id = user.user_id
     session.add(
         ReferralReactivation(
             referred_user_id=referred_user_id,
