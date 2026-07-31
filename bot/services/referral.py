@@ -272,7 +272,7 @@ async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: 
     try:
         await bot.send_message(
             user.user_id,
-            f"✅ <b>Вы подписались на спонсоров!</b>",
+            "✅ <b>Вы подписались на спонсоров!</b>",
             parse_mode="HTML",
         )
     except:
