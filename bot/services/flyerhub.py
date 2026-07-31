@@ -112,7 +112,9 @@ async def fh_check_task(api_key: str, signature: str) -> str | None:
                     
                     if "error" in data and data["error"]:
                         logger.warning("FlyerHub check_task returned error: %s", data["error"])
-                        return None
+                        # If FlyerHub returns an error (e.g., signature not found, not completed), 
+                        # treat it as incomplete so the user sees a normal message instead of an API error.
+                        return "incomplete"
 
                     result = data.get("result")
                     return str(result) if result else None
