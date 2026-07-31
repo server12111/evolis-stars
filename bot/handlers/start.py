@@ -76,6 +76,9 @@ async def _send_main_menu(message: Message, user: User, session: AsyncSession) -
 
 
 async def _show_captcha(message: Message, state: FSMContext) -> None:
+    if await state.get_state() == CaptchaStates.waiting:
+        return
+    
     target, grid = generate_fruit_captcha()
     await state.set_state(CaptchaStates.waiting)
     await state.update_data(captcha_target=target)
