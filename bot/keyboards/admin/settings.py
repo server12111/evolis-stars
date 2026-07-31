@@ -8,7 +8,6 @@ NUMERIC_SETTINGS = [
     ("bonus_min", "💰 Мин. бонус"),
     ("bonus_max", "💰 Макс. бонус"),
     ("tasks_reward", "📋 Награда за задание"),
-    ("min_tasks_for_referral", "📊 Мин. заданий для реферала"),
     ("withdraw_min", "⭐ Мин. сумма вывода"),
     ("duel_commission", "⚔️ Комиссия дуэлей"),
     ("duel_min_refs", "⚔️ Мин. рефералов для дуэлей"),

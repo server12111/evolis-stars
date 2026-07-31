@@ -16,10 +16,10 @@ from bot.states.admin import AdminSettingsStates
 router = Router()
 
 SETTING_LABELS = {
-    "referral_reward": ("💰 Реферальная награда", "число ⭐"),
+    "tg_sponsor_reward": ("🎁 Награда за TG спонсора", "число ⭐"),
+    "web_sponsor_reward": ("🎁 Награда за Web спонсора", "число ⭐"),
     "bonus_min": ("🎁 Мин. ежедн. бонус", "число ⭐"),
     "bonus_max": ("🎁 Макс. ежедн. бонус", "число ⭐"),
-    "min_tasks_for_referral": ("📋 Мин. заданий для реф.", "целое число"),
     "tasks_reward": ("📋 Награда за задание", "число ⭐"),
     "withdraw_min": ("⭐ Мин. сумма вывода", "число ⭐"),
     "duel_commission": ("⚔️ Комиссия дуэлей %", "число 0-100"),
@@ -40,10 +40,10 @@ TOGGLE_SETTINGS = {
 async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     if not _is_admin(db_user): return
     repo = SettingsRepository(session)
-    ref_reward = await repo.get_float("referral_reward", 3.0)
+    tg_reward = await repo.get_float("tg_sponsor_reward", 0.5)
+    web_reward = await repo.get_float("web_sponsor_reward", 0.25)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
-    min_tasks = await repo.get_int("min_tasks_for_referral", 5)
     task_reward = await repo.get_float("tasks_reward", 0.3)
     bonus_on = await repo.get_bool("bonus_enabled", True)
     withdraw_on = await repo.get_bool("withdraw_enabled", True)
@@ -52,9 +52,9 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
-        f"💰 Реф. награда: <b>{ref_reward:.1f} ⭐</b>\n"
+        f"🎁 Награда за TG спонсора: <b>{tg_reward:.2f} ⭐</b>\n"
+        f"🎁 Награда за Web спонсора: <b>{web_reward:.2f} ⭐</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
-        f"📋 Мин. заданий для реф.: <b>{min_tasks}</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
         f"⭐ Вывод: {'✅' if withdraw_on else '❌'}\n"
