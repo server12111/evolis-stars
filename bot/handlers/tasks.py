@@ -479,6 +479,12 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
     db_user.tasks_completed_count += 1
     await session.commit()
     await check_referral_reward(db_user, session, bot)
+    
+    try:
+        await callback.message.edit_text("✅ Подписка подтверждена!\nЗагружаем следующее задание...", parse_mode="HTML")
+    except Exception:
+        pass
+
     # Показываем флешку «Задание выполнено» сверху экрана
     try:
         await callback.answer("✅ Задание выполнено!", show_alert=True)
