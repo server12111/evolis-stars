@@ -91,30 +91,20 @@ async def run_sponsor_wall_check(
     """Check all configured sponsor providers and show the current wave.
 
     Assumes the caller already verified at least one provider is configured.
+    PiarFlow is only pulled in when tgrass+botohub alone don't cover the
+    configured reward minimum (or when a wave already frozen a PiarFlow
+    sponsor that still needs a subscription re-check) — it tops up the free
+    exchange providers rather than always being shown.
     Returns True when every wave is complete and the caller should proceed;
     False when a wave or a retry message was already sent to the user.
     """
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
     from bot.services.piarflow import get_sponsors, check_sponsors
-    from bot.services.sponsor_waves import _current_items
+    from bot.services.sponsor_waves import _current_items, _url_key
+    from bot.services.referral import get_min_sponsors_for_reward
 
-    piarflow_configured = bool(settings.piarflow_key)
-    if piarflow_configured:
-        saved_items = _current_items(db_user)
-        if saved_items:
-            piarflow_links = [
-                str(item.get("url", "")) for item in saved_items
-                if str(item.get("provider", "")) == "piarflow" and item.get("url")
-            ]
-            if piarflow_links:
-                await check_sponsors(
-                    settings.piarflow_key,
-                    db_user.user_id,
-                    piarflow_links,
-                )
-
-    tgrass_result, botohub_result, piarflow_result = await asyncio.gather(
+    tgrass_result, botohub_result = await asyncio.gather(
         check_tgrass(
             db_user.user_id,
             settings.tgrass_code,
@@ -129,22 +119,64 @@ async def run_sponsor_wall_check(
             ),
         ),
         check_botohub(db_user.user_id, settings.botohub_key),
-        get_sponsors(
-            settings.piarflow_key,
-            db_user.user_id,
-            db_user.user_id,
-            max_sponsors=20,
-        ) if piarflow_configured else asyncio.sleep(0),
         return_exceptions=True,
     )
-    if not piarflow_configured:
-        piarflow_result = None
+
+    piarflow_needed = False
+    piarflow_result: list[dict] | None = None
+
+    if settings.piarflow_key:
+        if db_user.sponsor_wave in (1, 2):
+            # Wave already frozen — only re-check PiarFlow if it actually
+            # contributed a sponsor to the currently active wave.
+            saved_items = _current_items(db_user)
+            piarflow_links = [
+                str(item.get("url", "")) for item in saved_items
+                if str(item.get("provider", "")) == "piarflow" and item.get("url")
+            ]
+            piarflow_needed = bool(piarflow_links)
+            if piarflow_needed:
+                await check_sponsors(
+                    settings.piarflow_key,
+                    db_user.user_id,
+                    piarflow_links,
+                )
+                piarflow_result = await get_sponsors(
+                    settings.piarflow_key,
+                    db_user.user_id,
+                    db_user.user_id,
+                    max_sponsors=20,
+                )
+        else:
+            # Not yet frozen — top PiarFlow up only far enough to cover the
+            # reward-eligibility minimum that tgrass+botohub didn't reach.
+            free_urls: set[str] = set()
+            for provider_result in (tgrass_result, botohub_result):
+                if isinstance(provider_result, list):
+                    free_urls.update(
+                        url_key
+                        for item in provider_result
+                        if (url_key := _url_key(item))
+                    )
+            gap = await get_min_sponsors_for_reward(session) - len(free_urls)
+            piarflow_needed = gap > 0
+            if piarflow_needed:
+                piarflow_result = await get_sponsors(
+                    settings.piarflow_key,
+                    db_user.user_id,
+                    db_user.user_id,
+                    max_sponsors=min(20, gap),
+                )
+
+    if not piarflow_needed:
+        piarflow_result = []
 
     logger.info(
-        "WALL uid=%s tgrass=%s botohub=%s piarflow=%s",
+        "WALL uid=%s tgrass=%s botohub=%s piarflow_needed=%s piarflow=%s",
         db_user.user_id,
         type(tgrass_result).__name__,
         type(botohub_result).__name__,
+        piarflow_needed,
         type(piarflow_result).__name__,
     )
 
@@ -153,7 +185,7 @@ async def run_sponsor_wall_check(
         tgrass_result=tgrass_result,
         botohub_configured=bool(settings.botohub_key),
         botohub_result=botohub_result,
-        piarflow_configured=piarflow_configured,
+        piarflow_configured=piarflow_needed,
         piarflow_result=piarflow_result,
     ):
         await _show_retry(inner)
@@ -171,7 +203,7 @@ async def run_sponsor_wall_check(
         tgrass_result=tgrass_result,
         botohub_result=botohub_result,
         piarflow_result=piarflow_result,
-        piarflow_configured=piarflow_configured,
+        piarflow_configured=piarflow_needed,
         wave_size=wave_size,
     )
     await session.commit()
