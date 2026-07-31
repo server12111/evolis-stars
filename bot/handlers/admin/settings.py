@@ -35,6 +35,9 @@ SETTING_LABELS = {
     "lottery_min_refs": ("🎟 Мин. рефералов для лотереи", "целое число"),
     "games_min_refs": ("🎮 Мин. рефералов для игр", "целое число"),
     "sponsor_max_channels": ("📢 Макс. каналов спонсоров", "целое число"),
+    "mines_min_bet": ("💣 Мин. ставка в Минах", "число ⭐"),
+    "mines_house_edge": ("💣 Комиссия казино в Минах", "число 0-1 (напр. 0.1 = 10%)"),
+    "mines_max_coeff": ("💣 Макс. множитель в Минах", "число (напр. 10)"),
 }
 
 TOGGLE_SETTINGS = {
@@ -46,8 +49,9 @@ TOGGLE_SETTINGS = {
 
 
 @router.callback_query(lambda c: c.data == "admin:settings")
-async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     repo = SettingsRepository(session)
     tg_reward = await repo.get_float("tg_sponsor_reward", 0.5)
     web_reward = await repo.get_float("web_sponsor_reward", 0.25)
@@ -135,6 +139,12 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
             reply_markup=settings_cancel_kb(),
         )
         return
+    if key == "mines_house_edge" and val > 1:
+        await message.answer(
+            "❌ Комиссия казино в Минах — доля от 0 до 1 (напр. 0.1 = 10%):",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
     await state.clear()
     stored_value = str(int(val)) if key in integer_keys else str(val)
     await repo.set(key, stored_value)
@@ -143,7 +153,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:settings_toggle:"))
-async def cb_set_toggle(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_set_toggle(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     key = callback.data.split(":", 2)[2]
     if key not in TOGGLE_SETTINGS:
@@ -155,4 +165,4 @@ async def cb_set_toggle(callback: CallbackQuery, db_user: User, session: AsyncSe
     label = TOGGLE_SETTINGS[key]
     status = "включён" if not current else "отключён"
     await callback.answer(f"{label} {status}")
-    await cb_settings(callback, db_user, session)
+    await cb_settings(callback, db_user, session, state)

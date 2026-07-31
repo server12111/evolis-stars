@@ -16,10 +16,11 @@ router = Router()
 
 
 @router.callback_query(lambda c: c.data == "admin:promo")
-async def cb_promo(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_promo(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer("❌ Нет доступа.", show_alert=True)
         return
+    await state.clear()
     repo = PromoRepository(session)
     promos = await repo.all_active()
     text = f"🎟 <b>Промокоды</b>\n\nАктивных: <b>{len(promos)}</b>"

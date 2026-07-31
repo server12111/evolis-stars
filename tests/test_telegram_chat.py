@@ -14,6 +14,7 @@ class TelegramChatTests(unittest.TestCase):
     def test_private_invite_link_is_not_misidentified_as_chat(self) -> None:
         self.assertIsNone(telegram_chat_id("https://t.me/+privateInvite"))
         self.assertIsNone(telegram_chat_id("https://t.me/joinchat/privateInvite"))
+        self.assertIsNone(telegram_chat_id("https://t.me/c/1234567890/33"))
 
     def test_restricted_non_member_is_not_subscribed(self) -> None:
         self.assertFalse(is_subscribed(SimpleNamespace(status="restricted", is_member=False)))

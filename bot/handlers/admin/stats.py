@@ -1,5 +1,6 @@
 from aiogram import Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,10 +35,11 @@ async def cmd_admin(message: Message, db_user: User) -> None:
 
 
 @router.callback_query(lambda c: c.data == "admin:main")
-async def cb_admin_main(callback: CallbackQuery, db_user: User) -> None:
+async def cb_admin_main(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer("❌ Нет доступа.", show_alert=True)
         return
+    await state.clear()
     try:
         await callback.message.edit_text(
             "🔐 <b>Админ-панель</b>\n\nВыбери раздел:",

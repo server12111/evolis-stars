@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 _MONEY_STEP = Decimal("0.01")
 
 
+def compute_duel_payout(amount: Decimal, commission_percent: float) -> Decimal:
+    """Winner payout for a duel: both stakes minus the house commission."""
+    commission = Decimal(str(min(100.0, max(0.0, commission_percent)) / 100))
+    return (amount * 2 * (1 - commission)).quantize(_MONEY_STEP, rounding=ROUND_HALF_UP)
+
+
 async def _notify(bot: Bot, user_id: int | None, text: str) -> None:
     if not user_id:
         return
@@ -104,18 +110,12 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                         "duel_commission",
                         20.0,
                     )
-                    commission = Decimal(
-                        str(min(100.0, max(0.0, commission_percent)) / 100)
-                    )
                     winner_id = (
                         current.creator_id
                         if current.creator_roll > current.joiner_roll
                         else current.joiner_id
                     )
-                    payout = (amount * 2 * (1 - commission)).quantize(
-                        _MONEY_STEP,
-                        rounding=ROUND_HALF_UP,
-                    )
+                    payout = compute_duel_payout(amount, commission_percent)
                     await _credit(session, winner_id, payout)
                     current.winner_id = winner_id
                     text = (

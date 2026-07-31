@@ -50,7 +50,7 @@ def tower_playing_kb(
                 elif slot == chosen:
                     tiles.append(InlineKeyboardButton(text="✅", callback_data="tower:noop"))
                 else:
-                    tiles.append(InlineKeyboardButton(text="✅", callback_data="tower:noop"))
+                    tiles.append(InlineKeyboardButton(text="⬜", callback_data="tower:noop"))
             builder.row(*tiles)
 
     if level > 0:

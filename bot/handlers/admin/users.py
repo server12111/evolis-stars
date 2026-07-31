@@ -68,10 +68,11 @@ async def _update_public_withdrawal_status(
 
 
 @router.callback_query(lambda c: c.data == "admin:users")
-async def cb_users(callback: CallbackQuery, db_user: User) -> None:
+async def cb_users(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer("❌ Нет доступа.", show_alert=True)
         return
+    await state.clear()
     try:
         await callback.message.edit_text(
             "👥 <b>Управление пользователями</b>\n\nНайди пользователя по ID или Username:",

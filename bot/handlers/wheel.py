@@ -15,8 +15,11 @@ router = Router()
 
 
 @router.callback_query(lambda c: c.data == "menu:wheel")
-async def cb_wheel_menu(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_wheel_menu(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
+    if not await SettingsRepository(session).get_bool("game_wheel_enabled", True):
+        await callback.answer("🎡 Игра временно отключена.", show_alert=True)
+        return
     text = (
         "🎡 <b>Все или ничего</b>\n\n"
         "Два исхода:\n"
@@ -42,6 +45,9 @@ async def cb_wheel_choose_bet(callback: CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data and c.data.startswith("wheel:bet:") and c.data != "wheel:bet:custom")
 async def cb_wheel_bet(callback: CallbackQuery, session: AsyncSession, bot: Bot, db_user: User) -> None:
+    if not await SettingsRepository(session).get_bool("game_wheel_enabled", True):
+        await callback.answer("🎡 Игра временно отключена.", show_alert=True)
+        return
     try:
         bet = float(callback.data.split(":")[2])
     except (IndexError, ValueError):
@@ -73,6 +79,9 @@ async def msg_wheel_bet(message: Message, state: FSMContext, session: AsyncSessi
         await message.answer("⚠️ Введи число 1 или больше.", reply_markup=wheel_cancel_kb())
         return
     await state.clear()
+    if not await SettingsRepository(session).get_bool("game_wheel_enabled", True):
+        await message.answer("🎡 Игра временно отключена.")
+        return
     if db_user.stars_balance < bet:
         await message.answer("❌ Недостаточно звёзд.", reply_markup=wheel_cancel_kb())
         return

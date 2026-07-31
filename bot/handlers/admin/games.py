@@ -11,20 +11,33 @@ from bot.database.repositories.lottery import LotteryRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.handlers.admin.stats import _is_admin
 from bot.keyboards.admin.games import cancel_kb as lottery_cancel_kb
-from bot.keyboards.admin.games import game_config_kb, games_admin_kb
+from bot.keyboards.admin.games import game_coeffs_kb, game_config_kb, games_admin_kb
 from bot.keyboards.admin.lottery import lottery_admin_kb, lottery_end_type_kb
 from bot.keyboards.admin.main import back_to_admin_kb
 from bot.states.admin import AdminGameStates, AdminLotteryStates
 
 router = Router()
 
-GAME_SETTINGS = {
-    "football": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
-    "basketball": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
-    "bowling": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
-    "dice": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
-    "darts": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
-    "slots": {"win_coef": "Коэф. победы", "win_chance": "Шанс победы"},
+GAME_SETTINGS = ["football", "basketball", "bowling", "dice", "darts", "slots"]
+
+# Real per-game coefficient settings keys actually read by bot/handlers/games.py.
+# (suffix, label) — the stored key is f"game_{game_type}_{suffix}".
+GAME_COEFF_KEYS: dict[str, list[tuple[str, str]]] = {
+    "football": [("coeff_goal", "Гол"), ("coeff_miss", "Промах")],
+    "basketball": [
+        ("coeff_clean", "Чистый гол"),
+        ("coeff_any", "Любой гол"),
+        ("coeff_stuck", "Застрял"),
+        ("coeff_miss", "Промах"),
+    ],
+    "bowling": [
+        ("coeff_strike", "Страйк"),
+        ("coeff_partial", "Частично"),
+        ("coeff_miss", "Промах"),
+    ],
+    "dice": [("coeff", "Кубики")],
+    "slots": [("coeff1", "777"), ("coeff2", "3 одинаковых")],
+    "darts": [("coeff_bullseye", "В центр"), ("coeff_bounce", "Отскок")],
 }
 
 
@@ -35,8 +48,9 @@ def _lottery_end_value(end_type: str, value: float) -> float:
 
 
 @router.callback_query(lambda c: c.data == "admin:games")
-async def cb_games(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_games(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     repo = SettingsRepository(session)
     configs = {}
     for game in GAME_SETTINGS:
@@ -53,7 +67,7 @@ async def cb_games(callback: CallbackQuery, db_user: User, session: AsyncSession
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:game_toggle:"))
-async def cb_game_toggle(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_game_toggle(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     game_type = callback.data.split(":")[2]
     repo = SettingsRepository(session)
@@ -61,39 +75,77 @@ async def cb_game_toggle(callback: CallbackQuery, db_user: User, session: AsyncS
     await repo.set(f"game_{game_type}_enabled", "0" if current else "1")
     new_state = not current
     await callback.answer(f"{'✅ Включено' if new_state else '❌ Отключено'}")
-    await cb_games(callback, db_user, session)
+    await cb_games(callback, db_user, session, state)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:game_cfg:"))
-async def cb_game_edit(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_game_edit(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     game_type = callback.data.split(":")[2]
     repo = SettingsRepository(session)
-    win_coef = await repo.get_float(f"game_{game_type}_win_coef", 1.9)
-    win_chance = await repo.get_float(f"game_{game_type}_win_chance", 50.0)
-    min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
     enabled = await repo.get_bool(f"game_{game_type}_enabled", True)
-    text = (
-        f"⚙️ <b>{game_type.title()}</b>\n\n"
-        f"Статус: {'✅ включена' if enabled else '❌ отключена'}\n"
-        f"Коэф. победы: <b>{win_coef:.2f}x</b>\n"
-        f"Шанс победы: <b>{win_chance:.1f}%</b>\n"
-        f"Мин. ставка: <b>{min_bet:.1f} ⭐</b>"
-    )
+    coeff_keys = GAME_COEFF_KEYS.get(game_type, [])
+
+    lines = [
+        f"⚙️ <b>{game_type.title()}</b>\n",
+        f"Статус: {'✅ включена' if enabled else '❌ отключена'}",
+    ]
+    if coeff_keys:
+        for suffix, label in coeff_keys:
+            value = await repo.get_float(f"game_{game_type}_{suffix}", 0.0)
+            lines.append(f"{label}: <b>{value:.2f}x</b>")
+        min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
+        lines.append(f"Мин. ставка: <b>{min_bet:.1f} ⭐</b>")
+    text = "\n".join(lines)
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=game_config_kb(game_type, enabled))
+        await callback.message.edit_text(
+            text, parse_mode="HTML",
+            reply_markup=game_config_kb(game_type, enabled, bool(coeff_keys)),
+        )
     except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=game_config_kb(game_type, enabled))
+        await callback.message.answer(
+            text, parse_mode="HTML",
+            reply_markup=game_config_kb(game_type, enabled, bool(coeff_keys)),
+        )
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:game_coeffs:"))
-async def cb_game_coeffs(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
+async def cb_game_coeffs(callback: CallbackQuery, db_user: User) -> None:
     if not _is_admin(db_user): return
     game_type = callback.data.split(":")[2]
+    coeff_keys = GAME_COEFF_KEYS.get(game_type, [])
+    if not coeff_keys:
+        await callback.answer("У этой игры нет настраиваемых коэффициентов.", show_alert=True)
+        return
+    try:
+        await callback.message.edit_text(
+            f"⚙️ <b>{game_type.title()}</b>\n\nВыбери коэффициент для изменения:",
+            parse_mode="HTML",
+            reply_markup=game_coeffs_kb(game_type, coeff_keys),
+        )
+    except Exception:
+        await callback.message.answer(
+            f"⚙️ <b>{game_type.title()}</b>\n\nВыбери коэффициент для изменения:",
+            parse_mode="HTML",
+            reply_markup=game_coeffs_kb(game_type, coeff_keys),
+        )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:game_coef_pick:"))
+async def cb_game_coef_pick(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
+    if not _is_admin(db_user): return
+    _, _, game_type, suffix = callback.data.split(":", 3)
+    coeff_keys = dict(GAME_COEFF_KEYS.get(game_type, []))
+    label = coeff_keys.get(suffix, suffix)
     await state.set_state(AdminGameStates.enter_value)
-    await state.update_data(game_type=game_type, param="win_coef")
-    await callback.message.answer(f"Введи коэффициент победы для {game_type} (напр: 1.9):", reply_markup=lottery_cancel_kb())
+    await state.update_data(game_type=game_type, param=suffix)
+    await callback.message.answer(
+        f"Введи новый коэффициент «{label}» для {game_type} (напр: 1.9):",
+        reply_markup=lottery_cancel_kb(),
+    )
     await callback.answer()
 
 
@@ -126,8 +178,9 @@ async def msg_game_value(message: Message, state: FSMContext, session: AsyncSess
 # ---- Lottery admin ----
 
 @router.callback_query(lambda c: c.data == "admin:lottery")
-async def cb_lottery(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_lottery(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     repo = LotteryRepository(session)
     active = await repo.get_active()
     if active:
@@ -243,7 +296,7 @@ async def msg_lottery_end_value(message: Message, state: FSMContext, session: As
 
 
 @router.callback_query(lambda c: c.data == "admin:lottery_draw")
-async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     repo = LotteryRepository(session)
     active = await repo.get_active()
@@ -256,8 +309,15 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
         return
     prize = float(active.prize_pool)
     winner = await session.get(User, winner_id)
-    if winner:
-        winner.stars_balance = round(float(winner.stars_balance) + prize, 2)
+    if not winner:
+        # Don't close out the lottery over a phantom winner — the prize
+        # would otherwise be marked paid without ever being credited.
+        await callback.answer(
+            "⚠️ Победитель не найден в базе. Розыгрыш отменён, попробуйте ещё раз.",
+            show_alert=True,
+        )
+        return
+    winner.stars_balance = round(float(winner.stars_balance) + prize, 2)
     if not await repo.finish(active, winner_id):
         await callback.answer(
             "Лотерея уже изменилась. Повторите розыгрыш.",
@@ -273,7 +333,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
     except Exception:
         pass
     await callback.answer(f"✅ Победитель: {winner_id}", show_alert=True)
-    await cb_lottery(callback, db_user, session)
+    await cb_lottery(callback, db_user, session, state)
 
 
 @router.callback_query(lambda c: c.data == "admin:lottery_cancel")

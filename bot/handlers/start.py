@@ -104,7 +104,8 @@ async def cmd_start(
 
 
 @router.callback_query(lambda c: c.data == "menu:main")
-async def cb_main_menu(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_main_menu(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
     spawn_background(
         send_ad(settings.botohub_views_key, db_user.user_id, hi=False),
         name=f"send-ad-{db_user.user_id}",

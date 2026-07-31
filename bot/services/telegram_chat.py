@@ -23,7 +23,7 @@ def telegram_chat_id(value: str | int | None) -> str | int | None:
         username = parsed.path.strip("/").split("/", 1)[0]
         if (
             username
-            and username != "joinchat"
+            and username not in ("joinchat", "c")
             and not username.startswith("+")
             and _PUBLIC_USERNAME.fullmatch(username)
         ):

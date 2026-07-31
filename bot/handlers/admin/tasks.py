@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 @router.callback_query(lambda c: c.data == "admin:tasks")
-async def cb_tasks(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_tasks(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     repo = TaskRepository(session)
     tasks = await repo.all_tasks()
     text = f"📋 <b>Задания</b>\n\nВсего: <b>{len(tasks)}</b>"

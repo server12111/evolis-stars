@@ -24,7 +24,8 @@ def profile_kb() -> InlineKeyboardBuilder:
 
 
 @router.callback_query(lambda c: c.data == "menu:profile")
-async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
     repo = ContentRepository(session)
     template = await repo.get_text("profile")
     photo = await repo.get_photo("profile")

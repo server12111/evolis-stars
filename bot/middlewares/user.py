@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject
+from aiogram.types import TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
@@ -41,11 +41,16 @@ class UserMiddleware(BaseMiddleware):
             )
 
             if user.is_blocked and tg_user.id not in settings.admin_id_list:
-                inner = data.get("event_context") or (
-                    event.message if hasattr(event, "message") else None
-                ) or (event.callback_query if hasattr(event, "callback_query") else None)
-                if inner and hasattr(inner, "answer"):
-                    await inner.answer("❌ Вы заблокированы в боте.")
+                inner = None
+                if isinstance(event, Update):
+                    inner = event.message or event.callback_query
+                elif hasattr(event, "answer"):
+                    inner = event
+                if inner is not None:
+                    try:
+                        await inner.answer("❌ Вы заблокированы в боте.")
+                    except Exception:
+                        pass
                 return
 
             should_be_admin = tg_user.id in settings.admin_id_list

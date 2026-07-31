@@ -1,6 +1,7 @@
 import asyncio
 import math
 from datetime import datetime, timedelta
+from decimal import Decimal
 from html import escape
 
 from aiogram import Bot, Router
@@ -22,6 +23,7 @@ from bot.keyboards.duel import (
     duel_view_kb,
 )
 from bot.services.background import spawn_background
+from bot.services.duel_scheduler import compute_duel_payout
 from bot.states.duel import DuelStates
 
 router = Router()
@@ -72,9 +74,8 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
         return
     duel.status = "settling"
     c_roll, j_roll = duel.creator_roll, duel.joiner_roll
-    _, commission = await _duel_rules(session)
-    total = float(duel.amount) * 2
-    winner_amount = round(total * (1 - commission), 2)
+    commission_percent = await SettingsRepository(session).get_float("duel_commission", 20.0)
+    winner_amount = compute_duel_payout(Decimal(duel.amount), commission_percent)
     duel.status = "finished"
 
     if c_roll == j_roll:
@@ -92,7 +93,7 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
     winner_id = duel.creator_id if c_roll > j_roll else duel.joiner_id
     winner = await session.get(User, winner_id)
     winner_name = escape(winner.first_name) if winner else "Игрок"
-    if winner: winner.stars_balance = round(float(winner.stars_balance) + winner_amount, 2)
+    if winner: winner.stars_balance = winner.stars_balance + winner_amount
     duel.winner_id = winner_id
     await session.commit()
 
@@ -107,7 +108,9 @@ async def cb_duel_menu(
     callback: CallbackQuery,
     db_user: User,
     session: AsyncSession,
+    state: FSMContext,
 ) -> None:
+    await state.clear()
     min_refs, commission = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(f"❌ Нужно минимум {min_refs} реферала. У тебя: {db_user.referrals_count}", show_alert=True)
@@ -450,6 +453,11 @@ async def cb_duel_roll(callback: CallbackQuery, session: AsyncSession, db_user: 
     else:
         duel.joiner_roll = value
     await session.commit()
+    # expire_on_commit=False means `duel` still reflects only this request's
+    # own write; refresh so a near-simultaneous roll from the other
+    # participant (committed just before/after this one) is actually seen
+    # before deciding whether both sides have rolled.
+    await session.refresh(duel)
 
     if duel.creator_roll is not None and duel.joiner_roll is not None:
         spawn_background(

@@ -16,7 +16,7 @@ router = Router()
 
 async def _get_coeff(session: AsyncSession, level: int) -> float:
     repo = SettingsRepository(session)
-    return await repo.get_float(f"tower_coeff_{level}", [1.20, 1.45, 1.75, 2.15, 2.65, 3.25, 4.00, 5.00][min(level, 7)])
+    return await repo.get_float(f"tower_coeff_{level}", [1.20, 1.50, 1.90, 2.40, 3.00, 3.75, 4.75, 6.00][min(level, 7)])
 
 
 @router.callback_query(lambda c: c.data == "menu:tower")

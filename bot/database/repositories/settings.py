@@ -81,7 +81,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "mines_min_bet": "1",
     "mines_house_edge": "0.20",
     "mines_house_edge_punish": "0.20",
-    "mines_max_coeff": "999",
+    "mines_max_coeff": "10",
     "mines_total_bet": "0",
     "mines_total_payout": "0",
     # Tower — 20% house edge: coeff_k = 0.80 * 1.5^k

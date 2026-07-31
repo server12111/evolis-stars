@@ -18,8 +18,9 @@ router = Router()
 
 
 @router.callback_query(lambda c: c.data == "admin:media")
-async def cb_media(callback: CallbackQuery, db_user: User) -> None:
+async def cb_media(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user): return
+    await state.clear()
     text = "🖼 <b>Медиа и тексты</b>\n\nВыбери раздел для редактирования:"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=media_list_kb())

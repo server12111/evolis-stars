@@ -13,7 +13,10 @@ _TIER_NAMES = {1: "Бронза 🥉", 3: "Серебро 🥈", 5: "Золот�
 
 
 @router.callback_query(lambda c: c.data == "menu:cases")
-async def cb_cases_menu(callback: CallbackQuery, db_user: User) -> None:
+async def cb_cases_menu(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+    if not await SettingsRepository(session).get_bool("game_cases_enabled", True):
+        await callback.answer("🎁 Игра временно отключена.", show_alert=True)
+        return
     text = (
         "🎁 <b>Кейсы</b>\n\n"
         "Открой кейс и получи приз!\n\n"
@@ -55,6 +58,9 @@ async def cb_cases_open(callback: CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data and c.data.startswith("cases:confirm:"))
 async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: Bot, db_user: User) -> None:
+    if not await SettingsRepository(session).get_bool("game_cases_enabled", True):
+        await callback.answer("🎁 Игра временно отключена.", show_alert=True)
+        return
     try:
         tier = int(callback.data.split(":")[2])
         if tier not in CASE_PRIZES:
