@@ -9,6 +9,7 @@ from bot.database.models import User, GameSession
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.game import GameRepository
+from bot.keyboards.main import back_to_menu_kb
 from bot.keyboards.games import (
     games_menu_kb, dice_side_kb, football_side_kb, bowling_side_kb,
     basketball_side_kb, darts_side_kb, game_result_kb, game_cancel_kb,
@@ -191,6 +192,21 @@ async def cb_games_menu(callback: CallbackQuery, session: AsyncSession, db_user:
 
     s_repo = SettingsRepository(session)
     games_enabled = await s_repo.get_bool("games_enabled", True)
+    min_refs = max(0, await s_repo.get_int("games_min_refs", 3))
+
+    if db_user.referrals_count < min_refs:
+        text = (
+            f"🎮 <b>Игры</b>\n\n"
+            f"❌ Игры открываются после <b>{min_refs}</b> подтверждённых рефералов. "
+            f"У тебя: <b>{db_user.referrals_count}</b>."
+        )
+        try:
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_to_menu_kb())
+        except Exception:
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=back_to_menu_kb())
+        await callback.answer()
+        return
+
     configs = await _load_games_config(session)
 
     if not games_enabled:
@@ -226,6 +242,14 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     repo = SettingsRepository(session)
     if not await repo.get_bool("games_enabled", True):
         await callback.answer("🎮 Игры временно недоступны.", show_alert=True)
+        return
+
+    min_refs = max(0, await repo.get_int("games_min_refs", 3))
+    if db_user.referrals_count < min_refs:
+        await callback.answer(
+            f"❌ Нужно минимум {min_refs} подтверждённых реферала. У тебя: {db_user.referrals_count}",
+            show_alert=True,
+        )
         return
     if not await repo.get_bool(f"game_{game_type}_enabled", True):
         await callback.answer("Игра временно отключена.", show_alert=True)

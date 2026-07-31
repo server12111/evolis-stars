@@ -33,6 +33,7 @@ SETTING_LABELS = {
     "duel_commission": ("⚔️ Комиссия дуэлей %", "число 0-100"),
     "duel_min_refs": ("⚔️ Мин. рефералов для дуэлей", "целое число"),
     "lottery_min_refs": ("🎟 Мин. рефералов для лотереи", "целое число"),
+    "games_min_refs": ("🎮 Мин. рефералов для игр", "целое число"),
     "sponsor_max_channels": ("📢 Макс. каналов спонсоров", "целое число"),
 }
 
@@ -112,6 +113,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
     integer_keys = {
         "duel_min_refs",
         "lottery_min_refs",
+        "games_min_refs",
         "sponsor_max_channels",
         "min_sponsors_for_reward",
     }

@@ -20,6 +20,7 @@ NUMERIC_SETTINGS = [
     ("duel_commission", "⚔️ Комиссия дуэлей"),
     ("duel_min_refs", "⚔️ Мин. рефералов для дуэлей"),
     ("lottery_min_refs", "🎟 Мин. рефералов для лотереи"),
+    ("games_min_refs", "🎮 Мин. рефералов для игр"),
     ("sponsor_max_channels", "📢 Макс. каналов спонсоров"),
 ]
 

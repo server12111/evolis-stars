@@ -27,6 +27,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "duel_commission": "20",
     "duel_min_refs": "3",
     "lottery_min_refs": "3",
+    "games_min_refs": "3",
     "payments_channel_id": "",
     "payments_channel_link": "",
     "admin_channel_id": "",

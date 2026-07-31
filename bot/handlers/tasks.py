@@ -87,8 +87,22 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
     uncompleted = [t for t in all_tasks if t.id not in completed_ids and t.id != current_task_id]
 
     if not uncompleted:
-        if settings.piarflow_key:
+        pf_configured = bool(settings.piarflow_key)
+        fh_configured = bool(settings.flyerhub_key)
+        if pf_configured and fh_configured:
+            # Alternate which provider is tried first so FlyerHub tasks
+            # actually surface instead of waiting for PiarFlow's whole
+            # batch (up to piarflow_max_sponsors) to be exhausted first.
+            if db_user.tasks_completed_count % 2 == 1:
+                await _show_fh_task(callback, db_user, session)
+            else:
+                await _show_pf_task(callback, db_user, session)
+            return
+        if pf_configured:
             await _show_pf_task(callback, db_user, session)
+            return
+        if fh_configured:
+            await _show_fh_task(callback, db_user, session)
             return
         s_repo = SettingsRepository(session)
         tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
@@ -301,6 +315,7 @@ async def _show_pf_task(
     skip_link: str = "",
     pf_tasks: list[dict] | None = None,
     retry_if_empty: bool = False,
+    tried_other: bool = False,
 ) -> None:
     """Shows next uncompleted PiarFlow task, or returns to tasks menu if none left."""
     s_repo = SettingsRepository(session)
@@ -345,8 +360,8 @@ async def _show_pf_task(
                 break
 
     if sponsor is None:
-        if settings.flyerhub_key:
-            await _show_fh_task(callback, db_user, session)
+        if not tried_other and settings.flyerhub_key:
+            await _show_fh_task(callback, db_user, session, tried_other=True)
             return
 
         builder = InlineKeyboardBuilder()
@@ -534,6 +549,7 @@ async def _show_fh_task(
     session: AsyncSession,
     skip_signature: str = "",
     fh_tasks: list[dict] | None = None,
+    tried_other: bool = False,
 ) -> None:
     s_repo = SettingsRepository(session)
     tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
@@ -568,6 +584,10 @@ async def _show_fh_task(
         break
 
     if sponsor is None:
+        if not tried_other and settings.piarflow_key:
+            await _show_pf_task(callback, db_user, session, tried_other=True)
+            return
+
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="menu:tasks"))
         builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
