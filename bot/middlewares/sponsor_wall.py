@@ -142,8 +142,25 @@ class SponsorWallMiddleware(BaseMiddleware):
 
         from bot.services.botohub import check_botohub
         from bot.services.tgrass import check_tgrass
+        from bot.services.piarflow import get_sponsors, check_sponsors
+        from bot.services.sponsor_waves import _current_items
 
-        tgrass_result, botohub_result = await asyncio.gather(
+        if settings.piarflow_key:
+            saved_items = _current_items(db_user)
+            if saved_items:
+                piarflow_links = [
+                    str(item.get("url", "")) for item in saved_items
+                    if str(item.get("provider", "")) == "piarflow" and item.get("url")
+                ]
+                if piarflow_links:
+                    await check_sponsors(
+                        settings.piarflow_key,
+                        db_user.user_id,
+                        db_user.user_id,
+                        piarflow_links
+                    )
+
+        tgrass_result, botohub_result, piarflow_result = await asyncio.gather(
             check_tgrass(
                 db_user.user_id,
                 settings.tgrass_code,
@@ -165,13 +182,23 @@ class SponsorWallMiddleware(BaseMiddleware):
                 ),
             ),
             check_botohub(db_user.user_id, settings.botohub_key),
+            get_sponsors(
+                settings.piarflow_key,
+                db_user.user_id,
+                db_user.user_id,
+                max_sponsors=20
+            ) if settings.piarflow_key else asyncio.sleep(0),
             return_exceptions=True,
         )
+        if not settings.piarflow_key:
+            piarflow_result = None
+
         logger.info(
-            "WALL uid=%s tgrass=%s botohub=%s",
+            "WALL uid=%s tgrass=%s botohub=%s piarflow=%s",
             db_user.user_id,
             type(tgrass_result).__name__,
             type(botohub_result).__name__,
+            type(piarflow_result).__name__,
         )
 
         if all_configured_integrations_failed(
@@ -179,12 +206,14 @@ class SponsorWallMiddleware(BaseMiddleware):
             tgrass_result=tgrass_result,
             botohub_configured=bool(settings.botohub_key),
             botohub_result=botohub_result,
+            piarflow_configured=bool(settings.piarflow_key),
+            piarflow_result=piarflow_result,
         ):
             await _show_retry(inner)
             return
 
         wave_size = min(
-            10,
+            20,
             max(1, await SettingsRepository(session).get_int(
                 "sponsor_max_channels",
                 10,
@@ -194,6 +223,7 @@ class SponsorWallMiddleware(BaseMiddleware):
             db_user,
             tgrass_result=tgrass_result,
             botohub_result=botohub_result,
+            piarflow_result=piarflow_result,
             wave_size=wave_size,
         )
         await session.commit()

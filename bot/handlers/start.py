@@ -170,7 +170,7 @@ async def cmd_start(
                     try:
                         await bot.send_message(
                             rejected_referrer,
-                            f"❌ Пользователю <b>{username_display}</b> выдало меньше 3 спонсоров (от BotoHub и TGrass).\n"
+                            f"❌ Пользователю <b>{username_display}</b> выдало меньше 6 спонсоров (от BotoHub и TGrass).\n"
                             f"Награда за него не будет засчитана.",
                             parse_mode="HTML"
                         )

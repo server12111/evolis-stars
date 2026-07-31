@@ -83,6 +83,7 @@ def initialize_waves(
     *,
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
+    piarflow_result: ProviderResult = None,
     wave_size: int = WAVE_SIZE,
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves."""
@@ -95,6 +96,8 @@ def initialize_waves(
         combined.extend(_decorate(botohub_result, "botohub"))
     if isinstance(tgrass_result, list):
         combined.extend(_decorate(tgrass_result, "tgrass"))
+    if isinstance(piarflow_result, list):
+        combined.extend(_decorate(piarflow_result, "piarflow"))
 
     unique: list[dict] = []
     seen_urls: set[str] = set()
@@ -111,7 +114,14 @@ def initialize_waves(
         if len(unique) >= wave_size * MAX_WAVES:
             break
 
-    unique.sort(key=lambda x: 0 if x.get("type") == "tg" else 1)
+    # Priority: TG > Web > Piarflow (or any custom order). Let's put Piarflow last or Web last?
+    # tg=0, web=1, piarflow=2
+    def _sort_key(x):
+        if x.get("provider") == "piarflow":
+            return 2
+        return 0 if x.get("type") == "tg" else 1
+
+    unique.sort(key=_sort_key)
 
     first = unique[:wave_size]
     second = unique[wave_size:wave_size * MAX_WAVES]
@@ -125,6 +135,7 @@ def evaluate_waves(
     *,
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
+    piarflow_result: ProviderResult = None,
     wave_size: int = WAVE_SIZE,
 ) -> SponsorWaveState:
     """Check only saved sponsors and advance through both waves in order."""
@@ -134,6 +145,7 @@ def evaluate_waves(
     if user.sponsor_wave not in {1, 2, 3} and (
         not isinstance(tgrass_result, list)
         or not isinstance(botohub_result, list)
+        or (piarflow_result is not None and not isinstance(piarflow_result, list))
     ):
         return SponsorWaveState("unavailable")
 
@@ -141,12 +153,14 @@ def evaluate_waves(
         user,
         tgrass_result=tgrass_result,
         botohub_result=botohub_result,
+        piarflow_result=piarflow_result,
         wave_size=wave_size,
     )
 
     results: dict[str, ProviderResult] = {
         "tgrass": tgrass_result,
         "botohub": botohub_result,
+        "piarflow": piarflow_result,
     }
 
     while user.sponsor_wave in {1, 2}:
