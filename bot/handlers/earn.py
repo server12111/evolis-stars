@@ -64,9 +64,6 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     else:
         text = _default_text
     text += (
-        f"\n\n🎁 За одного обычного реферала: "
-        f"<b>{format_stars(ordinary_reward)} ⭐</b>.\n"
-        "Награда начисляется после выполнения рефералом всех условий."
         f"\n\n♻️ <b>Повторные приглашения</b>\n"
         f"Если засчитанный реферал не пользуется ботом <b>{REFERRAL_RETURN_DAYS} дней</b>, "
         "он автоматически появится в списке ниже. Отправь ему свою прежнюю ссылку: "
