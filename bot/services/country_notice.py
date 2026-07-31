@@ -35,14 +35,14 @@ async def ensure_country_notice(
     bot: Bot,
 ) -> None:
     """Send the country allowlist once and keep retrying the pin if needed."""
-    # Never show the referral-country notice during onboarding. Both checks
-    # must be complete first, even if this helper is called from another flow.
-    if not user.sponsors_verified or not user.phone_verified:
+    if not user.sponsors_verified:
         return
-    if not await SettingsRepository(session).get_bool(
+        
+    phone_enabled = await SettingsRepository(session).get_bool(
         "phone_verification_enabled",
         True,
-    ):
+    )
+    if phone_enabled and not user.phone_verified:
         return
 
     if user.country_notice_message_id is None:
