@@ -14,6 +14,7 @@ class AdminUserStates(StatesGroup):
 
 
 class AdminPromoStates(StatesGroup):
+    enter_code = State()
     enter_reward = State()
     enter_limit = State()
     enter_expiry = State()
