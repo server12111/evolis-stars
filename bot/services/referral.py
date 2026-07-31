@@ -174,26 +174,25 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
 
     bonus = Decimal("0")
     became_vip = False
-    
-    if referrer_is_vip:
-        bonus += Decimal("1")
-    else:
-        if new_referrals_count == 10:
-            bonus += Decimal("0.1")
-        elif new_referrals_count == 25:
-            bonus += Decimal("0.1")
-        elif new_referrals_count == 30:
-            bonus += Decimal("0.1")
-        elif new_referrals_count == 50:
-            bonus += Decimal("0.7")
-            referrer_is_vip = True
-            became_vip = True
-        elif new_referrals_count == 55:
-            bonus += Decimal("0.1")
-        elif new_referrals_count == 60:
-            bonus += Decimal("0.1")
-        elif new_referrals_count == 70:
-            bonus += Decimal("0.1")
+
+    if new_referrals_count == 10:
+        bonus += Decimal("0.1")
+    elif new_referrals_count == 25:
+        bonus += Decimal("0.3")
+    elif new_referrals_count == 30:
+        bonus += Decimal("0.4")
+    elif new_referrals_count == 50:
+        bonus += Decimal("0.7")
+        referrer_is_vip = True
+        became_vip = True
+    elif new_referrals_count == 55:
+        bonus += Decimal("0.8")
+    elif new_referrals_count == 60:
+        bonus += Decimal("0.9")
+    elif new_referrals_count == 70:
+        bonus += Decimal("1.0")
+    elif new_referrals_count > 70:
+        bonus += Decimal("1.0")
 
     total_reward = reward + bonus
 
@@ -220,9 +219,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             if bonus > 0:
                 msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
             if became_vip:
-                msg += "\n🌟 Вы получили VIP-статус! Теперь за каждого реферала вы будете получать бонус 1 ⭐!"
-            elif referrer_is_vip and not became_vip:
-                msg += "\n🌟 Включен VIP-бонус 1 ⭐!"
+                msg += "\n🌟 Вы получили VIP-статус! При достижении 70 рефералов вы начнете получать бонус +1 ⭐ за каждого следующего!"
+            elif new_referrals_count > 70:
+                msg += "\n🌟 Включен VIP-бонус +1 ⭐!"
                 
             await bot.send_message(
                 referrer.user_id,
