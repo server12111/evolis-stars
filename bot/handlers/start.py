@@ -187,6 +187,36 @@ async def cmd_start(
             botohub_result=botohub_result,
             wave_size=wave_size,
         )
+        
+        if db_user.referrer_id and not db_user.referral_reward_given:
+            from bot.services.sponsor_waves import _load
+            from datetime import datetime, timezone
+            
+            total_sponsors = len(_load(db_user.sponsor_wave_one)) + len(_load(db_user.sponsor_wave_two))
+            if total_sponsors < 3:
+                rejected_referrer = db_user.referrer_id
+                db_user.referrer_id = None
+                
+                now = datetime.now(timezone.utc).replace(tzinfo=None)
+                is_recently_created = (now - db_user.created_at).total_seconds() < 86400
+                
+                if is_recently_created:
+                    import html
+                    username_display = (
+                        f"@{html.escape(message.from_user.username)}"
+                        if message.from_user and message.from_user.username
+                        else html.escape(message.from_user.first_name or str(message.from_user.id)) if message.from_user else "Пользователь"
+                    )
+                    try:
+                        await bot.send_message(
+                            rejected_referrer,
+                            f"❌ Пользователю <b>{username_display}</b> выдало меньше 3 спонсоров (от BotoHub и TGrass).\n"
+                            f"Награда за него не будет засчитана.",
+                            parse_mode="HTML"
+                        )
+                    except Exception:
+                        pass
+
         await session.commit()
         if wave_state.status == "unavailable":
             await message.answer(
