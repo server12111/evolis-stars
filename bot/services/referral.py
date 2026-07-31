@@ -182,7 +182,10 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     await session.execute(
         update(User)
         .where(User.user_id == referrer.user_id)
-        .values(stars_balance=User.stars_balance + reward)
+        .values(
+            stars_balance=User.stars_balance + reward,
+            referrals_count=User.referrals_count + 1
+        )
     )
     await session.commit()
 
@@ -218,11 +221,6 @@ async def mark_referral_phone_accepted(
         return
 
     user.referral_counted = True
-    await session.execute(
-        update(User)
-        .where(User.user_id == referrer.user_id)
-        .values(referrals_count=User.referrals_count + 1)
-    )
     await session.commit()
 
     username_display = (
@@ -239,8 +237,8 @@ async def mark_referral_phone_accepted(
             )
             await bot.send_message(
                 referrer.user_id,
-                f"✅ Реферал {username_display} {accepted_reason} и теперь засчитан. "
-                "Награда будет начислена после выполнения остальных условий.",
+                f"✅ Реферал {username_display} {accepted_reason}. "
+                "Награда и +1 реферал будут начислены после выполнения им остальных условий.",
             )
         except Exception as e:
             logger.warning("Failed to notify referrer %s of accepted phone: %s", referrer.user_id, e)

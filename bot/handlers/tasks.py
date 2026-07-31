@@ -44,17 +44,22 @@ async def _find_next_pf_task(s_repo: SettingsRepository, db_user: User, pf_tasks
         link = sp.get("link", "")
         if not link:
             continue
+        link_id = pf_task_id(link)
         if skip_link and link.startswith(skip_link[:30]):
             continue
         done = await s_repo.get(
-            f"pf_done:{db_user.user_id}:{pf_task_id(link)}",
+            f"pf_done:{db_user.user_id}:{link_id}",
+            "",
+        )
+        skipped = await s_repo.get(
+            f"pf_skipped:{db_user.user_id}:{link_id}",
             "",
         )
         legacy_done = await s_repo.get(
             f"pf_done:{db_user.user_id}:{link[:30]}",
             "",
         )
-        if done != "1" and legacy_done != "1":
+        if done != "1" and legacy_done != "1" and skipped != "1":
             return idx, sp
     return None, None
 
@@ -395,12 +400,9 @@ async def cb_pf_task_skip(callback: CallbackQuery, db_user: User, session: Async
         await callback.answer()
         return
     s_repo = SettingsRepository(session)
-    skip_link = await s_repo.get(
-        f"pf_link:{db_user.user_id}:{link_key}",
-        link_key,
-    )
+    await s_repo.set(f"pf_skipped:{db_user.user_id}:{link_key}", "1")
     await callback.answer()
-    await _show_pf_task(callback, db_user, session, skip_link=skip_link)
+    await _show_pf_task(callback, db_user, session)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("pf_task:check:"))
@@ -549,7 +551,8 @@ async def _show_fh_task(
         if sig == skip_signature:
             continue
         key = f"fh_done:{db_user.user_id}:{sig}"
-        if await s_repo.get(key, "") == "1":
+        skip_key = f"fh_skipped:{db_user.user_id}:{sig}"
+        if await s_repo.get(key, "") == "1" or await s_repo.get(skip_key, "") == "1":
             continue
         sponsor = task
         break
@@ -598,8 +601,11 @@ async def cb_fh_task_skip(callback: CallbackQuery, db_user: User, session: Async
     if not settings.flyerhub_key:
         await callback.answer()
         return
+    
+    s_repo = SettingsRepository(session)
+    await s_repo.set(f"fh_skipped:{db_user.user_id}:{signature}", "1")
     await callback.answer()
-    await _show_fh_task(callback, db_user, session, skip_signature=signature)
+    await _show_fh_task(callback, db_user, session)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("fh_task:check:"))
