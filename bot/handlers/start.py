@@ -41,6 +41,17 @@ settings = get_settings()
 
 
 
+async def _send_main_menu(message: Message, user: User, session: AsyncSession) -> None:
+    repo = ContentRepository(session)
+    text = await repo.get_text("welcome")
+    photo = await repo.get_photo("welcome")
+
+    if photo:
+        await message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
