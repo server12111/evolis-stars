@@ -87,7 +87,7 @@ def initialize_waves(
     wave_size: int = WAVE_SIZE,
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves."""
-    if user.sponsor_wave in {1, 2, 3}:
+    if user.sponsor_wave in {1, 2}:
         return
 
     wave_size = max(1, min(WAVE_SIZE, wave_size))

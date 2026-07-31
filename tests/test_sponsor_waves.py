@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from bot.services.sponsor_waves import (
@@ -27,6 +28,7 @@ def user() -> SimpleNamespace:
     )
 
 
+@patch("bot.services.sponsor_waves.WAVE_SIZE", 6)
 class SponsorWaveTests(unittest.TestCase):
     def test_one_wave_has_no_one_of_two_label(self) -> None:
         current = user()
@@ -86,7 +88,7 @@ class SponsorWaveTests(unittest.TestCase):
         )
         self.assertEqual((second.status, second.wave), ("pending", 2))
 
-    def test_no_wave_is_reissued_after_both_are_complete(self) -> None:
+    def test_wave_is_reissued_after_new_offers_appear(self) -> None:
         current = user()
         evaluate_waves(
             current,
@@ -110,7 +112,7 @@ class SponsorWaveTests(unittest.TestCase):
             tgrass_result=offers("new", 12),
             botohub_result=[],
         )
-        self.assertEqual((new_offers.status, current.sponsor_wave), ("complete", 3))
+        self.assertEqual((new_offers.status, current.sponsor_wave), ("pending", 1))
 
     def test_failure_of_current_provider_never_skips_wave(self) -> None:
         current = user()
