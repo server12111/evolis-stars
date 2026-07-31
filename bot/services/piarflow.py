@@ -37,6 +37,9 @@ async def get_sponsors(
                     if resp.status == 429:
                         logger.warning("PiarFlow get_sponsors HTTP 429 (attempt %d), retrying...", attempt + 1)
                         continue
+                    if resp.status == 404:
+                        logger.debug("PiarFlow get_sponsors HTTP 404 (no tasks)")
+                        return []
                     if resp.status >= 400:
                         logger.warning("PiarFlow get_sponsors HTTP %s", resp.status)
                         return None
@@ -84,6 +87,9 @@ async def check_sponsors(api_key: str, user_id: int, links: list[str]) -> bool:
                     if resp.status == 429:
                         logger.warning("PiarFlow check_sponsors HTTP 429 (attempt %d), retrying...", attempt + 1)
                         continue
+                    if resp.status == 404:
+                        logger.debug("PiarFlow check_sponsors HTTP 404 (no tasks)")
+                        return False
                     if resp.status >= 400:
                         logger.warning("PiarFlow check_sponsors HTTP %s", resp.status)
                         return False
