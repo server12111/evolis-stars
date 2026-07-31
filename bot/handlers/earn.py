@@ -44,6 +44,10 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     min_sponsors = await get_min_sponsors_for_reward(session)
     top_tier, _ = MILESTONE_SETTINGS[-1]
     top_bonus = await get_milestone_bonus(session, top_tier)
+    milestone_bonuses = {
+        threshold: await get_milestone_bonus(session, threshold)
+        for threshold, _ in MILESTONE_SETTINGS
+    }
 
     format_kwargs = dict(
         referrals=db_user.referrals_count,
@@ -59,6 +63,10 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         referral_reward=format_stars(tg_reward),  # fallback for old templates
         return_reward=format_stars(tg_reward / Decimal("2")),  # fallback
         returnable=returnable_count,
+        **{
+            f"bonus_{threshold}": format_stars(bonus)
+            for threshold, bonus in milestone_bonuses.items()
+        },
     )
 
     if "{" in template:
@@ -68,6 +76,14 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
             text = DEFAULT_TEXTS["earn"].format(**format_kwargs)
     else:
         text = template
+
+    # Some stored/admin-edited templates omit the {link} placeholder — never
+    # let the referral link silently disappear from the screen.
+    if ref_link not in text:
+        text += (
+            f"\n\n👥 Приглашено: <b>{db_user.referrals_count}</b>\n"
+            f"🔗 Твоя ссылка:\n<code>{ref_link}</code>"
+        )
     text += (
         f"\n\n♻️ <b>Повторные приглашения</b>\n"
         f"Если засчитанный реферал не пользуется ботом <b>{REFERRAL_RETURN_DAYS} дней</b>, "
