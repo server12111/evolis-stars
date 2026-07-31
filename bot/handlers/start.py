@@ -21,20 +21,8 @@ from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
-from bot.services.captcha import generate_fruit_captcha
-from bot.services.country_notice import ensure_country_notice
-from bot.services.phone import (
-    matching_country_code,
-    normalize_phone,
-    phone_rejected_text,
-    phone_request_keyboard,
-    prompt_phone,
-)
 from bot.services.referral import (
-    check_referral_reward,
-    mark_referral_phone_accepted,
     notify_referrer_joined,
-    notify_referrer_phone_rejected,
     notify_referrer_sponsors_verified,
     notify_user_sponsors_verified,
     reward_returning_referral,
@@ -45,55 +33,12 @@ from bot.services.sponsor_waves import (
     sponsor_wave_markup,
     sponsor_wave_text,
 )
-from bot.states.captcha import CaptchaStates
 
 router = Router()
 settings = get_settings()
 
 
-def _captcha_kb(target: str, grid: list[str]) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    for emoji in grid:
-        builder.button(text=emoji, callback_data=f"captcha:{emoji}")
-    builder.adjust(3)
-    return builder.as_markup()
 
-
-def _captcha_text(target: str, retry: bool = False) -> str:
-    prefix = "Неверно! Попробуй ещё раз.\n\n" if retry else ""
-    return f"🤖 <b>ПРОВЕРКА НА РОБОТА</b>\n\n{prefix}Нажми на кнопку, где изображено {target}"
-
-
-async def _send_main_menu(message: Message, user: User, session: AsyncSession) -> None:
-    repo = ContentRepository(session)
-    text = await repo.get_text("welcome")
-    photo = await repo.get_photo("welcome")
-
-    if photo:
-        await message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
-    else:
-        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
-
-
-async def _show_captcha(message: Message, state: FSMContext) -> None:
-    if await state.get_state() == CaptchaStates.waiting.state:
-        return
-    
-    target, grid = generate_fruit_captcha()
-    await state.set_state(CaptchaStates.waiting)
-    await state.update_data(captcha_target=target)
-    await message.answer(
-        _captcha_text(target),
-        parse_mode="HTML",
-        reply_markup=_captcha_kb(target, grid),
-    )
-
-
-async def _phone_verification_enabled(session: AsyncSession) -> bool:
-    return await SettingsRepository(session).get_bool(
-        "phone_verification_enabled",
-        True,
-    )
 
 
 @router.message(CommandStart())
@@ -178,10 +123,10 @@ async def cmd_start(
             )
             return
         wave_size = min(
-            6,
+            10,
             max(1, await SettingsRepository(session).get_int(
                 "sponsor_max_channels",
-                6,
+                10,
             )),
         )
         wave_state = evaluate_waves(
@@ -238,18 +183,9 @@ async def cmd_start(
             )
             return
 
-    if (
-        await _phone_verification_enabled(session)
-        and not db_user.phone_verified
-    ):
-        await prompt_phone(message, state)
-        return
-
-    if not db_user.sponsors_verified:
-        await _show_captcha(message, state)
-        return
-
-    await ensure_country_notice(db_user, session, bot)
+    db_user.sponsors_verified = True
+    await session.commit()
+    await check_referral_reward(db_user, session, bot)
     await _send_main_menu(message, db_user, session)
 
 
@@ -326,10 +262,10 @@ async def cb_sponsor_check(
 
     previous_wave = db_user.sponsor_wave
     wave_size = min(
-        6,
+        10,
         max(1, await SettingsRepository(session).get_int(
             "sponsor_max_channels",
-            6,
+            10,
         )),
     )
     wave_state = evaluate_waves(
@@ -376,152 +312,20 @@ async def cb_sponsor_check(
             )
         return
 
-    # All subscribed — request the phone before the captcha.
-    await callback.answer()
-    if (
-        await _phone_verification_enabled(session)
-        and not db_user.phone_verified
-    ):
-        await prompt_phone(callback.message, state)
-        return
-    await _show_captcha(callback.message, state)
-
-
-@router.message(F.contact)
-async def msg_phone_contact(
-    message: Message,
-    db_user: User,
-    session: AsyncSession,
-    state: FSMContext,
-    bot: Bot,
-) -> None:
-    if db_user.phone_verified:
-        await state.clear()
-        await message.answer(
-            "✅ Номер уже подтверждён.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return
-
-    contact = message.contact
-    if not contact or contact.user_id != message.from_user.id:
-        await message.answer(
-            "❌ Отправьте именно свой номер кнопкой ниже.",
-            reply_markup=phone_request_keyboard(),
-        )
-        return
-
-    if (
-        (settings.tgrass_code or settings.botohub_key)
-        and not db_user.sponsors_verified
-        and db_user.sponsor_wave != 3
-    ):
-        await state.clear()
-        await message.answer(
-            "❌ Сначала подпишись на всех обязательных спонсоров. "
-            "Отправь /start, чтобы продолжить."
-        )
-        return
-
-    if not await _phone_verification_enabled(session):
-        await state.clear()
-        await message.answer(
-            "✅ Проверка номера сейчас отключена.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await _show_captcha(message, state)
-        return
-
-    normalized = normalize_phone(contact.phone_number)
-    from bot.database.repositories.settings import SettingsRepository
-
-    codes = await SettingsRepository(session).get("phone_allowed_codes")
-    country_code = matching_country_code(normalized, codes)
-    db_user.phone_number = normalized or None
-    db_user.phone_country_code = country_code
-    db_user.phone_verified = country_code is not None
-    await session.commit()
-
-    if not country_code:
-        await notify_referrer_phone_rejected(db_user, session, bot)
-        await message.answer(phone_rejected_text(), reply_markup=phone_request_keyboard())
-        return
-
-    await mark_referral_phone_accepted(db_user, session, bot)
-    await state.clear()
-    await message.answer(
-        f"✅ Номер принят (код страны +{country_code}).",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-
-    await _show_captcha(message, state)
-
-
-@router.callback_query(CaptchaStates.waiting, lambda c: c.data and c.data.startswith("captcha:"))
-async def cb_captcha_pick(
-    callback: CallbackQuery,
-    db_user: User,
-    session: AsyncSession,
-    state: FSMContext,
-    bot: Bot,
-) -> None:
-    if (
-        (settings.tgrass_code or settings.botohub_key)
-        and not db_user.sponsors_verified
-        and db_user.sponsor_wave != 3
-    ):
-        await state.clear()
-        await callback.answer(
-            "Сначала подпишись на всех обязательных спонсоров.",
-            show_alert=True,
-        )
-        await callback.message.answer(
-            "Отправь /start, чтобы продолжить подписку."
-        )
-        return
-
-    if (
-        await _phone_verification_enabled(session)
-        and not db_user.phone_verified
-    ):
-        await callback.answer()
-        await prompt_phone(callback.message, state)
-        return
-
-    data = await state.get_data()
-    target = data.get("captcha_target", "")
-    picked = callback.data[8:]  # strip "captcha:"
-
-    if picked != target:
-        new_target, new_grid = generate_fruit_captcha()
-        await state.update_data(captcha_target=new_target)
-        await callback.answer("❌ Неверно!", show_alert=False)
-        try:
-            await callback.message.edit_text(
-                _captcha_text(new_target, retry=True),
-                parse_mode="HTML",
-                reply_markup=_captcha_kb(new_target, new_grid),
-            )
-        except Exception:
-            pass
-        return
-
-    # Correct answer
-    await state.clear()
+    # All subscribed
     db_user.sponsors_verified = True
     await session.commit()
     await check_referral_reward(db_user, session, bot)
+    
     if not db_user.referral_reward_given:
         await notify_user_sponsors_verified(db_user, session, bot)
         await notify_referrer_sponsors_verified(db_user, session, bot)
-    await ensure_country_notice(db_user, session, bot)
 
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
     photo = await repo.get_photo("welcome")
 
     await callback.answer("✅ Проверка пройдена!")
-
     if photo:
         try:
             await callback.message.delete()

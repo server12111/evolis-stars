@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -50,7 +51,6 @@ async def reward_returning_referral(
     session: AsyncSession,
     bot: Bot | None = None,
 ) -> Decimal | None:
-    """Pay one half-reward when a qualified referral returns after 7 inactive days."""
     if (
         previous_last_seen_at is None
         or user.referrer_id != requested_referrer_id
@@ -83,8 +83,6 @@ async def reward_returning_referral(
     )
     try:
         await session.flush()
-        # An SQL-side increment prevents lost rewards when different referrals
-        # return to the same referrer at the same moment.
         await session.execute(
             update(User)
             .where(User.user_id == requested_referrer_id)
@@ -93,22 +91,9 @@ async def reward_returning_referral(
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        # Rollback expires ORM objects. Refresh the middleware-provided user so
-        # the rest of the /start handler can safely continue using it.
         await session.refresh(user)
-        logger.info(
-            "REFERRAL_RETURN uid=%d: duplicate return cycle ignored",
-            referred_user_id,
-        )
         return None
 
-    logger.info(
-        "REFERRAL_RETURN uid=%d referrer=%d inactive_since=%s reward=%s",
-        referred_user_id,
-        requested_referrer_id,
-        previous_last_seen_at.isoformat(),
-        reward,
-    )
     if bot:
         username_display = (
             f"@{escape(user.username)}"
@@ -118,91 +103,134 @@ async def reward_returning_referral(
         try:
             await bot.send_message(
                 requested_referrer_id,
-                "♻️ Ваш реферал "
-                f"{username_display} вернулся по ссылке после {REFERRAL_RETURN_DAYS} дней "
-                f"неактивности.\n\nНачислено <b>{format_stars(reward)} ⭐</b> — "
-                "половина обычной награды.",
+                f"♻️ Ваш реферал {username_display} вернулся по ссылке после {REFERRAL_RETURN_DAYS} дней неактивности.\n\nНачислено <b>{format_stars(reward)} ⭐</b> — половина обычной награды.",
                 parse_mode="HTML",
             )
-        except Exception as exc:
-            logger.warning(
-                "Failed to notify referrer %s of referral return: %s",
-                requested_referrer_id,
-                exc,
-            )
+        except:
+            pass
     return reward
 
 
 async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
     """Check if this user has fulfilled conditions → pay referral reward to referrer once."""
     if user.referral_reward_given:
-        logger.info("REFERRAL uid=%d: skip — reward already given", user.user_id)
         return
     if not user.referrer_id:
-        logger.info("REFERRAL uid=%d: skip — no referrer_id", user.user_id)
         return
 
-    repo = SettingsRepository(session)
-    phone_enabled = await repo.get_bool("phone_verification_enabled", True)
-    if phone_enabled and not user.phone_verified:
-        logger.info("REFERRAL uid=%d: skip — phone_verified=False", user.user_id)
+    if not user.sponsors_verified:
         return
 
-    min_tasks = await repo.get_int("min_tasks_for_referral", 3)
-    reward = await get_referral_reward(session)
-
-    settings = get_settings()
-    if (settings.tgrass_code or settings.botohub_key) and not user.sponsors_verified:
-        logger.info("REFERRAL uid=%d: skip — sponsors_verified=False (tgrass=%r botohub=%r)",
-                    user.user_id, bool(settings.tgrass_code), bool(settings.botohub_key))
+    tg_count = 0
+    web_count = 0
+    try:
+        if user.sponsor_wave_one:
+            wave_one = json.loads(user.sponsor_wave_one)
+            for s in wave_one:
+                url = s.get("url", "")
+                if "t.me/" in url or "telegram.me/" in url or "telegram.dog/" in url:
+                    tg_count += 1
+                else:
+                    web_count += 1
+        if user.sponsor_wave_two:
+            wave_two = json.loads(user.sponsor_wave_two)
+            for s in wave_two:
+                url = s.get("url", "")
+                if "t.me/" in url or "telegram.me/" in url or "telegram.dog/" in url:
+                    tg_count += 1
+                else:
+                    web_count += 1
+    except Exception as e:
+        logger.error(f"Failed to parse sponsor waves: {e}")
         return
-    if not phone_enabled and not user.referral_counted:
-        await mark_referral_phone_accepted(
-            user,
-            session,
-            bot,
-            phone_check_enabled=False,
-        )
-    if user.tasks_completed_count < min_tasks:
-        logger.info("REFERRAL uid=%d: skip — tasks %d < min %d",
-                    user.user_id, user.tasks_completed_count, min_tasks)
+
+    total_sponsors = tg_count + web_count
+    
+    if total_sponsors < 6:
+        user.referral_reward_given = True
+        await session.commit()
+        if bot:
+            try:
+                await bot.send_message(
+                    user.referrer_id,
+                    f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум 6, было {total_sponsors})."
+                )
+            except:
+                pass
         return
 
-    logger.info("REFERRAL uid=%d: conditions met (tasks=%d sponsors=%s referrer=%d) → giving reward %.2f",
-                user.user_id, user.tasks_completed_count, user.sponsors_verified, user.referrer_id, float(reward))
+    reward = Decimal(str(tg_count * 0.5 + web_count * 0.25))
 
-    # All conditions met — reward the referrer
     user_repo = UserRepository(session)
     referrer = await user_repo.get(user.referrer_id)
     if not referrer:
-        logger.warning("REFERRAL uid=%d: referrer %d not found", user.user_id, user.referrer_id)
         return
 
     user.referral_reward_given = True
+    new_referrals_count = referrer.referrals_count + 1
+    
+    # Explicitly pull is_vip as boolean from DB (fallback to False)
+    referrer_is_vip = getattr(referrer, 'is_vip', False)
+
+    bonus = Decimal("0")
+    became_vip = False
+    
+    if referrer_is_vip:
+        bonus += Decimal("1")
+    else:
+        if new_referrals_count == 10:
+            bonus += Decimal("0.1")
+        elif new_referrals_count == 25:
+            bonus += Decimal("0.1")
+        elif new_referrals_count == 30:
+            bonus += Decimal("0.1")
+        elif new_referrals_count == 50:
+            bonus += Decimal("0.7")
+            referrer_is_vip = True
+            became_vip = True
+        elif new_referrals_count == 55:
+            bonus += Decimal("0.1")
+        elif new_referrals_count == 60:
+            bonus += Decimal("0.1")
+        elif new_referrals_count == 70:
+            bonus += Decimal("0.1")
+
+    total_reward = reward + bonus
+
     await session.execute(
         update(User)
         .where(User.user_id == referrer.user_id)
         .values(
-            stars_balance=User.stars_balance + reward,
-            referrals_count=User.referrals_count + 1
+            stars_balance=User.stars_balance + total_reward,
+            referrals_count=new_referrals_count,
+            is_vip=referrer_is_vip
         )
     )
     await session.commit()
 
-    username_display = (
-        f"@{escape(user.username)}"
-        if user.username
-        else escape(user.first_name or str(user.user_id))
-    )
     if bot:
+        username_display = (
+            f"@{escape(user.username)}"
+            if user.username
+            else escape(user.first_name or str(user.user_id))
+        )
         try:
+            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}.\n"
+            msg += f"(ТГ спонсоров: {tg_count}, Web спонсоров: {web_count})"
+            if bonus > 0:
+                msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
+            if became_vip:
+                msg += "\n🌟 Вы получили VIP-статус! Теперь за каждого реферала вы будете получать бонус 1 ⭐!"
+            elif referrer_is_vip and not became_vip:
+                msg += "\n🌟 Включен VIP-бонус 1 ⭐!"
+                
             await bot.send_message(
                 referrer.user_id,
-                f"🎉 Вам начислено <b>{format_stars(reward)} ⭐</b> за пользователя {username_display}.",
+                msg,
                 parse_mode="HTML",
             )
-        except Exception as e:
-            logger.warning("Failed to notify referrer %s: %s", referrer.user_id, e)
+        except:
+            pass
 
 
 async def mark_referral_phone_accepted(
@@ -212,140 +240,40 @@ async def mark_referral_phone_accepted(
     *,
     phone_check_enabled: bool = True,
 ) -> None:
-    """Count a referral exactly once, after the referred user's phone passes."""
-    if not user.referrer_id or user.referral_counted:
-        return
-
-    referrer = await UserRepository(session).get(user.referrer_id)
-    if not referrer or referrer.is_blocked:
-        return
-
-    user.referral_counted = True
-    await session.commit()
-
-    username_display = (
-        f"@{escape(user.username)}"
-        if user.username
-        else escape(user.first_name or str(user.user_id))
-    )
-    if bot:
-        try:
-            accepted_reason = (
-                "прошёл проверку номера"
-                if phone_check_enabled
-                else "прошёл обязательную проверку"
-            )
-            await bot.send_message(
-                referrer.user_id,
-                f"✅ Реферал {username_display} {accepted_reason}. "
-                "Награда и +1 реферал будут начислены после выполнения им остальных условий.",
-            )
-        except Exception as e:
-            logger.warning("Failed to notify referrer %s of accepted phone: %s", referrer.user_id, e)
-
+    pass
 
 async def notify_referrer_phone_rejected(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
-    """Notify the inviter once when a referred user is outside the allowlist."""
-    if not user.referrer_id or user.phone_rejection_notified:
-        return
-
-    referrer = await UserRepository(session).get(user.referrer_id)
-    user.phone_rejection_notified = True
-    await session.commit()
-    if not referrer or not bot:
-        return
-
-    username_display = (
-        f"@{escape(user.username)}"
-        if user.username
-        else escape(user.first_name or str(user.user_id))
-    )
-    try:
-        await bot.send_message(
-            referrer.user_id,
-            f"ℹ️ Реферал {username_display} не засчитан: его номер не относится к "
-            "разрешённым странам. Если он отправит подходящий номер, проверка будет пройдена повторно.",
-        )
-    except Exception as e:
-        logger.warning("Failed to notify referrer %s of rejected phone: %s", referrer.user_id, e)
+    pass
 
 
 async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: Bot) -> None:
-    """Tell the referred user they've passed sponsors and how many tasks remain."""
     if not user.referrer_id or user.referral_reward_given:
         return
-    repo = SettingsRepository(session)
-    min_tasks = await repo.get_int("min_tasks_for_referral", 3)
-    remaining = max(0, min_tasks - user.tasks_completed_count)
-    if remaining <= 0:
-        return
-    if remaining == 1:
-        word = "задание"
-    elif remaining in (2, 3, 4):
-        word = "задания"
-    else:
-        word = "заданий"
     try:
         await bot.send_message(
             user.user_id,
-            f"✅ <b>Вы подписались на спонсоров!</b>\n\n"
-            f"Осталось выполнить ещё <b>{remaining} {word}</b> для активации реферальной программы.",
+            f"✅ <b>Вы подписались на спонсоров!</b>",
             parse_mode="HTML",
         )
-    except Exception as e:
-        logger.warning("Failed to notify user %s sponsors passed: %s", user.user_id, e)
+    except:
+        pass
 
 
 async def notify_referrer_sponsors_verified(user: User, session: AsyncSession, bot: Bot) -> None:
-    """Notify referrer that their referred user passed the sponsor wall."""
-    if not user.referrer_id or user.referral_reward_given:
-        return
-    repo = SettingsRepository(session)
-    min_tasks = await repo.get_int("min_tasks_for_referral", 3)
-    remaining = max(0, min_tasks - user.tasks_completed_count)
-    if remaining <= 0:
-        return
-    username_display = (
-        f"@{escape(user.username)}"
-        if user.username
-        else escape(user.first_name or str(user.user_id))
-    )
-    word = "задание" if remaining == 1 else "задания" if remaining in (2, 3, 4) else "заданий"
-    try:
-        await bot.send_message(
-            user.referrer_id,
-            f"✅ <b>{username_display} подписался на спонсоров!</b>\n\n"
-            f"Осталось выполнить <b>{remaining} {word}</b> для получения награды.",
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        logger.warning("Failed to notify referrer %s sponsors passed: %s", user.referrer_id, e)
+    pass
 
 
 async def notify_referrer_joined(referrer_id: int, new_user: User, session: AsyncSession, bot: Bot) -> None:
-    """Notify referrer that someone joined via their link."""
-    settings = get_settings()
-    repo = SettingsRepository(session)
-    reward = await get_referral_reward(session)
-    min_tasks = await repo.get_int("min_tasks_for_referral", 3)
     username_display = (
         f"@{escape(new_user.username)}"
         if new_user.username
         else escape(new_user.first_name or str(new_user.user_id))
     )
-
-    conditions: list[str] = []
-    if settings.tgrass_code or settings.botohub_key:
-        conditions.append("• подпишется на всех спонсоров;")
-    conditions.append(f"• выполнит минимум <b>{min_tasks}</b> заданий.")
-
     try:
         await bot.send_message(
             referrer_id,
-            f"⚡ Пользователь {username_display} присоединился по вашей ссылке!\n\n"
-            f"Вы получите <b>{format_stars(reward)} ⭐</b>, когда он:\n"
-            + "\n".join(conditions),
+            f"⚡ Пользователь {username_display} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
             parse_mode="HTML",
         )
-    except Exception as e:
-        logger.warning("Failed to notify referrer %s of new join: %s", referrer_id, e)
+    except:
+        pass

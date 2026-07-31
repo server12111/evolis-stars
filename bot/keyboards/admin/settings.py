@@ -37,8 +37,6 @@ def settings_kb() -> InlineKeyboardMarkup:
     for i in range(0, len(toggle_buttons), 2):
         builder.row(*toggle_buttons[i:i+2])
 
-    builder.row(InlineKeyboardButton(text="🌍 Коды разрешённых стран", callback_data="admin:phone_codes"))
-
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"))
     return builder.as_markup()
 
@@ -47,20 +45,3 @@ def settings_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="❌ Отмена", callback_data="admin:settings"),
     ]])
-
-
-def phone_codes_kb(phone_enabled: bool = True) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=(
-                    "✅ Проверка номера включена"
-                    if phone_enabled
-                    else "❌ Проверка номера выключена"
-                ),
-                callback_data="admin:phone_toggle",
-            )
-        ],
-        [InlineKeyboardButton(text="➕ Добавить код", callback_data="admin:phone_codes_add")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main")],
-    ])

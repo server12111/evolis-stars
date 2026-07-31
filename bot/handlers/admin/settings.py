@@ -9,14 +9,9 @@ from bot.database.models import User
 from bot.database.repositories.settings import SettingsRepository
 from bot.handlers.admin.stats import _is_admin
 from bot.keyboards.admin.main import back_to_admin_kb
-from bot.keyboards.admin.settings import phone_codes_kb, settings_cancel_kb
+from bot.keyboards.admin.settings import settings_cancel_kb
 from bot.keyboards.admin.settings import settings_kb as settings_menu_kb
-from bot.services.phone import (
-    COUNTRY_CODE_NAMES,
-    allowed_country_codes,
-    parse_country_codes,
-)
-from bot.states.admin import AdminPhoneCodesStates, AdminSettingsStates
+from bot.states.admin import AdminSettingsStates
 
 router = Router()
 
@@ -54,9 +49,6 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     withdraw_on = await repo.get_bool("withdraw_enabled", True)
     games_on = await repo.get_bool("games_enabled", True)
     tasks_on = await repo.get_bool("tasks_enabled", True)
-    phone_on = await repo.get_bool("phone_verification_enabled", True)
-    codes = allowed_country_codes(await repo.get("phone_allowed_codes"))
-    codes_text = ", ".join(f"+{code}" for code in codes)
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
@@ -64,8 +56,6 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Мин. заданий для реф.: <b>{min_tasks}</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
-        f"📱 Проверка номера: <b>{'включена' if phone_on else 'выключена'}</b>\n"
-        f"🌍 Коды номеров: <b>{codes_text}</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
         f"⭐ Вывод: {'✅' if withdraw_on else '❌'}\n"
         f"🎮 Игры: {'✅' if games_on else '❌'} | "
@@ -78,88 +68,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     await callback.answer()
 
 
-@router.callback_query(lambda c: c.data == "admin:phone_codes")
-async def cb_phone_codes(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
-    if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
-        return
-    repo = SettingsRepository(session)
-    phone_on = await repo.get_bool("phone_verification_enabled", True)
-    codes = allowed_country_codes(await repo.get("phone_allowed_codes"))
-    lines = [
-        f"+{code} — {COUNTRY_CODE_NAMES.get(code, 'добавленный код')}"
-        for code in codes
-    ]
-    text = (
-        "🌍 <b>Разрешённые коды номеров</b>\n\n"
-        f"Проверка номера: <b>{'✅ включена' if phone_on else '❌ выключена'}</b>\n\n"
-        + "\n".join(lines)
-        + "\n\nМожно добавить один или несколько кодов через запятую, например: <code>995, +48</code>.\n"
-        "При выключенной проверке эти коды сохраняются, но бот не запрашивает контакт."
-    )
-    try:
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=phone_codes_kb(phone_on),
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=phone_codes_kb(phone_on),
-        )
-    await callback.answer()
 
-
-@router.callback_query(lambda c: c.data == "admin:phone_toggle")
-async def cb_phone_toggle(
-    callback: CallbackQuery,
-    db_user: User,
-    session: AsyncSession,
-) -> None:
-    if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
-        return
-    repo = SettingsRepository(session)
-    current = await repo.get_bool("phone_verification_enabled", True)
-    await repo.set("phone_verification_enabled", "0" if current else "1")
-    await cb_phone_codes(callback, db_user, session)
-
-
-@router.callback_query(lambda c: c.data == "admin:phone_codes_add")
-async def cb_phone_codes_add(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
-    if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
-        return
-    await state.set_state(AdminPhoneCodesStates.enter_code)
-    await callback.message.answer(
-        "➕ Введите код страны (например, <code>+995</code>) или несколько кодов через запятую:",
-        parse_mode="HTML",
-        reply_markup=settings_cancel_kb(),
-    )
-    await callback.answer()
-
-
-@router.message(AdminPhoneCodesStates.enter_code)
-async def msg_phone_code(message: Message, state: FSMContext, session: AsyncSession, db_user: User) -> None:
-    if not _is_admin(db_user):
-        return
-    added = parse_country_codes(message.text)
-    if not added:
-        await message.answer("❌ Укажите цифровой код, например <code>+995</code>.", parse_mode="HTML")
-        return
-
-    repo = SettingsRepository(session)
-    current = set(allowed_country_codes(await repo.get("phone_allowed_codes")))
-    current.update(added)
-    value = ",".join(sorted(current, key=lambda item: (len(item), item)))
-    await repo.set("phone_allowed_codes", value)
-    await state.clear()
-    await message.answer(
-        "✅ Коды добавлены: " + ", ".join(f"+{code}" for code in added),
-        reply_markup=back_to_admin_kb(),
-    )
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:settings_edit:"))
@@ -202,9 +111,9 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
             reply_markup=settings_cancel_kb(),
         )
         return
-    if key == "sponsor_max_channels" and val > 6:
+    if key == "sponsor_max_channels" and val > 10:
         await message.answer(
-            "❌ За один раз можно показать не больше 6 спонсоров:",
+            "❌ За один раз можно показать не больше 10 спонсоров:",
             reply_markup=settings_cancel_kb(),
         )
         return

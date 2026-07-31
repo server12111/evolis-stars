@@ -38,10 +38,11 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     return_reward = await get_return_reward(session)
 
     _default_text = (
-        f"💸 <b>Заработать</b>\n\n"
-        f"Приглашай друзей по реферальной ссылке!\n\n"
-        f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n"
-        f"🔗 Твоя ссылка:\n<code>{ref_link}</code>"
+        f"💸 <b>Заработать</b>\n\nПриглашай друзей по реферальной ссылке и получай звезды за каждого спонсора, на которого они подписались!\n\n"
+        f"🔹 Спонсоры Telegram: <b>0.5 ⭐</b>\n🔹 Web спонсоры: <b>0.25 ⭐</b>\n\n"
+        f"<i>Для получения награды реферал должен подписаться на не менее 6 спонсоров.</i>\n\n"
+        f"👑 <b>VIP система</b>\nПри достижении 50 рефералов вы получаете статус VIP и дополнительные +1 ⭐ за каждого следующего реферала!\n\n"
+        f"👥 Приглашено: <b>{db_user.referrals_count}</b>\n🔗 Твоя ссылка:\n<code>{ref_link}</code>"
     )
     if "{" in template:
         try:

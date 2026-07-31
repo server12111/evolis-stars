@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.database.models import User
 
-WAVE_SIZE = 6
+WAVE_SIZE = 10
 MAX_WAVES = 2
 
 ProviderResult = list[dict] | BaseException
@@ -103,9 +103,15 @@ def initialize_waves(
         if not url_key or url_key in seen_urls:
             continue
         seen_urls.add(url_key)
+        if "t.me/" in url_key or "telegram.me/" in url_key or "telegram.dog/" in url_key:
+            item["type"] = "tg"
+        else:
+            item["type"] = "web"
         unique.append(item)
         if len(unique) >= wave_size * MAX_WAVES:
             break
+
+    unique.sort(key=lambda x: 0 if x.get("type") == "tg" else 1)
 
     first = unique[:wave_size]
     second = unique[wave_size:wave_size * MAX_WAVES]

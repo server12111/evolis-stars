@@ -42,28 +42,6 @@ def _should_skip(callback_data: str | None, message_text: str | None) -> bool:
     return False
 
 
-async def _prompt_phone(
-    inner: Message | CallbackQuery,
-    state: Any,
-) -> None:
-    from bot.services.phone import prompt_phone
-
-    if isinstance(inner, Message):
-        await prompt_phone(inner, state)
-    elif inner.message:
-        await prompt_phone(inner.message, state)
-        await inner.answer()
-
-
-async def _phone_required(session: AsyncSession, user: User) -> bool:
-    if user.phone_verified:
-        return False
-    return await SettingsRepository(session).get_bool(
-        "phone_verification_enabled",
-        True,
-    )
-
-
 async def _show_wave(
     inner: Message | CallbackQuery,
     *,
@@ -211,10 +189,10 @@ class SponsorWallMiddleware(BaseMiddleware):
             return
 
         wave_size = min(
-            6,
+            10,
             max(1, await SettingsRepository(session).get_int(
                 "sponsor_max_channels",
-                6,
+                10,
             )),
         )
         wave_state = evaluate_waves(
@@ -237,19 +215,5 @@ class SponsorWallMiddleware(BaseMiddleware):
             )
             return
 
-        # Only prompt phone if not already verified (guards against double-prompt
-        # when the user re-sends a message between phone confirm and captcha pass)
-        if not db_user.phone_verified and await _phone_required(session, db_user):
-            await _prompt_phone(inner, state)
-            return
-
-        # Sponsor waves and phone are complete; keep the user behind the wall
-        # until the existing anti-bot captcha is also passed.
-        from bot.handlers.start import _show_captcha
-
-        target_message = inner if isinstance(inner, Message) else inner.message
-        if target_message:
-            await _show_captcha(target_message, state)
-        if isinstance(inner, CallbackQuery):
-            await inner.answer()
-        return
+        # Sponsor waves are complete; allow access.
+        return await handler(event, data)
