@@ -18,9 +18,12 @@ async def send_ad(api_key: str, user_id: int, hi: bool = False) -> None:
                 json={"SendToChatId": user_id, "hi": hi},
                 headers={"Authorization": api_key, "Content-Type": "application/json"},
             ) as resp:
+                if resp.status >= 400:
+                    logger.warning("BotoHub ad send HTTP %s for user %s", resp.status, user_id)
+                    return
                 data = await resp.json(content_type=None)
                 code = data.get("SendPostResult", 0)
                 if code not in (1, 7, 8):
-                    logger.debug("Ad result for user %s: code=%s", user_id, code)
+                    logger.warning("Ad result for user %s: code=%s", user_id, code)
     except Exception as e:
-        logger.debug("Ad send error for user %s: %s", user_id, e)
+        logger.warning("Ad send error for user %s: %s", user_id, e)

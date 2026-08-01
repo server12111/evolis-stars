@@ -138,7 +138,7 @@ class ReferralReactivationTests(unittest.IsolatedAsyncioTestCase):
                 first_name="Referred",
                 referrer_id=720,
                 sponsors_verified=True,
-                sponsor_wave_one=_wave("https://t.me/a", "https://t.me/b"),
+                sponsor_wave_one=_wave("https://t.me/a"),
             )
             session.add_all((referrer, referred))
             await session.commit()

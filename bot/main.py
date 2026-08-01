@@ -28,6 +28,7 @@ from bot.services.instance_lock import (
 )
 from bot.services.lottery_scheduler import lottery_time_check_loop
 from bot.services.premium_emoji import PremiumEmojiMiddleware
+from bot.services.sponsor_recheck_scheduler import sponsor_recheck_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +58,7 @@ async def on_startup(bot: Bot) -> None:
     spawn_background(lottery_time_check_loop(bot), name="lottery-scheduler")
     spawn_background(auction_loop(bot), name="auction-scheduler")
     spawn_background(duel_expiry_loop(bot), name="duel-expiry-scheduler")
+    spawn_background(sponsor_recheck_loop(bot), name="sponsor-recheck-scheduler")
     logger.info("Database initialized. Background tasks started.")
 
 
