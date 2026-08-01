@@ -39,6 +39,23 @@ def format_stars(value: Decimal | float) -> str:
     return f"{amount:.2f}".rstrip("0").rstrip(".")
 
 
+def pluralize_ru(n: int, one: str, few: str, many: str) -> str:
+    """Russian noun agreement: 1 спонсор / 2 спонсора / 5 спонсоров."""
+    n_abs = abs(n) % 100
+    if 11 <= n_abs <= 14:
+        return many
+    last_digit = n_abs % 10
+    if last_digit == 1:
+        return one
+    if 2 <= last_digit <= 4:
+        return few
+    return many
+
+
+def sponsors_word(n: int) -> str:
+    return pluralize_ru(n, "спонсор", "спонсора", "спонсоров")
+
+
 async def _get_decimal_setting(session: AsyncSession, key: str, default: str) -> Decimal:
     raw = await SettingsRepository(session).get(key, default)
     try:

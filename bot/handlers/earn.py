@@ -21,6 +21,7 @@ from bot.services.referral import (
     get_min_sponsors_for_reward,
     get_tg_reward,
     get_web_reward,
+    sponsors_word,
 )
 
 router = Router()
@@ -56,6 +57,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         tg_reward=format_stars(tg_reward),
         web_reward=format_stars(web_reward),
         min_sponsors=min_sponsors,
+        min_sponsors_word=sponsors_word(min_sponsors),
         vip_threshold=VIP_THRESHOLD,
         top_tier=top_tier,
         top_bonus=format_stars(top_bonus),
