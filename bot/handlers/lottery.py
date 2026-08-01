@@ -9,6 +9,7 @@ from bot.database.repositories.lottery import LotteryRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.lottery import lottery_menu_kb
+from bot.services.referral import referrals_word
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 router = Router()
@@ -43,7 +44,7 @@ async def cb_lottery(callback: CallbackQuery, session: AsyncSession, db_user: Us
     )
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала. Твоих: {db_user.referrals_count}/{min_refs}",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}. Твоих: {db_user.referrals_count}/{min_refs}",
             show_alert=True,
         )
         return
@@ -82,7 +83,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
     )
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала.",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -93,7 +94,10 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         return
 
     if lottery.ref_required > 0 and db_user.referrals_count < lottery.ref_required:
-        await callback.answer(f"❌ Нужно {lottery.ref_required} рефералов.", show_alert=True)
+        await callback.answer(
+            f"❌ Нужно {lottery.ref_required} {referrals_word(lottery.ref_required)}.",
+            show_alert=True,
+        )
         return
     if db_user.stars_balance < lottery.ticket_price:
         await callback.answer(f"❌ Нужно {float(lottery.ticket_price):.0f} ⭐", show_alert=True)

@@ -60,7 +60,7 @@ def tower_playing_kb(
                 callback_data="tower:cashout",
             ),
         )
-    builder.row(InlineKeyboardButton(text="🏠 Меню", callback_data="tower:quit"))
+    builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="tower:quit"))
     return builder.as_markup()
 
 

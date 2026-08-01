@@ -26,8 +26,9 @@ def _format_top(users: list, field: str, title: str, label: str) -> str:
 
 @router.callback_query(lambda c: c.data == "menu:top")
 async def cb_top_menu(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
-    text = "🏆 <b>Топ игроков</b>\n\nВыбери рейтинг:"
-    photo = await ContentRepository(session).get_photo("top")
+    c_repo = ContentRepository(session)
+    text = await c_repo.get_text("top")
+    photo = await c_repo.get_photo("top")
     kb = top_menu_kb()
     if photo:
         try:

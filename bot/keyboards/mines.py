@@ -51,7 +51,7 @@ def mines_playing_kb(board: list[int], opened: list[int], coeff: float, payout: 
             text=f"💰 Забрать {payout:.2f} ⭐ (×{coeff:.2f})",
             callback_data="mines:cashout",
         ),
-        InlineKeyboardButton(text="🏠 Меню", callback_data="mines:quit"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="mines:quit"),
     )
     return builder.as_markup()
 

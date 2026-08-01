@@ -32,7 +32,7 @@ def games_menu_kb(configs: dict) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🎟 Лотерея", callback_data="game:lottery"),
         InlineKeyboardButton(text="⚔️ Дуэль", callback_data="duel:menu"),
     )
-    builder.row(InlineKeyboardButton(text="🎰 Казино (Мины / Башня / Кейсы)", callback_data="menu:casino"))
+    builder.row(InlineKeyboardButton(text="🎰 Казино", callback_data="menu:casino"))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     return builder.as_markup()
 

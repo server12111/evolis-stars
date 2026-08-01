@@ -30,6 +30,8 @@ class User(Base):
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     referral_reward_given: Mapped[bool] = mapped_column(Boolean, default=False)
     referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
+    rewarded_sponsor_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+    referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
     sponsor_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)

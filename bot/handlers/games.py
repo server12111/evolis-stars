@@ -6,10 +6,11 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User, GameSession
-from bot.database.repositories.content import ContentRepository
+from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.game import GameRepository
 from bot.keyboards.main import back_to_menu_kb
+from bot.services.referral import referrals_word
 from bot.keyboards.games import (
     games_menu_kb, dice_side_kb, football_side_kb, bowling_side_kb,
     basketball_side_kb, darts_side_kb, game_result_kb, game_cancel_kb,
@@ -197,8 +198,8 @@ async def cb_games_menu(callback: CallbackQuery, session: AsyncSession, db_user:
     if db_user.referrals_count < min_refs:
         text = (
             f"🎮 <b>Игры</b>\n\n"
-            f"❌ Игры открываются после <b>{min_refs}</b> подтверждённых рефералов. "
-            f"У тебя: <b>{db_user.referrals_count}</b>."
+            f"❌ Игры открываются после <b>{min_refs}</b> подтверждённых "
+            f"{referrals_word(min_refs)}. У тебя: <b>{db_user.referrals_count}</b>."
         )
         try:
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_to_menu_kb())
@@ -208,13 +209,18 @@ async def cb_games_menu(callback: CallbackQuery, session: AsyncSession, db_user:
         return
 
     configs = await _load_games_config(session)
+    c_repo = ContentRepository(session)
 
     if not games_enabled:
         text = "🎮 <b>Игры</b>\n\nИгры временно недоступны."
     else:
-        text = f"🎮 <b>Игры</b>\n\nБаланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\nВыбери игру:"
+        template = await c_repo.get_text("games")
+        try:
+            text = template.format(balance=f"{float(db_user.stars_balance):.2f}") if "{" in template else template
+        except (KeyError, ValueError, IndexError):
+            text = DEFAULT_TEXTS["games"].format(balance=f"{float(db_user.stars_balance):.2f}")
+        text += "\n\nВыбери игру:"
 
-    c_repo = ContentRepository(session)
     photo = await c_repo.get_photo("games")
     kb = games_menu_kb(configs)
     if photo:
@@ -247,7 +253,8 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs = max(0, await repo.get_int("games_min_refs", 3))
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} подтверждённых реферала. У тебя: {db_user.referrals_count}",
+            f"❌ Нужно минимум {min_refs} подтверждённых {referrals_word(min_refs)}. "
+            f"У тебя: {db_user.referrals_count}",
             show_alert=True,
         )
         return

@@ -52,6 +52,7 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
 
     commission = await s_repo.get_float("auction_commission", 0.20)
     winner_share = round(float(round_.prize_pool) * (1 - commission), 2)
+    winner_percent = round((1 - commission) * 100)
 
     if round_.current_bidder_id:
         u_repo = UserRepository(session)
@@ -69,8 +70,11 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
 
     text = (
         f"🏺 <b>Аукцион</b>\n\n"
+        f"Каждая ставка пополняет общий призовой фонд — побеждает тот, "
+        f"кто останется лидером к концу отсчёта. Перебитые ставки в фонде "
+        f"и не возвращаются, поэтому побеждает только последний лидер.\n\n"
         f"🏆 Призовой фонд: <b>{float(round_.prize_pool):.2f} ⭐</b>\n"
-        f"💰 Выигрыш победителя (80%): <b>{winner_share:.2f} ⭐</b>\n"
+        f"💰 Выигрыш победителя ({winner_percent}%): <b>{winner_share:.2f} ⭐</b>\n"
         f"{bid_line}\n"
         f"{leader_line}\n"
         f"⏱ До конца: <b>{time_str}</b>\n\n"

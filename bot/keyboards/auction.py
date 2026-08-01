@@ -16,7 +16,7 @@ def auction_kb(has_active: bool = True) -> InlineKeyboardMarkup:
         builder.row(InlineKeyboardButton(text="✏️ Своя сумма", callback_data="auction:bid:custom"))
     builder.row(
         InlineKeyboardButton(text="🔄 Обновить", callback_data="auction:refresh"),
-        InlineKeyboardButton(text="🏠 Меню", callback_data="menu:main"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"),
     )
     return builder.as_markup()
 

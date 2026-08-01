@@ -51,9 +51,9 @@ async def cb_bonus(callback: CallbackQuery, db_user: User, session: AsyncSession
 
     text = (
         f"🎁 <b>Ежедневный бонус получен!</b>\n\n"
-        f"Вам начислено: <b>+{amount:.2f} ⭐</b>\n"
+        f"Вам начислено: <b>+{amount:.2f} ⭐</b> (диапазон {bonus_min:.2f}–{bonus_max:.2f} ⭐)\n"
         f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\n"
-        f"Возвращайтесь завтра за новым бонусом!"
+        f"Возвращайтесь через 24 часа за новым бонусом!"
     )
 
     kb = builder.as_markup()

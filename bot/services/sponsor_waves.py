@@ -239,8 +239,11 @@ def sponsor_wave_markup(items: list[dict]) -> InlineKeyboardMarkup:
 
 
 def sponsor_wave_text(wave: int, total_waves: int) -> str:
+    progress = f" — шаг {wave} из {total_waves}" if total_waves > 1 else ""
     return (
-        "📣 <b>Подписка на спонсоров</b>\n\n"
+        f"📣 <b>Подписка на спонсоров</b>{progress}\n\n"
         "Подпишись на все каналы ниже, затем нажми "
-        "<b>«Я подписался на все каналы»</b>."
+        "<b>«Я подписался на все каналы»</b>.\n\n"
+        "Это откроет доступ к боту — а если ты пришёл по реферальной "
+        "ссылке, пригласивший тебя получит награду."
     )

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import User
 import time
+from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.task import TaskRepository
 from bot.keyboards.tasks import (
@@ -106,9 +107,14 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
             return
         s_repo = SettingsRepository(session)
         tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
+        reward_str = f"{tasks_reward:.1f}"
+        template = await ContentRepository(session).get_text("tasks")
+        try:
+            intro = template.format(tasks_reward=reward_str) if "{" in template else template
+        except (KeyError, ValueError, IndexError):
+            intro = DEFAULT_TEXTS["tasks"].format(tasks_reward=reward_str)
         text = (
-            f"📋 <b>Задания</b>\n\n"
-            f"Выполняй задания и получай <b>{tasks_reward:.1f} ⭐</b> за каждое!\n"
+            f"{intro}\n"
             f"✅ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
             f"🎉 Все доступные задания выполнены!"
         )

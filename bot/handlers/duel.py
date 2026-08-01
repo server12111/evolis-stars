@@ -24,6 +24,7 @@ from bot.keyboards.duel import (
 )
 from bot.services.background import spawn_background
 from bot.services.duel_scheduler import compute_duel_payout
+from bot.services.referral import referrals_word
 from bot.states.duel import DuelStates
 
 router = Router()
@@ -113,7 +114,7 @@ async def cb_duel_menu(
     await state.clear()
     min_refs, commission = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
-        await callback.answer(f"❌ Нужно минимум {min_refs} реферала. У тебя: {db_user.referrals_count}", show_alert=True)
+        await callback.answer(f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}. У тебя: {db_user.referrals_count}", show_alert=True)
         return
     text = (f"⚔️ <b>Дуэли</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\n"
             f"Бросайте кубик против соперника!\nПобедитель получает <b>{(1 - commission) * 100:.0f}%</b> банка.")
@@ -134,7 +135,7 @@ async def cb_duel_create(
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала.",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -156,7 +157,7 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await state.clear()
-        await message.answer(f"❌ Нужно минимум {min_refs} реферала.")
+        await message.answer(f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.")
         return
     try:
         amount = float(message.text.strip().replace(",", "."))
@@ -177,7 +178,9 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
     await session.commit()
 
     await message.answer(
-        f"⚔️ <b>Дуэль #{duel.id} создана!</b>\n\n💰 Ставка: <b>{amount:.0f} ⭐</b>\n⏳ Ожидание соперника...",
+        f"⚔️ <b>Дуэль #{duel.id} создана!</b>\n\n💰 Ставка: <b>{amount:.0f} ⭐</b>\n"
+        f"⏳ Ожидание соперника... Если никто не вступит за {DUEL_EXPIRE_MINUTES} мин, "
+        "ставка вернётся автоматически.",
         parse_mode="HTML", reply_markup=duel_creator_kb(duel.id),
     )
 
@@ -220,7 +223,7 @@ async def cb_duel_active(callback: CallbackQuery, session: AsyncSession, db_user
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала.",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -249,7 +252,7 @@ async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs, commission = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала.",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -280,7 +283,7 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} реферала.",
+            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -325,7 +328,8 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
     creator = await session.get(User, duel.creator_id)
     await _notify(callback.bot, duel.creator_id,
                   f"⚔️ <b>Дуэль #{duel_id}</b>\n\n👤 <b>{escape(db_user.first_name)}</b> хочет вступить!\n"
-                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\nПодтвердить?",
+                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n"
+                  f"Подтвердить? (не ответишь за {CONFIRM_TIMEOUT_MINUTES} мин — ставки вернутся обоим)",
                   duel_confirm_kb(duel_id))
     try:
         await callback.message.edit_text(
@@ -368,7 +372,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     try:
         await callback.message.edit_text(
             f"🔥 <b>Дуэль #{duel_id} началась!</b>\n\n⚔️ Соперник: <b>{escape(joiner.first_name) if joiner else 'Игрок'}</b>\n"
-            f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик!",
+            f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)",
             parse_mode="HTML", reply_markup=roll_kb,
         )
     except Exception:
@@ -376,7 +380,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     await callback.answer()
     await _notify(callback.bot, duel.joiner_id,
                   f"🔥 <b>Дуэль #{duel_id} подтверждена!</b>\n\n⚔️ Соперник: <b>{escape(db_user.first_name)}</b>\n"
-                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик!", roll_kb)
+                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)", roll_kb)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:decline_join:"))
