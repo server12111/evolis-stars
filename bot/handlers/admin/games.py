@@ -117,7 +117,7 @@ async def cb_game_coeffs(callback: CallbackQuery, db_user: User) -> None:
     game_type = callback.data.split(":")[2]
     coeff_keys = GAME_COEFF_KEYS.get(game_type, [])
     if not coeff_keys:
-        await callback.answer("У этой игры нет настраиваемых коэффициентов.", show_alert=True)
+        await callback.answer("❌ У этой игры нет настраиваемых коэффициентов.", show_alert=True)
         return
     try:
         await callback.message.edit_text(
@@ -143,7 +143,7 @@ async def cb_game_coef_pick(callback: CallbackQuery, db_user: User, state: FSMCo
     await state.set_state(AdminGameStates.enter_value)
     await state.update_data(game_type=game_type, param=suffix)
     await callback.message.answer(
-        f"Введи новый коэффициент «{label}» для {game_type} (напр: 1.9):",
+        f"✏️ Введи новый коэффициент «{label}» для {game_type} (напр: 1.9):",
         reply_markup=lottery_cancel_kb(),
     )
     await callback.answer()
@@ -155,7 +155,7 @@ async def cb_game_minbet(callback: CallbackQuery, db_user: User, state: FSMConte
     game_type = callback.data.split(":")[2]
     await state.set_state(AdminGameStates.enter_value)
     await state.update_data(game_type=game_type, param="min_bet")
-    await callback.message.answer(f"Введи мин. ставку для {game_type} (напр: 1):", reply_markup=lottery_cancel_kb())
+    await callback.message.answer(f"✏️ Введи мин. ставку для {game_type} (напр: 1):", reply_markup=lottery_cancel_kb())
     await callback.answer()
 
 
@@ -301,7 +301,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
     repo = LotteryRepository(session)
     active = await repo.get_active()
     if not active:
-        await callback.answer("Нет активной лотереи.", show_alert=True)
+        await callback.answer("❌ Нет активной лотереи.", show_alert=True)
         return
     winner_id = await repo.draw_random(active)
     if not winner_id:
@@ -320,7 +320,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
     winner.stars_balance = round(float(winner.stars_balance) + prize, 2)
     if not await repo.finish(active, winner_id):
         await callback.answer(
-            "Лотерея уже изменилась. Повторите розыгрыш.",
+            "🔄 Лотерея уже изменилась. Повторите розыгрыш.",
             show_alert=True,
         )
         return
@@ -342,7 +342,7 @@ async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, sessi
     repo = LotteryRepository(session)
     active = await repo.get_active()
     if not active:
-        await callback.answer("Нет активной лотереи.", show_alert=True)
+        await callback.answer("❌ Нет активной лотереи.", show_alert=True)
         return
     if active.tickets_sold > 0:
         await callback.answer(

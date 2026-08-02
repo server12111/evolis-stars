@@ -437,10 +437,10 @@ async def cb_duel_roll(callback: CallbackQuery, session: AsyncSession, db_user: 
         await callback.answer("❌ Вы не участник.", show_alert=True)
         return
     if is_creator and duel.creator_roll is not None:
-        await callback.answer("Вы уже бросили кубик.", show_alert=True)
+        await callback.answer("🎲 Вы уже бросили кубик.", show_alert=True)
         return
     if is_joiner and duel.joiner_roll is not None:
-        await callback.answer("Вы уже бросили кубик.", show_alert=True)
+        await callback.answer("🎲 Вы уже бросили кубик.", show_alert=True)
         return
 
     try:

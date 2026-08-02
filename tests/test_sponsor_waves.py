@@ -44,7 +44,7 @@ class SponsorWaveTests(unittest.TestCase):
         self.assertNotIn("Волна 1", text)
         self.assertNotIn("волна", text.lower())
 
-    def test_two_waves_are_limited_to_six_each(self) -> None:
+    def test_wave_is_limited_to_six_with_no_second_wave(self) -> None:
         current = user()
         state = evaluate_waves(
             current,
@@ -52,10 +52,10 @@ class SponsorWaveTests(unittest.TestCase):
             botohub_result=[],
         )
 
-        self.assertEqual((state.wave, state.total_waves), (1, 2))
+        self.assertEqual((state.wave, state.total_waves), (1, 1))
         self.assertEqual(len(state.items or []), 6)
         self.assertEqual(len(json.loads(current.sponsor_wave_one)), 6)
-        self.assertEqual(len(json.loads(current.sponsor_wave_two)), 6)
+        self.assertIsNone(current.sponsor_wave_two)
         buttons = sponsor_wave_markup(state.items or [])
         url_buttons = [
             button
@@ -65,14 +65,16 @@ class SponsorWaveTests(unittest.TestCase):
         ]
         self.assertEqual(len(url_buttons), 6)
 
-    def test_second_wave_only_after_first_is_complete(self) -> None:
+    def test_single_wave_completes_without_unlocking_a_second_wave(self) -> None:
         current = user()
-        first_result = offers("tg", 12)
         evaluate_waves(
             current,
-            tgrass_result=first_result,
+            tgrass_result=offers("tg", 12),
             botohub_result=[],
         )
+        # Only the first 6 offers are ever frozen — the rest never become a
+        # second wave since MAX_WAVES caps the sponsor wall at one wave.
+        self.assertIsNone(current.sponsor_wave_two)
 
         still_first = evaluate_waves(
             current,
@@ -81,12 +83,12 @@ class SponsorWaveTests(unittest.TestCase):
         )
         self.assertEqual((still_first.status, still_first.wave), ("pending", 1))
 
-        second = evaluate_waves(
+        completed = evaluate_waves(
             current,
             tgrass_result=offers("tg", 6, start=6),
             botohub_result=[],
         )
-        self.assertEqual((second.status, second.wave), ("pending", 2))
+        self.assertEqual((completed.status, current.sponsor_wave), ("complete", 3))
 
     def test_wave_is_reissued_after_new_offers_appear(self) -> None:
         current = user()
@@ -177,12 +179,18 @@ class SponsorWaveTests(unittest.TestCase):
             sponsor_wave_one=first_process.sponsor_wave_one,
             sponsor_wave_two=first_process.sponsor_wave_two,
         )
+        # Only tg0-tg5 were ever frozen into the (single) wave; tg4/tg5 are
+        # still reported as outstanding by the provider after the restart.
         state = evaluate_waves(
             restored,
-            tgrass_result=offers("tg", 2, start=6),
+            tgrass_result=offers("tg", 2, start=4),
             botohub_result=[],
         )
-        self.assertEqual((state.status, state.wave), ("pending", 2))
+        self.assertEqual((state.status, state.wave), ("pending", 1))
+        self.assertEqual(
+            {item["url"] for item in state.items or []},
+            {"https://t.me/tg4", "https://t.me/tg5"},
+        )
 
 
 if __name__ == "__main__":

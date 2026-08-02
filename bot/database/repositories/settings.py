@@ -6,9 +6,8 @@ from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
 
 DEFAULT_SETTINGS: dict[str, str] = {
-    "tg_sponsor_reward": "0.5",
-    "web_sponsor_reward": "0.25",
-    "min_sponsors_for_reward": "2",
+    "referral_reward": "4",
+    "min_sponsors_for_reward": "3",
     "referral_bonus_10": "0.1",
     "referral_bonus_25": "0.3",
     "referral_bonus_30": "0.4",

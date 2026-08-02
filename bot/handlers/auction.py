@@ -104,24 +104,24 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         if not math.isfinite(extra) or extra < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("Минимальное повышение ставки: 1 ⭐.", show_alert=True)
+        await callback.answer("❌ Минимальное повышение ставки: 1 ⭐.", show_alert=True)
         return
 
     repo = AuctionRepository(session)
     s_repo = SettingsRepository(session)
 
     if not await s_repo.get_bool("auction_enabled", True):
-        await callback.answer("Аукцион недоступен.", show_alert=True)
+        await callback.answer("🔒 Аукцион недоступен.", show_alert=True)
         return
 
     round_ = await repo.get_active()
     if round_ is None:
-        await callback.answer("Аукцион ещё не начался.", show_alert=True)
+        await callback.answer("⏳ Аукцион ещё не начался.", show_alert=True)
         return
 
     now = datetime.utcnow()
     if now >= round_.end_at:
-        await callback.answer("Аукцион уже завершён.", show_alert=True)
+        await callback.answer("🏁 Аукцион уже завершён.", show_alert=True)
         return
 
     min_bid = round(float(round_.current_bid) + 1.0, 2)
@@ -143,7 +143,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         Decimal(str(extra)),
     ):
         await callback.answer(
-            "Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
+            "🔄 Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
             show_alert=True,
         )
         return
@@ -205,19 +205,19 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
     s_repo = SettingsRepository(session)
 
     if not await s_repo.get_bool("auction_enabled", True):
-        await message.answer("Аукцион недоступен.")
+        await message.answer("🔒 Аукцион недоступен.")
         await state.clear()
         return
 
     round_ = await repo.get_active()
     if round_ is None:
-        await message.answer("Аукцион ещё не начался.")
+        await message.answer("⏳ Аукцион ещё не начался.")
         await state.clear()
         return
 
     now = datetime.utcnow()
     if now >= round_.end_at:
-        await message.answer("Аукцион уже завершён.")
+        await message.answer("🏁 Аукцион уже завершён.")
         await state.clear()
         return
 
@@ -239,7 +239,7 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
         Decimal(str(extra)),
     ):
         await message.answer(
-            "Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
+            "🔄 Ставка уже изменилась. Обновите аукцион и попробуйте снова.",
             reply_markup=auction_kb(True),
         )
         await state.clear()

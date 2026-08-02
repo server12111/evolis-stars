@@ -16,8 +16,7 @@ from bot.states.admin import AdminSettingsStates
 router = Router()
 
 SETTING_LABELS = {
-    "tg_sponsor_reward": ("🎁 Награда за TG спонсора", "число ⭐"),
-    "web_sponsor_reward": ("🎁 Награда за Web спонсора", "число ⭐"),
+    "referral_reward": ("🎁 Награда за реферала", "число ⭐"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
     "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число ⭐"),
     "referral_bonus_25": ("🏅 Бонус за 25 рефералов", "число ⭐"),
@@ -53,9 +52,8 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     if not _is_admin(db_user): return
     await state.clear()
     repo = SettingsRepository(session)
-    tg_reward = await repo.get_float("tg_sponsor_reward", 0.5)
-    web_reward = await repo.get_float("web_sponsor_reward", 0.25)
-    min_sponsors = await repo.get_int("min_sponsors_for_reward", 6)
+    referral_reward = await repo.get_float("referral_reward", 4.0)
+    min_sponsors = await repo.get_int("min_sponsors_for_reward", 3)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
     task_reward = await repo.get_float("tasks_reward", 0.3)
@@ -66,8 +64,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
-        f"🎁 Награда за TG спонсора: <b>{tg_reward:.2f} ⭐</b>\n"
-        f"🎁 Награда за Web спонсора: <b>{web_reward:.2f} ⭐</b>\n"
+        f"🎁 Награда за реферала: <b>{referral_reward:.2f} ⭐</b>\n"
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"

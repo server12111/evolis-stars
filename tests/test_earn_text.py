@@ -54,8 +54,7 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
                 "bot.handlers.earn.UserRepository.inactive_rewarded_referrals",
                 AsyncMock(return_value=([], 0, 0)),
             ),
-            patch("bot.handlers.earn.get_tg_reward", AsyncMock(return_value=Decimal("0.5"))),
-            patch("bot.handlers.earn.get_web_reward", AsyncMock(return_value=Decimal("0.25"))),
+            patch("bot.handlers.earn.get_referral_reward", AsyncMock(return_value=Decimal("4"))),
             patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=2)),
             patch("bot.handlers.earn.get_milestone_bonus", AsyncMock(return_value=Decimal("0.1"))),
         ):

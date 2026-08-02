@@ -242,7 +242,7 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     await state.clear()
     game_type = callback.data.split(":")[2]
     if game_type not in GAME_TYPES:
-        await callback.answer("Неизвестная игра.", show_alert=True)
+        await callback.answer("❌ Неизвестная игра.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -259,7 +259,7 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
         )
         return
     if not await repo.get_bool(f"game_{game_type}_enabled", True):
-        await callback.answer("Игра временно отключена.", show_alert=True)
+        await callback.answer("🔒 Игра временно отключена.", show_alert=True)
         return
 
     daily_limit = await repo.get_int(f"game_{game_type}_daily_limit", 0)
@@ -338,11 +338,11 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
         "basketball": basketball_side_kb, "bowling": bowling_side_kb, "darts": darts_side_kb,
     }
     side_prompts = {
-        "dice": "Выбери условие победы:",
-        "football": "Гол или промах?",
-        "basketball": "Поставь на исход броска:",
-        "bowling": "Страйк или промах?",
-        "darts": "Поставь на зону попадания:",
+        "dice": "🎲 Выбери условие победы:",
+        "football": "⚽ Гол или промах?",
+        "basketball": "🏀 Поставь на исход броска:",
+        "bowling": "🎳 Страйк или промах?",
+        "darts": "🎯 Поставь на зону попадания:",
     }
 
     if game_type in side_states:

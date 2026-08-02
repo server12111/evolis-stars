@@ -54,7 +54,7 @@ async def cb_tower_bet(callback: CallbackQuery, state: FSMContext, session: Asyn
     try:
         bet = float(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Неверная ставка.", show_alert=True)
+        await callback.answer("❌ Неверная ставка.", show_alert=True)
         return
     await _start_tower(callback, None, state, session, db_user, bet)
 
@@ -223,7 +223,7 @@ async def cb_tower_cashout(callback: CallbackQuery, state: FSMContext, session: 
     level = data["level"]
     max_levels = data["max_levels"]
     if level == 0:
-        await callback.answer("Сначала пройди хотя бы один уровень!", show_alert=True)
+        await callback.answer("⚠️ Сначала пройди хотя бы один уровень!", show_alert=True)
         return
 
     coeff = await _get_coeff(session, level - 1)
@@ -264,9 +264,9 @@ async def cb_tower_quit(callback: CallbackQuery, state: FSMContext, session: Asy
         db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
         await session.commit()
         await state.clear()
-        await callback.answer("Ставка возвращена.")
+        await callback.answer("↩️ Ставка возвращена.")
     else:
-        await callback.answer("Сначала заберите выигрыш!", show_alert=True)
+        await callback.answer("⚠️ Сначала заберите выигрыш!", show_alert=True)
         return
 
     from bot.keyboards.main import main_menu_kb

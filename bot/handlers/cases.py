@@ -38,7 +38,7 @@ async def cb_cases_open(callback: CallbackQuery) -> None:
         if tier not in CASE_PRIZES:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("Неверный кейс.", show_alert=True)
+        await callback.answer("❌ Неверный кейс.", show_alert=True)
         return
 
     name = _TIER_NAMES[tier]
@@ -66,7 +66,7 @@ async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: 
         if tier not in CASE_PRIZES:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("Неверный кейс.", show_alert=True)
+        await callback.answer("❌ Неверный кейс.", show_alert=True)
         return
 
     if float(db_user.stars_balance) < tier:

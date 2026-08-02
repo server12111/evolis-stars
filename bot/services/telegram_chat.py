@@ -2,6 +2,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from aiogram import Bot
+
 _PUBLIC_USERNAME = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 _TELEGRAM_HOSTS = {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}
 
@@ -39,3 +41,20 @@ def is_subscribed(member: Any) -> bool:
     if status == "restricted" and not bool(getattr(member, "is_member", False)):
         return False
     return bool(status)
+
+
+async def is_bot_admin_in_chat(bot: Bot, raw_target: str) -> bool:
+    """Verify the bot itself is an admin in the given chat/channel — required
+    before relying on get_chat_member to check OTHER users' subscriptions
+    there (an unprivileged bot gets unreliable/empty results)."""
+    chat_id = telegram_chat_id(raw_target)
+    if chat_id is None:
+        return False
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat_id, me.id)
+    except Exception:
+        return False
+    raw_status = getattr(member, "status", "")
+    status = str(getattr(raw_status, "value", raw_status)).lower()
+    return status in {"administrator", "creator"}

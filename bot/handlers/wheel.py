@@ -51,7 +51,7 @@ async def cb_wheel_bet(callback: CallbackQuery, session: AsyncSession, bot: Bot,
     try:
         bet = float(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Неверная ставка.", show_alert=True)
+        await callback.answer("❌ Неверная ставка.", show_alert=True)
         return
     if db_user.stars_balance < bet:
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)

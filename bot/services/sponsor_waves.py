@@ -9,7 +9,7 @@ from bot.database.models import User
 
 WAVE_SIZE = 10
 MAX_WAVE_SIZE = 20
-MAX_WAVES = 2
+MAX_WAVES = 1
 
 ProviderResult = list[dict] | BaseException
 WaveStatus = Literal["pending", "complete", "unavailable"]

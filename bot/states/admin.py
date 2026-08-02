@@ -50,3 +50,11 @@ class AdminLotteryStates(StatesGroup):
     enter_ticket_limit = State()
     choose_end_type = State()
     enter_end_value = State()
+
+
+class AdminOwnSponsorStates(StatesGroup):
+    enter_kind = State()
+    enter_target = State()
+    enter_url = State()
+    enter_name = State()
+    enter_target_count = State()

@@ -30,7 +30,6 @@ class User(Base):
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     referral_reward_given: Mapped[bool] = mapped_column(Boolean, default=False)
     referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
-    rewarded_sponsor_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
@@ -226,6 +225,37 @@ class TaskCompletion(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    completed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+# ─── OwnSponsor ───────────────────────────────────────────────────────────────
+# Admin-curated cross-promotion (own channels/chats/bots), gated in front of
+# the daily bonus claim — distinct from the paid tgrass/botohub/piarflow
+# sponsor wall and unrelated to referral rewards.
+
+class OwnSponsor(Base):
+    __tablename__ = "own_sponsors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16))  # "channel" | "bot"
+    target: Mapped[str | None] = mapped_column(Text, nullable=True)  # @username/id for get_chat_member (channel only)
+    url: Mapped[str] = mapped_column(Text)  # link shown to the user
+    name: Mapped[str] = mapped_column(String(128))
+    target_count: Mapped[int] = mapped_column(Integer)
+    current_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class OwnSponsorCompletion(Base):
+    __tablename__ = "own_sponsor_completions"
+    __table_args__ = (
+        UniqueConstraint("sponsor_id", "user_id", name="uq_own_sponsor_completion_sponsor_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sponsor_id: Mapped[int] = mapped_column(Integer, ForeignKey("own_sponsors.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
     completed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

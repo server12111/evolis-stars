@@ -68,6 +68,35 @@ LOADING = "5345906554510012647"
 SUBSCRIBE = "6039450962865688331"
 VERIFY = "5774022692642492953"
 
+# Sourced from feAutoSender's premium emoji catalog (same reusable
+# custom-emoji IDs — Telegram custom emoji entities render for any bot,
+# they aren't exclusive to whoever uploaded the pack).
+STAR = "5438496463044752972"
+MONEY_BAG = "6154462623615159832"
+WARNING = "5447644880824181073"
+ARROW_LEFT = "5213358684024877471"
+ARROW_RIGHT = "5416117059207572332"
+TICKET = "5431653802753159903"
+CLIPBOARD = "5435970940670320222"
+PLUS = "5397916757333654639"
+DICE = "5384474763827620477"
+TARGET = "5310278924616356636"
+PIN = "5397782960512444700"
+FIRE = "5389038097860144794"
+GEM = "5235630047959727475"
+ROCKET = "5445284980978621387"
+HANDSHAKE = "5395732581780040886"
+LOCK_KEY = "5821453562680448557"
+QUESTION = "5436113877181941026"
+FORBIDDEN = "5240241223632954241"
+LIGHTNING = "5456140674028019486"
+DOLLAR_BILL = "5409048419211682843"
+ENVELOPE = "5253742260054409879"
+MOBILE_SEND = "5406809207947142040"
+HOURGLASS = "5175181110572745347"
+STOPWATCH = "5373236586760651455"
+SKIP = "5240148091562125943"
+
 _MESSAGE_EMOJI_IDS: dict[str, str] = {
     "⚙️": SETTINGS,
     "⚙": SETTINGS,
@@ -119,6 +148,45 @@ _MESSAGE_EMOJI_IDS: dict[str, str] = {
     "🪙": MONEY,
     "🔨": CODE,
     "🔄": LOADING,
+    # Gap-filled from feAutoSender's catalog.
+    "⭐️": STAR,
+    "⭐": STAR,
+    "🌟": STAR,
+    "💰": MONEY_BAG,
+    "💸": MONEY_BAG,
+    "⚠️": WARNING,
+    "⚠": WARNING,
+    "◀️": ARROW_LEFT,
+    "◀": ARROW_LEFT,
+    "⬅️": ARROW_LEFT,
+    "⬅": ARROW_LEFT,
+    "➡️": ARROW_RIGHT,
+    "➡": ARROW_RIGHT,
+    "🎟️": TICKET,
+    "🎟": TICKET,
+    "📋": CLIPBOARD,
+    "➕": PLUS,
+    "🎲": DICE,
+    "🎯": TARGET,
+    "📌": PIN,
+    "🔥": FIRE,
+    "💎": GEM,
+    "🚀": ROCKET,
+    "🤝": HANDSHAKE,
+    "🔐": LOCK_KEY,
+    "❓": QUESTION,
+    "🚫": FORBIDDEN,
+    "⚡️": LIGHTNING,
+    "⚡": LIGHTNING,
+    "💵": DOLLAR_BILL,
+    "✉️": ENVELOPE,
+    "✉": ENVELOPE,
+    "📲": MOBILE_SEND,
+    "⏳": HOURGLASS,
+    "⏱️": STOPWATCH,
+    "⏱": STOPWATCH,
+    "⏭️": SKIP,
+    "⏭": SKIP,
 }
 _MESSAGE_EMOJI_RE = re.compile(
     "|".join(
@@ -132,10 +200,12 @@ _BUTTON_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("подпис", SUBSCRIBE),
     ("настрой", SETTINGS),
     ("профил", PROFILE),
+    ("кабинет", PROFILE),
     ("номер", PERSON_APPROVED),
     ("пользовател", PEOPLE),
     ("реферал", PEOPLE),
     ("статист", STATISTICS),
+    ("рейтинг", GROWTH),
     ("топ", GROWTH),
     ("главное меню", HOME),
     ("меню", HOME),
@@ -149,6 +219,7 @@ _BUTTON_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("бонус", GIFT),
     ("подар", GIFT),
     ("вывести", SEND_MONEY),
+    ("вывод", SEND_MONEY),
     ("выплат", RECEIVE_MONEY),
     ("баланс", WALLET),
     ("игр", APPS),
@@ -250,14 +321,19 @@ def _decorate_button(button: InlineKeyboardButton | KeyboardButton) -> None:
     callback_data = getattr(button, "callback_data", None) or ""
     if callback_data.startswith(_VISUAL_BUTTON_PREFIXES):
         return
-    if not getattr(button, "icon_custom_emoji_id", None):
+    icon = getattr(button, "icon_custom_emoji_id", None)
+    if not icon:
         try:
-            button.icon_custom_emoji_id = _button_icon(button.text)
+            icon = _button_icon(button.text)
+            button.icon_custom_emoji_id = icon
         except AttributeError:
             pass
-    clean_text = _strip_ordinary_emoji(button.text)
-    if clean_text:
-        button.text = clean_text
+    # Only strip the plain emoji once it's been replaced by a premium icon —
+    # otherwise an unmapped button would end up with no emoji at all.
+    if icon:
+        clean_text = _strip_ordinary_emoji(button.text)
+        if clean_text:
+            button.text = clean_text
 
 
 def decorate_markup(markup: Any) -> None:

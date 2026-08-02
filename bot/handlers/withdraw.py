@@ -119,7 +119,7 @@ async def cb_withdraw_amount(
     try:
         amount = int(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Неверная сумма.", show_alert=True)
+        await callback.answer("❌ Неверная сумма.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -136,7 +136,7 @@ async def cb_withdraw_amount(
         allowed_amounts = {15, 25, 50, 100}
     minimum = await repo.get_float("withdraw_min", 15.0)
     if amount <= 0 or amount not in allowed_amounts or amount < minimum:
-        await callback.answer("Неверная сумма.", show_alert=True)
+        await callback.answer("❌ Неверная сумма.", show_alert=True)
         return
 
     if db_user.stars_balance < amount:

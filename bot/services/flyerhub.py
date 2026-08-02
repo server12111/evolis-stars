@@ -78,6 +78,63 @@ async def fh_get_tasks(
     return None
 
 
+async def fh_get_completed_tasks(api_key: str, user_id: int) -> dict | None:
+    """Return {'completed_tasks': [...], 'count_all_tasks': int} for the user,
+    or None on API failure. Some FlyerHub bot keys are registered as a
+    "webapp" type — /get_tasks and /check_task are prohibited for that type
+    (tasks are discovered and completed entirely inside FlyerHub's own
+    Telegram Mini App), so /get_completed_tasks is the only way to learn
+    what the user has finished and needs to be paid for."""
+    if not api_key:
+        return {"completed_tasks": [], "count_all_tasks": 0}
+
+    payload = {"key": api_key, "user_id": user_id}
+
+    for attempt, delay in enumerate([0] + _RETRY_DELAYS):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as client:
+                async with client.post(
+                    f"{FLYERHUB_API}/get_completed_tasks",
+                    json=payload,
+                ) as resp:
+                    if resp.status == 429:
+                        logger.warning("FlyerHub get_completed_tasks HTTP 429 (attempt %d), retrying...", attempt + 1)
+                        continue
+                    if resp.status >= 400:
+                        logger.warning("FlyerHub get_completed_tasks HTTP %s", resp.status)
+                        return None
+
+                    data = await resp.json(content_type=None)
+                    if not isinstance(data, dict):
+                        logger.warning("FlyerHub get_completed_tasks returned malformed data")
+                        return None
+
+                    if "error" in data and data["error"]:
+                        logger.warning("FlyerHub get_completed_tasks returned error: %s", data["error"])
+                        # e.g. "The user does not have any tasks" — a valid empty result.
+                        return {"completed_tasks": [], "count_all_tasks": 0}
+
+                    result = data.get("result") or {}
+                    completed = result.get("completed_tasks", [])
+                    if not isinstance(completed, list):
+                        completed = []
+                    count_all = result.get("count_all_tasks", 0)
+                    if not isinstance(count_all, int):
+                        count_all = 0
+                    return {"completed_tasks": completed, "count_all_tasks": count_all}
+
+        except TimeoutError:
+            logger.warning("FlyerHub get_completed_tasks TimeoutError (attempt %d)", attempt + 1)
+        except aiohttp.ClientError as exc:
+            logger.warning("FlyerHub get_completed_tasks ClientError: %s", exc)
+        except Exception as exc:
+            logger.warning("FlyerHub get_completed_tasks Error: %s", exc)
+
+    return None
+
+
 async def fh_check_task(api_key: str, signature: str) -> str | None:
     """Check task status by signature. 
     Returns 'complete', 'incomplete', 'waiting', 'abort', 'unavailable' or None on failure."""

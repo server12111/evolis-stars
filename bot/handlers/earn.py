@@ -19,8 +19,7 @@ from bot.services.referral import (
     format_stars,
     get_milestone_bonus,
     get_min_sponsors_for_reward,
-    get_tg_reward,
-    get_web_reward,
+    get_referral_reward,
     sponsors_word,
 )
 
@@ -40,8 +39,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         cutoff,
         limit=1,
     )
-    tg_reward = await get_tg_reward(session)
-    web_reward = await get_web_reward(session)
+    referral_reward = await get_referral_reward(session)
     min_sponsors = await get_min_sponsors_for_reward(session)
     top_tier, _ = MILESTONE_SETTINGS[-1]
     top_bonus = await get_milestone_bonus(session, top_tier)
@@ -54,16 +52,14 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         referrals=db_user.referrals_count,
         link=ref_link,
         balance=float(db_user.stars_balance),
-        tg_reward=format_stars(tg_reward),
-        web_reward=format_stars(web_reward),
         min_sponsors=min_sponsors,
         min_sponsors_word=sponsors_word(min_sponsors),
         vip_threshold=VIP_THRESHOLD,
         top_tier=top_tier,
         top_bonus=format_stars(top_bonus),
-        reward=format_stars(tg_reward),  # fallback for old templates
-        referral_reward=format_stars(tg_reward),  # fallback for old templates
-        return_reward=format_stars(tg_reward / Decimal("2")),  # fallback
+        reward=format_stars(referral_reward),  # fallback for old templates
+        referral_reward=format_stars(referral_reward),
+        return_reward=format_stars(referral_reward / Decimal("2")),
         returnable=returnable_count,
         **{
             f"bonus_{threshold}": format_stars(bonus)
@@ -143,9 +139,8 @@ async def cb_return_referrals(
             limit=RETURN_PAGE_SIZE,
         )
 
-    tg_reward = await get_tg_reward(session)
-    web_reward = await get_web_reward(session)
-    return_reward = (tg_reward + web_reward) / 2
+    referral_reward = await get_referral_reward(session)
+    return_reward = referral_reward / 2
     without_username = max(0, total - contactable)
     if referrals:
         lines = []

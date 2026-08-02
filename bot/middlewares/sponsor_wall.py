@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.settings import SettingsRepository
+from bot.services.referral import check_referral_reward, notify_user_sponsors_verified
 from bot.services.sponsor_results import all_configured_integrations_failed
 from bot.services.sponsor_waves import (
     evaluate_waves,
@@ -273,5 +274,18 @@ class SponsorWallMiddleware(BaseMiddleware):
 
         if not await run_sponsor_wall_check(inner, db_user, session):
             return
+
+        # The wave just resolved to "complete" outside the /start /
+        # sponsor_check flows (e.g. right after the 10-minute recheck
+        # scheduler reopened the wall) — persist the flag so subsequent
+        # messages don't re-run the provider checks every single time, and
+        # run the same first-time notify/reward hooks /start would have.
+        if not db_user.sponsors_verified:
+            db_user.sponsors_verified = True
+            await session.commit()
+            bot = data.get("bot")
+            if bot is not None:
+                await notify_user_sponsors_verified(db_user, session, bot)
+                await check_referral_reward(db_user, session, bot)
 
         return await handler(event, data)

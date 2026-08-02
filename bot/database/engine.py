@@ -48,7 +48,6 @@ def _add_missing_user_columns(connection) -> None:
         "sponsor_wave_one": "TEXT",
         "sponsor_wave_two": "TEXT",
         "is_vip": "BOOLEAN NOT NULL DEFAULT 0",
-        "rewarded_sponsor_urls": "TEXT",
         "referral_insufficient_notified": "BOOLEAN NOT NULL DEFAULT 0",
     }
     referral_counted_added = "referral_counted" not in columns

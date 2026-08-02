@@ -58,7 +58,7 @@ async def cb_mines_bet(callback: CallbackQuery, state: FSMContext, session: Asyn
     try:
         bet = float(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("Неверная ставка.", show_alert=True)
+        await callback.answer("❌ Неверная ставка.", show_alert=True)
         return
     await _ask_mines_count(callback, state, session, db_user, bet)
 
@@ -130,7 +130,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
         if mines_count not in (3, 5, 10, 15):
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("Неверное значение.", show_alert=True)
+        await callback.answer("❌ Неверное значение.", show_alert=True)
         return
 
     data = await state.get_data()
@@ -255,7 +255,7 @@ async def cb_mines_cashout(callback: CallbackQuery, state: FSMContext, session: 
     opened = data["opened"]
 
     if gems == 0:
-        await callback.answer("Сначала открой хотя бы одну клетку!", show_alert=True)
+        await callback.answer("⚠️ Сначала открой хотя бы одну клетку!", show_alert=True)
         return
 
     house_edge, max_coeff = await get_mines_params(session)
@@ -298,9 +298,9 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
         db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
         await session.commit()
         await state.clear()
-        await callback.answer("Ставка возвращена.")
+        await callback.answer("↩️ Ставка возвращена.")
     else:
-        await callback.answer("Сначала заберите выигрыш или откройте мину!", show_alert=True)
+        await callback.answer("⚠️ Сначала заберите выигрыш или откройте мину!", show_alert=True)
         return
 
     from bot.keyboards.main import main_menu_kb

@@ -131,7 +131,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
     db_user.stars_balance -= lottery.ticket_price
     if not await repo.buy_ticket(lottery, db_user.user_id):
         await callback.answer(
-            "Лотерея уже изменилась. Обновите её и попробуйте снова.",
+            "🔄 Лотерея уже изменилась. Обновите её и попробуйте снова.",
             show_alert=True,
         )
         return
@@ -147,7 +147,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
                 winner.stars_balance += lottery.prize_pool
             if not await repo.finish(lottery, winner_id):
                 await callback.message.answer(
-                    "Розыгрыш уже выполняется. Обновите лотерею."
+                    "⏳ Розыгрыш уже выполняется. Обновите лотерею."
                 )
                 return
             try:

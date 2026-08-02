@@ -71,16 +71,12 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
     return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
-async def get_tg_reward(session: AsyncSession) -> Decimal:
-    return await _get_decimal_setting(session, "tg_sponsor_reward", "0.5")
-
-
-async def get_web_reward(session: AsyncSession) -> Decimal:
-    return await _get_decimal_setting(session, "web_sponsor_reward", "0.25")
+async def get_referral_reward(session: AsyncSession) -> Decimal:
+    return await _get_decimal_setting(session, "referral_reward", "4")
 
 
 async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
-    return await SettingsRepository(session).get_int("min_sponsors_for_reward", 6)
+    return await SettingsRepository(session).get_int("min_sponsors_for_reward", 3)
 
 
 async def get_milestone_bonus(session: AsyncSession, new_referrals_count: int) -> Decimal:
@@ -158,16 +154,10 @@ async def reward_returning_referral(
     if not referrer or referrer.is_blocked:
         return None
 
-    tg_reward = await get_tg_reward(session)
-    web_reward = await get_web_reward(session)
-
     referred_user_id = user.user_id
-    tg_urls, web_urls = _current_sponsor_urls(user)
-    tg_count, web_count = len(tg_urls), len(web_urls)
+    base_reward = await get_referral_reward(session)
+    reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
-    total_base_reward = (Decimal(str(tg_count)) * tg_reward) + (Decimal(str(web_count)) * web_reward)
-    reward = (total_base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
-    
     if reward <= 0:
         return None
 
@@ -211,35 +201,34 @@ async def reward_returning_referral(
 
 
 async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
-    """Pay the referrer for every sponsor the referred user has newly
-    subscribed to since the last payout — not just once. Sponsors that were
-    already paid for are tracked in `rewarded_sponsor_urls` and never billed
-    twice. Milestone bonuses / VIP / referrals_count only ever increment
-    once per referred user, on their first qualifying payout; every later
-    cycle only pays the per-sponsor reward for whatever is new."""
+    """Pay the referrer exactly once per referred user. All of the referred
+    user's TG sponsor subscriptions are independently confirmed via the
+    bot's own Bot API before anything is counted, so an unconfirmed sponsor
+    never contributes to the payout. If, after verification, the confirmed
+    total is below the minimum, no payment is made (and the referrer is
+    notified once). Once `referral_reward_given` is set, this is a no-op
+    forever for that referred user — new sponsors gained later are never
+    paid for again."""
     if not user.referrer_id:
         return
     if not user.sponsors_verified:
         return
-
-    tg_urls, web_urls = _current_sponsor_urls(user)
-    rewarded = set(json.loads(user.rewarded_sponsor_urls) if user.rewarded_sponsor_urls else [])
-    new_tg = [u for u in tg_urls if u not in rewarded]
-    new_web = [u for u in web_urls if u not in rewarded]
-
-    if bot and new_tg:
-        # Don't trust the provider's "subscribed" report blindly — confirm
-        # each new TG sponsor ourselves before paying for it. Web sponsors
-        # are redirects/webapps we have no independent way to check, so
-        # those keep relying on the provider as before.
-        new_tg = await _verify_tg_subscriptions(bot, user.user_id, new_tg)
-
-    new_total = len(new_tg) + len(new_web)
-    if new_total == 0:
+    if user.referral_reward_given:
         return
 
+    tg_urls, web_urls = _current_sponsor_urls(user)
+
+    if bot and tg_urls:
+        # Don't trust the provider's "subscribed" report blindly — confirm
+        # each TG sponsor ourselves before counting it. Web sponsors are
+        # redirects/webapps we have no independent way to check, so those
+        # keep relying on the provider as before.
+        tg_urls = await _verify_tg_subscriptions(bot, user.user_id, tg_urls)
+
+    total = len(tg_urls) + len(web_urls)
+
     min_sponsors = await get_min_sponsors_for_reward(session)
-    if new_total < min_sponsors:
+    if total < min_sponsors:
         if not user.referral_insufficient_notified:
             user.referral_insufficient_notified = True
             await session.commit()
@@ -247,39 +236,27 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                 try:
                     await bot.send_message(
                         user.referrer_id,
-                        f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {min_sponsors}, было {new_total})."
+                        f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {min_sponsors}, было {total})."
                     )
                 except Exception:
                     pass
         return
-
-    tg_reward = await get_tg_reward(session)
-    web_reward = await get_web_reward(session)
-    reward = (Decimal(str(len(new_tg))) * tg_reward) + (Decimal(str(len(new_web))) * web_reward)
 
     user_repo = UserRepository(session)
     referrer = await user_repo.get(user.referrer_id)
     if not referrer:
         return
 
-    rewarded |= set(new_tg) | set(new_web)
-    user.rewarded_sponsor_urls = json.dumps(sorted(rewarded))
+    reward = await get_referral_reward(session)
     user.referral_counted = True
-
-    first_time = not user.referral_reward_given
     user.referral_reward_given = True
 
-    bonus = Decimal("0")
-    became_vip = False
-    new_referrals_count = referrer.referrals_count
+    new_referrals_count = referrer.referrals_count + 1
     referrer_is_vip = getattr(referrer, "is_vip", False)
-
-    if first_time:
-        new_referrals_count = referrer.referrals_count + 1
-        became_vip = new_referrals_count >= VIP_THRESHOLD and not referrer_is_vip
-        if became_vip:
-            referrer_is_vip = True
-        bonus = await get_milestone_bonus(session, new_referrals_count)
+    became_vip = new_referrals_count >= VIP_THRESHOLD and not referrer_is_vip
+    if became_vip:
+        referrer_is_vip = True
+    bonus = await get_milestone_bonus(session, new_referrals_count)
 
     total_reward = reward + bonus
 
@@ -301,26 +278,17 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             else escape(user.first_name or str(user.user_id))
         )
         try:
-            if first_time:
-                msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}.\n"
-                msg += f"(ТГ спонсоров: {len(new_tg)}, Web спонсоров: {len(new_web)})"
-                if bonus > 0:
-                    msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
-                if became_vip:
-                    top_tier = MILESTONE_SETTINGS[-1][0]
-                    msg += (
-                        f"\n🌟 Вы получили VIP-статус! При достижении {top_tier} рефералов "
-                        "вы начнете получать бонус +1 ⭐ за каждого следующего!"
-                    )
-                elif new_referrals_count > MILESTONE_SETTINGS[-1][0]:
-                    msg += "\n🌟 Включен VIP-бонус +1 ⭐!"
-            else:
-                msg = (
-                    f"🎉 Ваш реферал {username_display} подписался ещё на "
-                    f"{new_total} {sponsors_word(new_total)} — начислено "
-                    f"<b>{format_stars(total_reward)} ⭐</b>.\n"
-                    f"(ТГ спонсоров: {len(new_tg)}, Web спонсоров: {len(new_web)})"
+            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}."
+            if bonus > 0:
+                msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
+            if became_vip:
+                top_tier = MILESTONE_SETTINGS[-1][0]
+                msg += (
+                    f"\n🌟 Вы получили VIP-статус! При достижении {top_tier} рефералов "
+                    "вы начнете получать бонус +1 ⭐ за каждого следующего!"
                 )
+            elif new_referrals_count > MILESTONE_SETTINGS[-1][0]:
+                msg += "\n🌟 Включен VIP-бонус +1 ⭐!"
 
             await bot.send_message(
                 referrer.user_id,
