@@ -252,6 +252,15 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                     )
                 except Exception:
                     pass
+                try:
+                    await bot.send_message(
+                        user.user_id,
+                        f"⚠️ Твоему другу, который тебя пригласил, не начислилась награда за тебя, "
+                        f"т.к. ты подписался на недостаточное количество спонсоров "
+                        f"(минимум {min_sponsors}, было {total}).",
+                    )
+                except Exception:
+                    pass
         return
 
     user_repo = UserRepository(session)

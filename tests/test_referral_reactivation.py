@@ -138,7 +138,12 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved_referrer.referrals_count, 0)
         self.assertFalse(saved_referred.referral_reward_given)
         self.assertTrue(saved_referred.referral_insufficient_notified)
-        bot.send_message.assert_awaited_once()
+        # Notified once each — the referrer (reward withheld) and the
+        # referred user (told why their friend wasn't paid) — and not
+        # again on the second check_referral_reward call above.
+        self.assertEqual(bot.send_message.await_count, 2)
+        notified_ids = {call.args[0] for call in bot.send_message.await_args_list}
+        self.assertEqual(notified_ids, {720, 721})
 
         # Once the referred user reaches the minimum (3) sponsors, the
         # payout goes through — a single flat reward, not multiplied by

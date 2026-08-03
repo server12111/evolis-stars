@@ -362,11 +362,6 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_
     if not w:
         await callback.answer("❌ Заявка уже обработана.", show_alert=True)
         return
-
-    # Refund
-    await session.execute(
-        update(User).where(User.user_id == w.user_id).values(stars_balance=User.stars_balance + w.amount)
-    )
     await session.commit()
 
     try:
@@ -379,7 +374,7 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\nСумма <b>{float(w.amount):.0f} ⭐</b> возвращена на баланс.",
+            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\nСумма <b>{float(w.amount):.0f} ⭐</b> списана без возврата на баланс.",
             parse_mode="HTML",
         )
     except Exception:
