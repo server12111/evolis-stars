@@ -44,6 +44,10 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
 
                     # completed=true или skip=true — всё выполнено / нет заданий
                     if data.get("completed") or data.get("skip"):
+                        logger.info(
+                            "BotoHub check_botohub user_id=%d completed=%s skip=%s → 0 offers",
+                            user_id, data.get("completed"), data.get("skip"),
+                        )
                         return []
 
                     tasks = data.get("tasks", [])
@@ -52,6 +56,7 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
                         if not url:
                             continue
                         result.append({"name": "Канал", "url": url})
+                    logger.info("BotoHub check_botohub user_id=%d → %d offers", user_id, len(result))
                     return result
         except Exception as e:
             logger.warning("BotoHub check error: %s", e)

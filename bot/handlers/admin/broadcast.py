@@ -1,4 +1,4 @@
-from aiogram import Router
+from aiogram import Bot, Router
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,11 +7,31 @@ from bot.database.models import User
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.admin.broadcast import broadcast_preview_kb, broadcast_cancel_kb
 from bot.keyboards.admin.main import back_to_admin_kb
+from bot.services.background import spawn_background
 from bot.services.broadcast import broadcast as do_broadcast
 from bot.states.admin import AdminBroadcastStates
 from bot.handlers.admin.stats import _is_admin
 
 router = Router()
+
+
+async def _run_broadcast(bot: Bot, chat_id: int, user_ids: list[int], source_msg: Message) -> None:
+    """Runs outside the per-user lock (spawned as a background task) — a
+    broadcast can take minutes at ~20 msg/s, and awaiting it inline inside
+    the locked handler would block every other user sharing the admin's
+    lock bucket for the whole duration."""
+    success, fail = await do_broadcast(bot, user_ids, source_msg)
+    try:
+        await bot.send_message(
+            chat_id,
+            f"✅ <b>Рассылка завершена!</b>\n\n"
+            f"✔️ Отправлено: <b>{success}</b>\n"
+            f"❌ Ошибок: <b>{fail}</b>",
+            parse_mode="HTML",
+            reply_markup=back_to_admin_kb(),
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(lambda c: c.data == "admin:broadcast")
@@ -68,15 +88,14 @@ async def cb_broadcast_confirm(callback: CallbackQuery, state: FSMContext, sessi
     u_repo = UserRepository(session)
     user_ids = await u_repo.all_active_ids()
 
-    await callback.message.answer(f"⏳ Начинаю рассылку для <b>{len(user_ids)}</b> пользователей...", parse_mode="HTML")
+    await callback.message.answer(
+        f"⏳ Рассылка для <b>{len(user_ids)}</b> пользователей запущена в фоне — "
+        "результат придёт отдельным сообщением.",
+        parse_mode="HTML",
+    )
     await callback.answer()
 
-    success, fail = await do_broadcast(callback.bot, user_ids, source_msg)
-
-    await callback.message.answer(
-        f"✅ <b>Рассылка завершена!</b>\n\n"
-        f"✔️ Отправлено: <b>{success}</b>\n"
-        f"❌ Ошибок: <b>{fail}</b>",
-        parse_mode="HTML",
-        reply_markup=back_to_admin_kb(),
+    spawn_background(
+        _run_broadcast(callback.bot, callback.message.chat.id, user_ids, source_msg),
+        name=f"broadcast:{db_user.user_id}",
     )

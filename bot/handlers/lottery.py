@@ -2,6 +2,7 @@ from datetime import datetime
 
 from aiogram import Bot, Router
 from aiogram.types import CallbackQuery
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
@@ -144,7 +145,11 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
             u_repo = UserRepository(session)
             winner = await u_repo.get(winner_id)
             if winner:
-                winner.stars_balance += lottery.prize_pool
+                await session.execute(
+                    update(User).where(User.user_id == winner_id).values(
+                        stars_balance=User.stars_balance + lottery.prize_pool
+                    )
+                )
             if not await repo.finish(lottery, winner_id):
                 await callback.message.answer(
                     "⏳ Розыгрыш уже выполняется. Обновите лотерею."

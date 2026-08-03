@@ -1,10 +1,12 @@
 import html
+import json
 import logging
 import math
 
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import case, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
@@ -100,6 +102,21 @@ async def cb_user_search(callback: CallbackQuery, db_user: User, state: FSMConte
     await callback.answer()
 
 
+def _sponsor_wave_lines(target: User) -> list[str]:
+    lines: list[str] = []
+    for raw in (target.sponsor_wave_one, target.sponsor_wave_two):
+        if not raw:
+            continue
+        try:
+            items = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        for item in items:
+            if isinstance(item, dict) and item.get("url"):
+                lines.append(f"• {item.get('provider', '?')}: {item.get('url')}")
+    return lines
+
+
 @router.message(AdminUserStates.search)
 async def msg_user_search(message: Message, state: FSMContext, session: AsyncSession, db_user: User) -> None:
     if not _is_admin(db_user):
@@ -132,6 +149,32 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
         f"📋 Заданий: <b>{target.tasks_completed_count}</b>\n"
         f"🚫 Заблокирован: {'Да' if target.is_blocked else 'Нет'}"
     )
+
+    if target.referrer_id:
+        if target.referral_reward_given:
+            referral_status = "✅ выплачена"
+        elif target.referral_insufficient_notified:
+            referral_status = "⚠️ недостаточно спонсоров"
+        elif not target.sponsors_verified:
+            referral_status = "⏳ спонсоры ещё не подтверждены"
+        else:
+            referral_status = "⏳ в процессе"
+        referrer_line = str(target.referrer_id)
+    else:
+        referrer_line = "нет"
+        referral_status = "—"
+
+    wave_lines = _sponsor_wave_lines(target)
+    wave_display = "\n".join(wave_lines) if wave_lines else "нет"
+
+    text += (
+        f"\n\n🔗 Реферер: <code>{referrer_line}</code>\n"
+        f"🎯 Реф. награда: {referral_status}\n"
+        f"🛡 Спонсоры подтверждены: {'Да' if target.sponsors_verified else 'Нет'}\n"
+        f"📡 Волна: {target.sponsor_wave}\n"
+        f"📋 Закреплённые спонсоры:\n{wave_display}"
+    )
+
     await message.answer(text, parse_mode="HTML", reply_markup=user_actions_kb(target.user_id, target.is_blocked))
 
 
@@ -200,8 +243,11 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
     if not target:
         await message.answer("❌ Пользователь не найден.")
         return
-    target.stars_balance = round(float(target.stars_balance) + amount, 2)
+    await session.execute(
+        update(User).where(User.user_id == target.user_id).values(stars_balance=User.stars_balance + amount)
+    )
     await session.commit()
+    await session.refresh(target)
     await message.answer(f"✅ Начислено <b>+{amount:.2f} ⭐</b> пользователю <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
@@ -231,8 +277,16 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
     if not target:
         await message.answer("❌ Пользователь не найден.")
         return
-    target.stars_balance = round(max(0.0, float(target.stars_balance) - amount), 2)
+    await session.execute(
+        update(User).where(User.user_id == target.user_id).values(
+            stars_balance=case(
+                (User.stars_balance >= amount, User.stars_balance - amount),
+                else_=0,
+            )
+        )
+    )
     await session.commit()
+    await session.refresh(target)
     await message.answer(f"✅ Списано <b>-{amount:.2f} ⭐</b> у пользователя <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
@@ -310,10 +364,9 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_
         return
 
     # Refund
-    u_repo = UserRepository(session)
-    user = await u_repo.get(w.user_id)
-    if user:
-        user.stars_balance += w.amount
+    await session.execute(
+        update(User).where(User.user_id == w.user_id).values(stars_balance=User.stars_balance + w.amount)
+    )
     await session.commit()
 
     try:

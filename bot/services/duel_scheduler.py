@@ -32,9 +32,9 @@ async def _notify(bot: Bot, user_id: int | None, text: str) -> None:
 async def _credit(session, user_id: int | None, amount: Decimal) -> None:
     if not user_id:
         return
-    user = await session.get(User, user_id)
-    if user:
-        user.stars_balance += amount
+    await session.execute(
+        update(User).where(User.user_id == user_id).values(stars_balance=User.stars_balance + amount)
+    )
 
 
 async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:

@@ -82,8 +82,14 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
     if c_roll == j_roll:
         creator = await session.get(User, duel.creator_id)
         joiner = await session.get(User, duel.joiner_id)
-        if creator: creator.stars_balance += duel.amount
-        if joiner: joiner.stars_balance += duel.amount
+        if creator:
+            await session.execute(
+                update(User).where(User.user_id == creator.user_id).values(stars_balance=User.stars_balance + duel.amount)
+            )
+        if joiner:
+            await session.execute(
+                update(User).where(User.user_id == joiner.user_id).values(stars_balance=User.stars_balance + duel.amount)
+            )
         duel.winner_id = None
         await session.commit()
         txt = f"🤝 <b>Дуэль #{duel.id} — Ничья!</b>\n\n🎲 {c_roll} vs {j_roll}\n💫 Ставки возвращены."
@@ -94,7 +100,10 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
     winner_id = duel.creator_id if c_roll > j_roll else duel.joiner_id
     winner = await session.get(User, winner_id)
     winner_name = escape(winner.first_name) if winner else "Игрок"
-    if winner: winner.stars_balance = winner.stars_balance + winner_amount
+    if winner:
+        await session.execute(
+            update(User).where(User.user_id == winner.user_id).values(stars_balance=User.stars_balance + winner_amount)
+        )
     duel.winner_id = winner_id
     await session.commit()
 

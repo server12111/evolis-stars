@@ -222,6 +222,8 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         return
 
     tg_urls, web_urls = _current_sponsor_urls(user)
+    tg_pre = len(tg_urls)
+    web_count = len(web_urls)
 
     if bot and tg_urls:
         # Don't trust the provider's "subscribed" report blindly — confirm
@@ -229,11 +231,16 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         # redirects/webapps we have no independent way to check, so those
         # keep relying on the provider as before.
         tg_urls = await _verify_tg_subscriptions(bot, user.user_id, tg_urls)
+    tg_post = len(tg_urls)
 
     total = len(tg_urls) + len(web_urls)
 
     min_sponsors = await get_min_sponsors_for_reward(session)
     if total < min_sponsors:
+        logger.info(
+            "REFERRAL outcome=insufficient referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d",
+            user.user_id, user.referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
+        )
         if not user.referral_insufficient_notified:
             user.referral_insufficient_notified = True
             await session.commit()
@@ -275,6 +282,11 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         )
     )
     await session.commit()
+    logger.info(
+        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s became_vip=%s",
+        user.user_id, user.referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
+        reward, bonus, became_vip,
+    )
 
     if bot:
         username_display = (

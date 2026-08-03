@@ -3,8 +3,10 @@ import logging
 from datetime import datetime
 
 from aiogram import Bot
+from sqlalchemy import update
 
 from bot.database.engine import SessionFactory
+from bot.database.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,11 @@ async def auction_loop(bot: Bot) -> None:
                     user_repo = UserRepository(session)
                     winner = await user_repo.get(winner_id)
                     if winner:
-                        winner.stars_balance = round(float(winner.stars_balance) + winner_share, 2)
+                        await session.execute(
+                            update(User).where(User.user_id == winner_id).values(
+                                stars_balance=User.stars_balance + winner_share
+                            )
+                        )
                     if not await repo.finish(round_):
                         continue
                     try:

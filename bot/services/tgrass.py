@@ -58,6 +58,7 @@ async def check_tgrass(
 
                     # "ok" = подписан на все, "no_offers" = нет подходящих офферов
                     if status in ("ok", "no_offers"):
+                        logger.info("TGrass check_tgrass user_id=%d status=%s → 0 offers", user_id, status)
                         return []
 
                     # "not_ok" = есть неподписанные офферы — возвращаем только их
@@ -74,6 +75,7 @@ async def check_tgrass(
                             "name": o.get("name") or "Канал",
                             "url": o.get("link", ""),
                         })
+                    logger.info("TGrass check_tgrass user_id=%d status=%s → %d offers", user_id, status, len(result))
                     return result
         except Exception as e:
             logger.warning("TGrass check error: %s", e)

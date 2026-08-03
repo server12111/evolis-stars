@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
@@ -317,7 +318,9 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
             show_alert=True,
         )
         return
-    winner.stars_balance = round(float(winner.stars_balance) + prize, 2)
+    await session.execute(
+        update(User).where(User.user_id == winner_id).values(stars_balance=User.stars_balance + prize)
+    )
     if not await repo.finish(active, winner_id):
         await callback.answer(
             "🔄 Лотерея уже изменилась. Повторите розыгрыш.",
@@ -337,7 +340,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
 
 
 @router.callback_query(lambda c: c.data == "admin:lottery_cancel")
-async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     repo = LotteryRepository(session)
     active = await repo.get_active()
@@ -357,4 +360,4 @@ async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, sessi
         )
         return
     await callback.answer("✅ Лотерея отменена.")
-    await cb_lottery(callback, db_user, session)
+    await cb_lottery(callback, db_user, session, state)

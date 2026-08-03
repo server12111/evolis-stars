@@ -84,6 +84,18 @@ async def _show_retry(inner: Message | CallbackQuery) -> None:
         await inner.answer()
 
 
+def _describe_result(result: list[dict] | BaseException | None) -> str:
+    """Log-friendly summary: a count for a normal result, ERR:<type> for a
+    gathered exception, or "None" for an explicit failure sentinel — so a
+    legitimately empty provider response is distinguishable in the logs from
+    a crash or an outage."""
+    if isinstance(result, list):
+        return str(len(result))
+    if isinstance(result, BaseException):
+        return f"ERR:{type(result).__name__}"
+    return "None"
+
+
 async def run_sponsor_wall_check(
     inner: Message | CallbackQuery,
     db_user: User,
@@ -175,10 +187,10 @@ async def run_sponsor_wall_check(
     logger.info(
         "WALL uid=%s tgrass=%s botohub=%s piarflow_needed=%s piarflow=%s",
         db_user.user_id,
-        type(tgrass_result).__name__,
-        type(botohub_result).__name__,
+        _describe_result(tgrass_result),
+        _describe_result(botohub_result),
         piarflow_needed,
-        type(piarflow_result).__name__,
+        _describe_result(piarflow_result),
     )
 
     if all_configured_integrations_failed(
