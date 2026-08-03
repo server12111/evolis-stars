@@ -47,8 +47,9 @@ async def _update_public_withdrawal_status(
         if user and user.username
         else html.escape(user.first_name if user else str(withdrawal.user_id))
     )
+    vip_badge = " 💎 VIP" if user and user.is_vip else ""
     text = (
-        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>\n\n"
+        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
         f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
         f"{status_icon} Статус: <b>{status}</b>"

@@ -22,17 +22,33 @@ REFERRAL_RETURN_DAYS = 7
 _STAR_STEP = Decimal("0.01")
 
 # Referral-count thresholds (in ascending order) mapped to the settings key
-# holding that milestone's one-time bonus amount. Counts above the highest
-# threshold keep earning that same top-tier bonus for every new referral.
+# holding that milestone's one-time bonus amount.
 MILESTONE_SETTINGS: list[tuple[int, str]] = [
     (10, "referral_bonus_10"),
+    (15, "referral_bonus_15"),
+    (20, "referral_bonus_20"),
     (25, "referral_bonus_25"),
     (30, "referral_bonus_30"),
+    (35, "referral_bonus_35"),
+    (40, "referral_bonus_40"),
+    (45, "referral_bonus_45"),
     (50, "referral_bonus_50"),
     (55, "referral_bonus_55"),
     (60, "referral_bonus_60"),
+    (67, "referral_bonus_67"),
     (70, "referral_bonus_70"),
+    (76, "referral_bonus_76"),
+    (80, "referral_bonus_80"),
+    (90, "referral_bonus_90"),
 ]
+# From this referral count onward, every new referral keeps earning this
+# same bonus forever (on top of the one-time milestones above, which stop
+# at 90) — separate from VIP_THRESHOLD, which is purely a cosmetic badge.
+RECURRING_MILESTONE = 100
+RECURRING_MILESTONE_SETTING = "referral_bonus_100"
+
+# Purely cosmetic status once reached — no bonus, no message here; it only
+# surfaces as a badge on the user's withdrawal requests (see withdraw.py).
 VIP_THRESHOLD = 50
 
 
@@ -80,14 +96,13 @@ async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
 
 
 async def get_milestone_bonus(session: AsyncSession, new_referrals_count: int) -> Decimal:
-    """One-time bonus for the exact milestone, or the top-tier bonus for every
-    referral once the referrer has passed the highest configured milestone."""
+    """One-time bonus for the exact milestone, or the recurring bonus for
+    every referral once the referrer has reached RECURRING_MILESTONE."""
     for threshold, key in MILESTONE_SETTINGS:
         if new_referrals_count == threshold:
             return await _get_decimal_setting(session, key, "0")
-    if new_referrals_count > MILESTONE_SETTINGS[-1][0]:
-        top_key = MILESTONE_SETTINGS[-1][1]
-        return await _get_decimal_setting(session, top_key, "0")
+    if new_referrals_count >= RECURRING_MILESTONE:
+        return await _get_decimal_setting(session, RECURRING_MILESTONE_SETTING, "0")
     return Decimal("0")
 
 
@@ -221,6 +236,16 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if user.referral_reward_given:
         return
 
+    # Captured once, up front: session.rollback() (used below by the
+    # referrals_count conflict retry) expires every attribute on every
+    # object in the session, including `user` — re-reading user.xxx after
+    # that would trigger an implicit lazy load outside of any awaited
+    # call, which raises MissingGreenlet under SQLAlchemy's async engine.
+    referred_user_id = user.user_id
+    referrer_id = user.referrer_id
+    referred_username = user.username
+    referred_first_name = user.first_name
+
     tg_urls, web_urls = _current_sponsor_urls(user)
     tg_pre = len(tg_urls)
     web_count = len(web_urls)
@@ -230,7 +255,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         # each TG sponsor ourselves before counting it. Web sponsors are
         # redirects/webapps we have no independent way to check, so those
         # keep relying on the provider as before.
-        tg_urls = await _verify_tg_subscriptions(bot, user.user_id, tg_urls)
+        tg_urls = await _verify_tg_subscriptions(bot, referred_user_id, tg_urls)
     tg_post = len(tg_urls)
 
     total = len(tg_urls) + len(web_urls)
@@ -239,7 +264,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if total < min_sponsors:
         logger.info(
             "REFERRAL outcome=insufficient referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d",
-            user.user_id, user.referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
+            referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
         )
         if not user.referral_insufficient_notified:
             user.referral_insufficient_notified = True
@@ -247,14 +272,14 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             if bot:
                 try:
                     await bot.send_message(
-                        user.referrer_id,
+                        referrer_id,
                         f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {min_sponsors}, было {total})."
                     )
                 except Exception:
                     pass
                 try:
                     await bot.send_message(
-                        user.user_id,
+                        referred_user_id,
                         f"⚠️ Твоему другу, который тебя пригласил, не начислилась награда за тебя, "
                         f"т.к. ты подписался на недостаточное количество спонсоров "
                         f"(минимум {min_sponsors}, было {total}).",
@@ -264,57 +289,73 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         return
 
     user_repo = UserRepository(session)
-    referrer = await user_repo.get(user.referrer_id)
+    referrer = await user_repo.get(referrer_id)
     if not referrer:
         return
 
     reward = await get_referral_reward(session)
+
+    # referrals_count is read-then-written, so two referrals for the same
+    # referrer completing at nearly the same moment (plausible with the
+    # bulk/bot signups this system has to defend against) could otherwise
+    # race and silently lose an increment — or worse, miscompute the
+    # milestone bonus off a stale count. Guard the update with the snapshot
+    # referrals_count and retry on conflict, mirroring the same
+    # optimistic-concurrency pattern already used for duels/lottery/auction.
+    for _ in range(5):
+        new_referrals_count = referrer.referrals_count + 1
+        # VIP is a cosmetic badge only — it doesn't affect the reward math or
+        # trigger any message here; it only shows up on the user's own
+        # withdrawal requests (see withdraw.py).
+        referrer_is_vip = getattr(referrer, "is_vip", False) or new_referrals_count >= VIP_THRESHOLD
+        bonus = await get_milestone_bonus(session, new_referrals_count)
+        total_reward = reward + bonus
+
+        claim = await session.execute(
+            update(User)
+            .where(
+                User.user_id == referrer.user_id,
+                User.referrals_count == referrer.referrals_count,
+            )
+            .values(
+                stars_balance=User.stars_balance + total_reward,
+                referrals_count=new_referrals_count,
+                is_vip=referrer_is_vip,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if claim.rowcount == 1:
+            break
+        await session.rollback()
+        referrer = await user_repo.get(referrer_id)
+        if not referrer:
+            return
+    else:
+        logger.warning(
+            "REFERRAL outcome=conflict referred_uid=%s referrer_uid=%s — gave up after retries",
+            referred_user_id, referrer_id,
+        )
+        return
+
     user.referral_counted = True
     user.referral_reward_given = True
-
-    new_referrals_count = referrer.referrals_count + 1
-    referrer_is_vip = getattr(referrer, "is_vip", False)
-    became_vip = new_referrals_count >= VIP_THRESHOLD and not referrer_is_vip
-    if became_vip:
-        referrer_is_vip = True
-    bonus = await get_milestone_bonus(session, new_referrals_count)
-
-    total_reward = reward + bonus
-
-    await session.execute(
-        update(User)
-        .where(User.user_id == referrer.user_id)
-        .values(
-            stars_balance=User.stars_balance + total_reward,
-            referrals_count=new_referrals_count,
-            is_vip=referrer_is_vip
-        )
-    )
     await session.commit()
     logger.info(
-        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s became_vip=%s",
-        user.user_id, user.referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
-        reward, bonus, became_vip,
+        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s is_vip=%s",
+        referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
+        reward, bonus, referrer_is_vip,
     )
 
     if bot:
         username_display = (
-            f"@{escape(user.username)}"
-            if user.username
-            else escape(user.first_name or str(user.user_id))
+            f"@{escape(referred_username)}"
+            if referred_username
+            else escape(referred_first_name or str(referred_user_id))
         )
         try:
             msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}."
             if bonus > 0:
                 msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
-            if became_vip:
-                top_tier = MILESTONE_SETTINGS[-1][0]
-                msg += (
-                    f"\n🌟 Вы получили VIP-статус! При достижении {top_tier} рефералов "
-                    "вы начнете получать бонус +1 ⭐ за каждого следующего!"
-                )
-            elif new_referrals_count > MILESTONE_SETTINGS[-1][0]:
-                msg += "\n🌟 Включен VIP-бонус +1 ⭐!"
 
             await bot.send_message(
                 referrer.user_id,

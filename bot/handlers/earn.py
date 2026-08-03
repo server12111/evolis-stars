@@ -14,6 +14,7 @@ from bot.database.repositories.user import UserRepository
 from bot.keyboards.earn import earn_kb, return_referrals_kb
 from bot.services.referral import (
     MILESTONE_SETTINGS,
+    RECURRING_MILESTONE,
     REFERRAL_RETURN_DAYS,
     VIP_THRESHOLD,
     format_stars,
@@ -41,7 +42,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     )
     referral_reward = await get_referral_reward(session)
     min_sponsors = await get_min_sponsors_for_reward(session)
-    top_tier, _ = MILESTONE_SETTINGS[-1]
+    top_tier = RECURRING_MILESTONE
     top_bonus = await get_milestone_bonus(session, top_tier)
     milestone_bonuses = {
         threshold: await get_milestone_bonus(session, threshold)

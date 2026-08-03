@@ -245,8 +245,9 @@ async def msg_captcha(
         f"@{db_user.username}" if db_user.username else escape(db_user.first_name)
     )
 
+    vip_badge = " 💎 VIP" if db_user.is_vip else ""
     request_text = (
-        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>\n\n"
+        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {username_display} | ID: <code>{db_user.user_id}</code>\n"
         f"💫 Сумма: <b>{amount} ⭐</b>\n"
         f"⏳ Статус: На рассмотрении"

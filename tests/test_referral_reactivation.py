@@ -2,9 +2,9 @@ import unittest
 from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
@@ -284,6 +284,113 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         # Flat reward (4) + the 10-referral milestone bonus (0.1).
         self.assertEqual(float(saved_referrer.stars_balance), 4.1)
         self.assertEqual(saved_referrer.referrals_count, 10)
+
+    async def test_recurring_bonus_starts_at_100_and_repeats_forever(self) -> None:
+        async with self.sessions() as session:
+            session.add(BotSettings(key="referral_bonus_100", value="1"))
+            await session.commit()
+            referrer = User(
+                user_id=780, first_name="Referrer", stars_balance=Decimal(0), referrals_count=99,
+            )
+            referred = User(
+                user_id=781, first_name="Referred", referrer_id=780, sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            )
+            session.add_all((referrer, referred))
+            await session.commit()
+            await check_referral_reward(referred, session)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 780)
+        # 99 -> 100 crosses into the recurring milestone: flat reward (4) + 1.
+        self.assertEqual(float(saved_referrer.stars_balance), 5.0)
+        self.assertEqual(saved_referrer.referrals_count, 100)
+
+        async with self.sessions() as session:
+            referred_2 = User(
+                user_id=782, first_name="Referred2", referrer_id=780, sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/d", "https://t.me/e", "https://t.me/f"),
+            )
+            session.add(referred_2)
+            await session.commit()
+            await check_referral_reward(referred_2, session)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 780)
+        # 101st referral keeps earning the same recurring bonus.
+        self.assertEqual(float(saved_referrer.stars_balance), 10.0)
+        self.assertEqual(saved_referrer.referrals_count, 101)
+
+    async def test_vip_flag_flips_silently_with_no_special_message(self) -> None:
+        async with self.sessions() as session:
+            referrer = User(
+                user_id=790, first_name="Referrer", stars_balance=Decimal(0), referrals_count=49,
+            )
+            referred = User(
+                user_id=791, first_name="Referred", referrer_id=790, sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            )
+            session.add_all((referrer, referred))
+            await session.commit()
+
+            bot = _bot()
+            await check_referral_reward(referred, session, bot)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 790)
+
+        self.assertTrue(saved_referrer.is_vip)
+        bot.send_message.assert_awaited_once()
+        sent_text = bot.send_message.await_args.args[1]
+        self.assertNotIn("VIP", sent_text)
+
+    async def test_concurrent_referral_completions_do_not_lose_a_count(self) -> None:
+        """A concurrent referral for the same referrer landing in between
+        our own referrer read and our guarded update must not get
+        silently overwritten — the WHERE-guarded update should miss and
+        retry against the fresh value instead."""
+        async with self.sessions() as session:
+            referrer = User(
+                user_id=800, first_name="Referrer", stars_balance=Decimal(0), referrals_count=0,
+            )
+            referred = User(
+                user_id=801, first_name="Referred", referrer_id=800, sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            )
+            session.add_all((referrer, referred))
+            await session.commit()
+
+            # get_referral_reward() is awaited right after the initial
+            # referrer read and right before the retry loop's guarded
+            # update — the perfect seam to inject a "concurrent" referral
+            # that commits in between, using the exact same kind of atomic
+            # update the retry loop itself uses (no nested session needed).
+            async def sneaky_get_referral_reward(*args, **kwargs):
+                await session.execute(
+                    update(User)
+                    .where(User.user_id == 800)
+                    .values(referrals_count=User.referrals_count + 1)
+                    .execution_options(synchronize_session=False)
+                )
+                await session.commit()
+                return Decimal("4")
+
+            with patch(
+                "bot.services.referral.get_referral_reward",
+                side_effect=sneaky_get_referral_reward,
+            ):
+                await check_referral_reward(referred, session)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 800)
+            saved_referred = await session.get(User, 801)
+
+        # The concurrent +1 landed first (count=1); our own referral's
+        # first attempt (WHERE referrals_count == 0) can't match anymore,
+        # so it must retry against the fresh value and land on 2 — not
+        # silently overwrite it back down to 1.
+        self.assertEqual(saved_referrer.referrals_count, 2)
+        self.assertTrue(saved_referred.referral_reward_given)
 
 
 if __name__ == "__main__":

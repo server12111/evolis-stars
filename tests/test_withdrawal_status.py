@@ -16,7 +16,7 @@ class WithdrawalStatusTests(unittest.IsolatedAsyncioTestCase):
             amount=Decimal(15),
             channel_message_id=678,
         )
-        user = SimpleNamespace(username="tester", first_name="Test")
+        user = SimpleNamespace(username="tester", first_name="Test", is_vip=False)
 
         with (
             patch(
