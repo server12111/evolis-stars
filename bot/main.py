@@ -14,7 +14,7 @@ settings = get_settings()
 from bot.database.engine import SessionFactory, init_db
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
-from bot.handlers import router
+from bot.handlers import group_router, router
 from bot.middlewares.database import DatabaseMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
 from bot.middlewares.user import UserMiddleware
@@ -95,6 +95,7 @@ async def main() -> None:
         dp.update.middleware(SponsorWallMiddleware())
 
         dp.include_router(router)
+        dp.include_router(group_router)
         dp.errors.register(on_error)
 
         dp.startup.register(on_startup)

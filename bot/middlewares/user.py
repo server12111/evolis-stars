@@ -31,6 +31,13 @@ class UserMiddleware(BaseMiddleware):
         if not tg_user:
             return await handler(event, data)
 
+        # Group-chat updates are handled by GroupActivityMiddleware instead —
+        # skip auto-creating a private-DM User row just because someone
+        # posted in a group the bot happens to be in.
+        event_chat = data.get("event_chat")
+        if event_chat is not None and event_chat.type != "private":
+            return await handler(event, data)
+
         lock = _USER_LOCKS[tg_user.id % len(_USER_LOCKS)]
         async with lock:
             repo = UserRepository(session)

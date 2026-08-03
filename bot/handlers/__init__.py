@@ -1,4 +1,4 @@
-from aiogram import Router
+from aiogram import F, Router
 
 from bot.handlers import (
     start, earn, withdraw, bonus, tasks,
@@ -6,8 +6,17 @@ from bot.handlers import (
     casino, mines, tower, auction,
 )
 from bot.handlers.admin import router as admin_router
+from bot.handlers.group import router as group_router  # noqa: F401 — re-exported for main.py
 
 router = Router()
+
+# Every handler included below this point assumes a private 1:1 DM (they
+# read/write a single db_user with no chat-scoping) — this filter keeps
+# group-chat updates from ever reaching them. Filtering here, on the root
+# router, is sufficient for every included sub_router: aiogram's Router
+# checks the parent's root filters before delegating to any sub_router.
+router.message.filter(F.chat.type == "private")
+router.callback_query.filter(lambda c: c.message is not None and c.message.chat.type == "private")
 
 router.include_router(start.router)
 router.include_router(earn.router)
