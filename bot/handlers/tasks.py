@@ -815,7 +815,7 @@ async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         await _show_tasks_exhausted_screen(callback, db_user)
         return
 
-    if status in ("complete", "waiting", "not_counted"):
+    if status in ("complete", "waiting"):
         await s_repo.set(key, "1")
         db_user.stars_balance = round(float(db_user.stars_balance) + tasks_reward, 2)
         db_user.tasks_completed_count += 1
