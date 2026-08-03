@@ -105,7 +105,10 @@ class PiarFlowNextTaskTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("AfterRetry", rendered)
         self.assertNotIn("Все задания выполнены", rendered)
 
-    async def test_api_error_is_not_displayed_as_all_tasks_complete(self) -> None:
+    async def test_api_error_shows_exhausted_screen_not_a_service_error(self) -> None:
+        """A real PiarFlow failure must read the same as "nothing left" —
+        never as an alarming error — so a transient outage doesn't look like
+        a bug to the user."""
         cb = callback()
         db_user = SimpleNamespace(user_id=1, tasks_completed_count=1)
 
@@ -126,8 +129,8 @@ class PiarFlowNextTaskTests(unittest.IsolatedAsyncioTestCase):
             await _show_pf_task(cb, db_user, SimpleNamespace())
 
         rendered = cb.message.edit_text.await_args.args[0]
-        self.assertIn("временно не ответил", rendered)
-        self.assertNotIn("Все задания выполнены", rendered)
+        self.assertIn("Все задания выполнены", rendered)
+        self.assertNotIn("временно не ответил", rendered)
 
     async def test_reward_requires_explicit_check_even_if_task_list_is_empty(self) -> None:
         cb = callback()

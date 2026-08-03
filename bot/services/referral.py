@@ -113,18 +113,23 @@ def _current_sponsor_urls(user: User) -> tuple[list[str], list[str]]:
 async def _verify_tg_subscriptions(bot: Bot, user_id: int, urls: list[str]) -> list[str]:
     """Independently confirm TG sponsor subscriptions via the bot's own Bot
     API, instead of trusting a possibly stale/incorrect provider report.
-    Unconfirmable URLs (unresolvable chat, API error, not actually a member)
-    are simply dropped from this cycle — they are not marked as rewarded, so
-    they get re-checked on the next cycle rather than lost forever."""
+    Most sponsor channels come from rotating ad networks (PiarFlow/BotoHub/
+    tgrass) our bot was never added to, and some use private invite links
+    that never resolve to a chat id — for those we simply CAN'T verify
+    independently, so an unresolvable/failed check falls back to trusting
+    the provider (which already confirmed the subscription before the wall
+    let the user through) rather than silently dropping the sponsor. Only a
+    successful lookup that positively shows the user isn't a member
+    (left/kicked/banned) excludes the URL."""
 
     async def _check(url: str) -> str | None:
         chat_id = telegram_chat_id(url)
         if chat_id is None:
-            return None
+            return url
         try:
             member = await bot.get_chat_member(chat_id, user_id)
         except Exception:
-            return None
+            return url
         return url if is_subscribed(member) else None
 
     results = await asyncio.gather(*(_check(url) for url in urls), return_exceptions=True)

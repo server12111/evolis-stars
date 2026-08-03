@@ -43,8 +43,10 @@ def _pf_chat_id() -> int:
 
 
 async def _show_tasks_exhausted_screen(callback: CallbackQuery, db_user: User) -> None:
-    """The true final fallback — nothing left from admin tasks, PiarFlow,
-    FlyerHub, or linkni."""
+    """Final fallback — nothing left from admin tasks, PiarFlow, FlyerHub, or
+    linkni, or one of them failed to respond. Shown as "come back later"
+    rather than an error so a transient provider outage doesn't read as a
+    bug to the user."""
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="menu:tasks"))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
@@ -378,36 +380,6 @@ async def cb_task_already_done(callback: CallbackQuery) -> None:
 
 # ── PiarFlow task handlers (one-by-one flow) ───────────────────────────────
 
-async def _show_pf_unavailable(callback: CallbackQuery) -> None:
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="🔄 Попробовать ещё раз",
-            callback_data="menu:tasks",
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")
-    )
-    text = (
-        "⚠️ Сервис заданий временно не ответил.\n\n"
-        "Награда не потеряна. Попробуй ещё раз через несколько секунд."
-    )
-    try:
-        await callback.message.edit_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=builder.as_markup(),
-        )
-    except Exception as e:
-        if "message is not modified" in str(e).lower():
-            return
-        await callback.message.answer(
-            text,
-            parse_mode="HTML",
-            reply_markup=builder.as_markup(),
-        )
-
 
 async def _show_pf_task(
     callback: CallbackQuery,
@@ -430,7 +402,7 @@ async def _show_pf_task(
             max_sponsors,
         )
         if pf_tasks is None:
-            await _show_pf_unavailable(callback)
+            await _show_tasks_exhausted_screen(callback, db_user)
             return
 
     idx, sponsor = await _find_next_pf_task(s_repo, db_user, pf_tasks, skip_link=skip_link)
@@ -448,7 +420,7 @@ async def _show_pf_task(
                 max_sponsors,
             )
             if refreshed is None:
-                await _show_pf_unavailable(callback)
+                await _show_tasks_exhausted_screen(callback, db_user)
                 return
             idx, sponsor = await _find_next_pf_task(
                 s_repo,
@@ -566,7 +538,7 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
             max_sponsors,
         )
         if pf_tasks is None:
-            await _show_pf_unavailable(callback)
+            await _show_tasks_exhausted_screen(callback, db_user)
             return
         for sponsor in pf_tasks:
             candidate = str(sponsor.get("link", ""))
@@ -626,7 +598,7 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
             max_sponsors,
         )
         if pf_tasks is None:
-            await _show_pf_unavailable(callback)
+            await _show_tasks_exhausted_screen(callback, db_user)
             return
     await _show_pf_task(
         callback,
@@ -645,7 +617,7 @@ async def _show_fh_webapp(callback: CallbackQuery, db_user: User, session: Async
     what to pay for."""
     result = await fh_get_completed_tasks(settings.flyerhub_key, db_user.user_id)
     if result is None:
-        await _show_pf_unavailable(callback)
+        await _show_tasks_exhausted_screen(callback, db_user)
         return
 
     # count_all_tasks only reflects what FlyerHub has already assigned to
@@ -680,7 +652,7 @@ async def cb_fh_webapp_check(callback: CallbackQuery, db_user: User, session: As
 
     result = await fh_get_completed_tasks(settings.flyerhub_key, db_user.user_id)
     if result is None:
-        await _show_pf_unavailable(callback)
+        await _show_tasks_exhausted_screen(callback, db_user)
         return
 
     s_repo = SettingsRepository(session)
@@ -745,10 +717,10 @@ async def _show_fh_task(
         fh_tasks = await fh_get_tasks(
             settings.flyerhub_key,
             db_user.user_id,
-            _pf_chat_id(),
+            db_user.user_id,
         )
         if fh_tasks is None:
-            await _show_pf_unavailable(callback)
+            await _show_tasks_exhausted_screen(callback, db_user)
             return
 
     sponsor = None
@@ -840,7 +812,7 @@ async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: Asyn
 
     status = await fh_check_task(settings.flyerhub_key, signature)
     if status is None:
-        await _show_pf_unavailable(callback)
+        await _show_tasks_exhausted_screen(callback, db_user)
         return
 
     if status in ("complete", "waiting", "not_counted"):

@@ -55,7 +55,7 @@ class FlyerHubWebappTests(unittest.IsolatedAsyncioTestCase):
         urls = [btn.url for row in kb.inline_keyboard for btn in row if btn.url]
         self.assertIn("https://telegram.me/FlyWebTasksBot/app?startapp=abc", urls)
 
-    async def test_webapp_unavailable_shows_retry(self) -> None:
+    async def test_webapp_unavailable_shows_exhausted_screen(self) -> None:
         cb = callback()
         with (
             patch.object(settings, "flyerhub_key", "fh-key"),
@@ -65,7 +65,7 @@ class FlyerHubWebappTests(unittest.IsolatedAsyncioTestCase):
             await _show_fh_task(cb, db_user(), SimpleNamespace())
 
         rendered = cb.message.edit_text.await_args.args[0]
-        self.assertIn("не ответил", rendered)
+        self.assertIn("Все задания выполнены", rendered)
 
     async def test_check_credits_each_new_completed_signature_once(self) -> None:
         cb = callback()
