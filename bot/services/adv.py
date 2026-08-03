@@ -22,10 +22,17 @@ _RESULT_MEANINGS = {
 }
 
 
-async def send_ad(api_key: str, user_id: int, hi: bool = False) -> None:
-    """Fire-and-forget ad delivery. hi=True only after /start for new users."""
+async def send_ad(api_key: str, user_id: int, hi: bool = False) -> bool:
+    """Fire-and-forget ad delivery. hi=True only after /start for new users.
+
+    Returns True only when BotoHub confirms an ad was actually delivered
+    (code=1) — callers that need to attribute a real impression (e.g. the
+    chat ad-revenue scheduler) should check this rather than assume every
+    call means a user saw something. Codes 7/8 (AdLimited/NoAds) are not
+    warnings — nothing went wrong — but they're not a delivered impression
+    either."""
     if not api_key:
-        return
+        return False
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as client:
             async with client.post(
@@ -35,7 +42,7 @@ async def send_ad(api_key: str, user_id: int, hi: bool = False) -> None:
             ) as resp:
                 if resp.status >= 400:
                     logger.warning("BotoHub ad send HTTP %s for user %s", resp.status, user_id)
-                    return
+                    return False
                 data = await resp.json(content_type=None)
                 code = data.get("SendPostResult", 0)
                 if code not in (1, 7, 8):
@@ -43,5 +50,7 @@ async def send_ad(api_key: str, user_id: int, hi: bool = False) -> None:
                         "Ad result for user %s: code=%s (%s)",
                         user_id, code, _RESULT_MEANINGS.get(code, "неизвестный код"),
                     )
+                return code == 1
     except Exception as e:
         logger.warning("Ad send error for user %s: %s", user_id, e)
+        return False

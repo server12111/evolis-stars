@@ -1,14 +1,17 @@
 from datetime import datetime
+from html import escape
 
 from aiogram import Bot, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.content import ContentRepository
+from bot.database.repositories.link_clicks import LinkButtonRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
 from bot.middlewares.sponsor_wall import run_sponsor_wall_check
@@ -51,6 +54,27 @@ async def cmd_start(
 ) -> None:
     args = message.text.split() if message.text else []
     ref_param = args[1] if len(args) > 1 else None
+
+    if ref_param and ref_param.startswith("lc_"):
+        # Reopened via a click-tracked link button — answerCallbackQuery's
+        # url can only reopen the bot itself (t.me/<bot>?start=...), never
+        # an arbitrary external link, so the real destination is delivered
+        # here as a normal message instead (a sent message's own buttons
+        # aren't subject to that restriction).
+        try:
+            link_id = int(ref_param[3:])
+        except ValueError:
+            link_id = None
+        button = await LinkButtonRepository(session).get(link_id) if link_id is not None else None
+        if button and button.is_active:
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(text="Перейти ↗", url=button.destination_url))
+            await message.answer(
+                f"🔗 <b>{escape(button.label)}</b>",
+                parse_mode="HTML",
+                reply_markup=builder.as_markup(),
+            )
+        return
 
     if ref_param and ref_param.startswith("ref_"):
         try:

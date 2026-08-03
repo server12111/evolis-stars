@@ -58,3 +58,8 @@ class AdminOwnSponsorStates(StatesGroup):
     enter_url = State()
     enter_name = State()
     enter_target_count = State()
+
+
+class AdminLinkButtonStates(StatesGroup):
+    enter_label = State()
+    enter_url = State()

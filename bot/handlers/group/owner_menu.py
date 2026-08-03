@@ -57,7 +57,7 @@ async def cmd_evolis_open(message: Message, bot: Bot, session: AsyncSession) -> 
         return
 
     chat_repo = ChatRepository(session)
-    await chat_repo.upsert(
+    chat = await chat_repo.upsert(
         chat_id=chat_id,
         title=message.chat.title or "",
         member_count=member_count,
@@ -66,7 +66,7 @@ async def cmd_evolis_open(message: Message, bot: Bot, session: AsyncSession) -> 
     )
 
     text = await _render_menu_text(chat_repo, chat_id, member_count)
-    await message.answer(text, parse_mode="HTML", reply_markup=owner_menu_kb())
+    await message.answer(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
 
 
 @router.callback_query(F.data == "chatmenu:refresh")
@@ -87,7 +87,7 @@ async def cb_chat_menu_refresh(callback: CallbackQuery, bot: Bot, session: Async
         member_count = chat.member_count
 
     min_members = await SettingsRepository(session).get_int("chat_min_members", 250)
-    await chat_repo.upsert(
+    chat = await chat_repo.upsert(
         chat_id=chat_id,
         title=callback.message.chat.title or chat.title,
         member_count=member_count,
@@ -97,8 +97,39 @@ async def cb_chat_menu_refresh(callback: CallbackQuery, bot: Bot, session: Async
 
     text = await _render_menu_text(chat_repo, chat_id, member_count)
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
     except Exception as exc:
         if "message is not modified" not in str(exc).lower():
             raise
     await callback.answer("✅ Обновлено")
+
+
+@router.callback_query(F.data == "chatmenu:broadcast_toggle")
+async def cb_chat_broadcast_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = callback.message.chat.id
+    chat_repo = ChatRepository(session)
+    chat = await chat_repo.get(chat_id)
+    if not chat or callback.from_user.id != chat.owner_user_id:
+        await callback.answer()
+        return
+
+    chat.broadcast_opt_in = not chat.broadcast_opt_in
+    await chat_repo.session.commit()
+
+    text = await _render_menu_text(chat_repo, chat_id, chat.member_count)
+    if chat.broadcast_opt_in:
+        text += (
+            "\n\n📣 Реклама включена: боту разрешено периодически присылать участникам "
+            "рекламу от BotoHub в личные сообщения и публиковать рекламные посты с кнопками в чате.\n"
+            "За каждую 1000 показов вам начисляется 0.5 ⭐, а после 400 переходов по кнопкам — "
+            "ещё разово 4 ⭐ на баланс."
+        )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
+    except Exception as exc:
+        if "message is not modified" not in str(exc).lower():
+            raise
+    await callback.answer("✅ Включено" if chat.broadcast_opt_in else "✅ Выключено")

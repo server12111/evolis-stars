@@ -21,6 +21,7 @@ from bot.middlewares.sponsor_wall import SponsorWallMiddleware
 from bot.middlewares.user import UserMiddleware
 from bot.services.auction_scheduler import auction_loop
 from bot.services.background import spawn_background, stop_background_tasks
+from bot.services.chat_ad_scheduler import chat_ad_loop
 from bot.services.duel_scheduler import duel_expiry_loop
 from bot.services.instance_lock import (
     BotAlreadyRunningError,
@@ -60,6 +61,7 @@ async def on_startup(bot: Bot) -> None:
     spawn_background(auction_loop(bot), name="auction-scheduler")
     spawn_background(duel_expiry_loop(bot), name="duel-expiry-scheduler")
     spawn_background(sponsor_recheck_loop(bot), name="sponsor-recheck-scheduler")
+    spawn_background(chat_ad_loop(bot), name="chat-ad-scheduler")
     logger.info("Database initialized. Background tasks started.")
 
 
