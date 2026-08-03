@@ -109,6 +109,15 @@ class ContentRepository(BaseRepository):
         result = await self.session.execute(select(ContentItem).order_by(ContentItem.key))
         return list(result.scalars().all())
 
+    async def reset_text(self, key: str) -> None:
+        """Drop the stored override for `key`'s text so get_text() falls back
+        to DEFAULT_TEXTS again — including any future code changes to it,
+        unlike re-copying the current default text into the row."""
+        item = await self.session.get(ContentItem, key)
+        if item:
+            item.text = None
+            await self.session.commit()
+
     async def set_text(self, key: str, text: str) -> None:
         item = await self.session.get(ContentItem, key)
         if item:

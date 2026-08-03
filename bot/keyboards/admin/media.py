@@ -59,6 +59,9 @@ def media_edit_kb(key: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✏️ Изменить текст", callback_data=f"admin:media_text:{key}"),
         InlineKeyboardButton(text="🖼 Изменить фото", callback_data=f"admin:media_photo:{key}"),
     )
+    builder.row(
+        InlineKeyboardButton(text="🔄 Сбросить текст на дефолт", callback_data=f"admin:media_reset:{key}"),
+    )
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:media"))
     return builder.as_markup()
 

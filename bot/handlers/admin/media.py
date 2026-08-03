@@ -77,6 +77,19 @@ async def msg_media_text(message: Message, state: FSMContext, session: AsyncSess
     await message.answer(f"✅ Текст для <b>{CONTENT_KEYS.get(key, key)}</b> обновлён.", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:media_reset:"))
+async def cb_media_reset(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
+    if not _is_admin(db_user): return
+    key = callback.data.rsplit(":", 1)[-1]
+    if key not in CONTENT_KEYS:
+        await callback.answer("❓ Неизвестный ключ.", show_alert=True)
+        return
+    repo = ContentRepository(session)
+    await repo.reset_text(key)
+    await callback.answer("✅ Текст сброшен на дефолт.")
+    await cb_media_view(callback, db_user, session)
+
+
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:media_photo:"))
 async def cb_media_photo(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user): return
