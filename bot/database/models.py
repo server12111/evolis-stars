@@ -96,11 +96,12 @@ class GameSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
-    game_type: Mapped[str] = mapped_column(String(32))  # football/basketball/bowling/dice/slots/darts/wheel/case_1/case_3/case_5
+    game_type: Mapped[str] = mapped_column(String(32))  # football/basketball/bowling/dice/slots/darts/wheel/case_1/case_3/case_5/roulette/safe/maze/doors
     bet: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     result: Mapped[str] = mapped_column(String(8))  # win / lose
     payout: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
     played_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # set only for the 4 chat-only games
 
 
 # ─── Duel ─────────────────────────────────────────────────────────────────────
@@ -299,3 +300,166 @@ class AuctionBid(Base):
     bid_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     round: Mapped["AuctionRound"] = relationship(back_populates="bids")
+
+
+# ─── Chat (group-chat feature) ────────────────────────────────────────────────
+
+class Chat(Base):
+    __tablename__ = "chats"
+
+    chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    title: Mapped[str] = mapped_column(String(256), default="")
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    member_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / active / left
+    broadcast_opt_in: Mapped[bool] = mapped_column(Boolean, default=False)
+    ads_revenue_paid_thresholds: Mapped[int] = mapped_column(Integer, default=0)
+    ads_bonus_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_admin_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ChatMembership(Base):
+    __tablename__ = "chat_memberships"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "user_id", name="uq_chat_membership_chat_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    # Not FK'd to users.user_id — a chat member can accrue message history for
+    # years before ever pressing /start in a private DM with the bot.
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    is_admin_in_chat: Mapped[bool] = mapped_column(Boolean, default=False)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class ChatPromoCode(Base):
+    __tablename__ = "chat_promo_codes"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "code", name="uq_chat_promo_chat_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(64))
+    usage_limit: Mapped[int] = mapped_column(Integer, default=0)  # 0 = unlimited
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatPromoUse(Base):
+    __tablename__ = "chat_promo_uses"
+    __table_args__ = (
+        UniqueConstraint("code_id", "user_id", name="uq_chat_promo_use_code_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_promo_codes.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    reward_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatBonusCode(Base):
+    __tablename__ = "chat_bonus_codes"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "code", name="uq_chat_bonus_chat_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    code: Mapped[str] = mapped_column(String(64))
+    reward_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    usage_limit: Mapped[int] = mapped_column(Integer)
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    commission_rate: Mapped[Decimal] = mapped_column(Numeric(5, 4), default=Decimal("0.07"))
+    total_charged: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    min_days_in_chat: Mapped[int] = mapped_column(Integer, default=0)
+    min_messages: Mapped[int] = mapped_column(Integer, default=0)
+    condition_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mode: Mapped[str] = mapped_column(String(16), default="self_serve")  # self_serve / contest
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatBonusUse(Base):
+    __tablename__ = "chat_bonus_uses"
+    __table_args__ = (
+        UniqueConstraint("code_id", "user_id", name="uq_chat_bonus_use_code_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_bonus_codes.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    reward_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    awarded_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # set only for contest-mode manual picks
+    used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatAdSend(Base):
+    """Append-only attribution ledger — one row per successful BotoHub DM ad
+    send that we attribute to a chat's registered membership. count(*) per
+    chat_id is the "views" metric for that chat's ad revenue share."""
+
+    __tablename__ = "chat_ad_sends"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatLinkButton(Base):
+    """Global-admin-managed click-tracked link button, attachable to any
+    bot-posted content (DM or in-chat)."""
+
+    __tablename__ = "link_buttons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(128))
+    destination_url: Mapped[str] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatLinkClick(Base):
+    __tablename__ = "link_clicks"
+    __table_args__ = (
+        UniqueConstraint("link_id", "user_id", name="uq_link_click_link_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    link_id: Mapped[int] = mapped_column(Integer, ForeignKey("link_buttons.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # which chat the click's message lived in, NULL for DM
+    clicked_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatGameRound(Base):
+    """Persisted in-progress round for the multi-step chat games (Doors,
+    Maze, Safe) — deleted on cash-out/bust/finish. The unique constraint
+    also doubles as the "already have an active round" guard."""
+
+    __tablename__ = "chat_game_rounds"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "user_id", "game_type", name="uq_chat_game_round_active"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    game_type: Mapped[str] = mapped_column(String(16))  # doors / maze / safe
+    bet: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    level: Mapped[int] = mapped_column(Integer, default=0)
+    state_json: Mapped[str] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

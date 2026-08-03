@@ -108,6 +108,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # Auction
     "auction_enabled": "1",
     "auction_commission": "0.20",
+    # Group-chat feature
+    "chat_min_members": "250",
+    "chat_bonus_commission": "0.07",
     # Sponsor wall
     "sponsor_max_channels": "10",
     # PiarFlow

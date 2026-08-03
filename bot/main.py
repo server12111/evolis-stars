@@ -16,6 +16,7 @@ from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.handlers import group_router, router
 from bot.middlewares.database import DatabaseMiddleware
+from bot.middlewares.group_activity import GroupActivityMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
 from bot.middlewares.user import UserMiddleware
 from bot.services.auction_scheduler import auction_loop
@@ -92,6 +93,7 @@ async def main() -> None:
 
         dp.update.middleware(DatabaseMiddleware())
         dp.update.middleware(UserMiddleware())
+        dp.update.middleware(GroupActivityMiddleware())
         dp.update.middleware(SponsorWallMiddleware())
 
         dp.include_router(router)

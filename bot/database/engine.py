@@ -67,6 +67,13 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE tasks ADD COLUMN photo_file_id VARCHAR(256)")
         )
+    game_session_columns = {
+        column["name"] for column in inspect(connection).get_columns("game_sessions")
+    }
+    if "chat_id" not in game_session_columns:
+        connection.execute(
+            text("ALTER TABLE game_sessions ADD COLUMN chat_id BIGINT")
+        )
     _ensure_integrity_indexes(connection)
 
 
