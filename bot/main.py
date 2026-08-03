@@ -14,14 +14,16 @@ settings = get_settings()
 from bot.database.engine import SessionFactory, init_db
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
-from bot.handlers import group_router, router
+from bot.handlers import group_router, link_click_router, router
 from bot.middlewares.database import DatabaseMiddleware
 from bot.middlewares.group_activity import GroupActivityMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
+from bot.middlewares.tos_gate import TosGateMiddleware
 from bot.middlewares.user import UserMiddleware
 from bot.services.auction_scheduler import auction_loop
 from bot.services.background import spawn_background, stop_background_tasks
 from bot.services.chat_ad_scheduler import chat_ad_loop
+from bot.services.chat_game_timeout import chat_game_timeout_loop
 from bot.services.duel_scheduler import duel_expiry_loop
 from bot.services.instance_lock import (
     BotAlreadyRunningError,
@@ -62,6 +64,7 @@ async def on_startup(bot: Bot) -> None:
     spawn_background(duel_expiry_loop(bot), name="duel-expiry-scheduler")
     spawn_background(sponsor_recheck_loop(bot), name="sponsor-recheck-scheduler")
     spawn_background(chat_ad_loop(bot), name="chat-ad-scheduler")
+    spawn_background(chat_game_timeout_loop(bot), name="chat-game-timeout-scheduler")
     logger.info("Database initialized. Background tasks started.")
 
 
@@ -96,10 +99,12 @@ async def main() -> None:
         dp.update.middleware(DatabaseMiddleware())
         dp.update.middleware(UserMiddleware())
         dp.update.middleware(GroupActivityMiddleware())
+        dp.update.middleware(TosGateMiddleware())
         dp.update.middleware(SponsorWallMiddleware())
 
         dp.include_router(router)
         dp.include_router(group_router)
+        dp.include_router(link_click_router)
         dp.errors.register(on_error)
 
         dp.startup.register(on_startup)

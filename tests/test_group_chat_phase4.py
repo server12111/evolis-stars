@@ -3,13 +3,14 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
 from bot.database.models import Chat, ChatLinkClick, User
 from bot.database.repositories.chat_ads import ChatAdRepository
 from bot.database.repositories.link_clicks import LinkButtonRepository, LinkClickRepository
-from bot.handlers.group.link_click import cb_link_click
+from bot.handlers.link_click import cb_link_click
 from bot.handlers.group.owner_menu import cb_chat_broadcast_toggle
 from bot.services.chat_revenue import settle_chat_ad_revenue
 
@@ -116,6 +117,26 @@ class LinkClickTests(ChatModelsTestCase):
         async with self.sessions() as session:
             count = await LinkClickRepository(session).count_for_chat(-5)
         self.assertEqual(count, 1)
+
+    async def test_click_from_private_chat_records_null_chat_id(self) -> None:
+        """The lc: handler is now registered outside both the private- and
+        group-filtered routers (chat-type agnostic) so a button attached to
+        a DM broadcast works too — chat_id must come through as None."""
+        async with self.sessions() as session:
+            btn = await LinkButtonRepository(session).create("Ad", "https://example.com", created_by=1)
+
+        cb = self._callback(555, 555, btn.id, chat_type="private")
+        async with self.sessions() as session:
+            await cb_link_click(cb, session)
+        cb.answer.assert_awaited_once()
+        self.assertTrue(cb.answer.await_args.kwargs["url"].endswith(f"?start=lc_{btn.id}"))
+
+        async with self.sessions() as session:
+            result = await session.execute(
+                select(ChatLinkClick).where(ChatLinkClick.link_id == btn.id, ChatLinkClick.user_id == 555)
+            )
+            click = result.scalar_one()
+        self.assertIsNone(click.chat_id)
 
     async def test_inactive_link_rejected(self) -> None:
         async with self.sessions() as session:

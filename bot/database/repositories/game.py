@@ -37,6 +37,21 @@ class GameRepository(BaseRepository):
         )
         return result.scalar() or 0
 
+    async def user_total_count(self, user_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count(GameSession.id)).where(GameSession.user_id == user_id)
+        )
+        return result.scalar() or 0
+
+    async def user_chat_count(self, user_id: int, chat_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count(GameSession.id)).where(
+                GameSession.user_id == user_id,
+                GameSession.chat_id == chat_id,
+            )
+        )
+        return result.scalar() or 0
+
     async def total_games(self) -> int:
         result = await self.session.execute(select(func.count(GameSession.id)))
         return result.scalar() or 0

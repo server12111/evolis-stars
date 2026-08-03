@@ -2,6 +2,7 @@ import html
 import json
 import logging
 import math
+from decimal import Decimal
 
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
@@ -244,8 +245,9 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
     if not target:
         await message.answer("❌ Пользователь не найден.")
         return
+    amount_dec = Decimal(str(amount))
     await session.execute(
-        update(User).where(User.user_id == target.user_id).values(stars_balance=User.stars_balance + amount)
+        update(User).where(User.user_id == target.user_id).values(stars_balance=User.stars_balance + amount_dec)
     )
     await session.commit()
     await session.refresh(target)
@@ -278,11 +280,12 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
     if not target:
         await message.answer("❌ Пользователь не найден.")
         return
+    amount_dec = Decimal(str(amount))
     await session.execute(
         update(User).where(User.user_id == target.user_id).values(
             stars_balance=case(
-                (User.stars_balance >= amount, User.stars_balance - amount),
-                else_=0,
+                (User.stars_balance >= amount_dec, User.stars_balance - amount_dec),
+                else_=Decimal("0"),
             )
         )
     )

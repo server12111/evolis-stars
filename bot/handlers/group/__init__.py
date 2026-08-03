@@ -1,14 +1,15 @@
 from aiogram import F, Router
 
 from bot.handlers.group import (
+    balance,
     chat_bonus,
     chat_leaderboard,
     chat_promo,
     games_doors,
     games_maze,
     games_roulette,
-    games_safe,
-    link_click,
+    games_tower,
+    info,
     membership,
     onboarding,
     owner_menu,
@@ -28,9 +29,10 @@ router.include_router(membership.router)
 router.include_router(owner_menu.router)
 router.include_router(chat_promo.router)
 router.include_router(chat_bonus.router)
-router.include_router(link_click.router)
 router.include_router(games_roulette.router)
-router.include_router(games_safe.router)
+router.include_router(games_tower.router)
 router.include_router(games_maze.router)
 router.include_router(games_doors.router)
 router.include_router(chat_leaderboard.router)
+router.include_router(balance.router)
+router.include_router(info.router)

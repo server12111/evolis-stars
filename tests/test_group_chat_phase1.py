@@ -252,5 +252,45 @@ class ChatLeaderboardTests(ChatModelsTestCase):
         self.assertNotIn("Left one", rendered)
 
 
+class BalanceCommandTests(ChatModelsTestCase):
+    async def _message(self, text: str, user_id: int):
+        return SimpleNamespace(
+            text=text,
+            from_user=SimpleNamespace(id=user_id),
+            reply=AsyncMock(),
+        )
+
+    async def test_each_alias_shows_own_balance(self) -> None:
+        from bot.handlers.group.balance import msg_balance
+
+        async with self.sessions() as session:
+            session.add(User(user_id=555, first_name="A", stars_balance=Decimal("12.34")))
+            await session.commit()
+
+        for alias in ["б", "бал", "балик", "баланс", "Баланс", "БАЛ"]:
+            message = await self._message(alias, 555)
+            async with self.sessions() as session:
+                await msg_balance(message, session)
+            message.reply.assert_awaited_once()
+            rendered = message.reply.await_args.args[0]
+            self.assertIn("12.34", rendered)
+
+    async def test_unregistered_user_gets_registration_prompt(self) -> None:
+        from bot.handlers.group.balance import msg_balance
+
+        message = await self._message("баланс", 556)
+        async with self.sessions() as session:
+            await msg_balance(message, session)
+        rendered = message.reply.await_args.args[0]
+        self.assertIn("/start", rendered)
+
+    async def test_unrelated_text_does_not_match(self) -> None:
+        from bot.handlers.group.balance import _matches_balance
+
+        self.assertFalse(_matches_balance(SimpleNamespace(text="балансировка")))
+        self.assertFalse(_matches_balance(SimpleNamespace(text="мой баланс")))
+        self.assertTrue(_matches_balance(SimpleNamespace(text="  Баланс  ")))
+
+
 if __name__ == "__main__":
     unittest.main()

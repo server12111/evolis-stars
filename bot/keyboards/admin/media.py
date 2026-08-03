@@ -11,6 +11,7 @@ KEY_LABELS = {
     "games": "🎮 Игры",
     "profile": "👤 Профиль",
     "top": "🏆 Топ",
+    "tos": "📜 Соглашение",
 }
 
 _CASE_PRIZES_ALL = sorted({

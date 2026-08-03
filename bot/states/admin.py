@@ -3,6 +3,9 @@ from aiogram.fsm.state import State, StatesGroup
 
 class AdminBroadcastStates(StatesGroup):
     waiting_message = State()
+    choose_button = State()
+    enter_button_label = State()
+    enter_button_url = State()
     confirm = State()
 
 
@@ -58,8 +61,3 @@ class AdminOwnSponsorStates(StatesGroup):
     enter_url = State()
     enter_name = State()
     enter_target_count = State()
-
-
-class AdminLinkButtonStates(StatesGroup):
-    enter_label = State()
-    enter_url = State()

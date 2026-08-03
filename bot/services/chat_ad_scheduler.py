@@ -32,19 +32,16 @@ async def chat_ad_loop(bot: Bot) -> None:
     with a click-tracked link button (the "clicks" half — a fully in-house
     mechanism, since BotoHub can't serve into chats either)."""
     while True:
-        await asyncio.sleep(_VIEWS_PASS_INTERVAL_SECONDS)
         try:
             await _run_pass(bot)
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Chat ad scheduler error")
+        await asyncio.sleep(_VIEWS_PASS_INTERVAL_SECONDS)
 
 
 async def _run_pass(bot: Bot) -> None:
-    if not settings.botohub_views_key:
-        return
-
     async with SessionFactory() as session:
         result = await session.execute(
             select(Chat).where(Chat.broadcast_opt_in == True, Chat.status == "active")  # noqa: E712
@@ -52,7 +49,11 @@ async def _run_pass(bot: Bot) -> None:
         chats = list(result.scalars().all())
 
         for chat in chats:
-            await _send_views_for_chat(session, chat)
+            # Views (BotoHub DM) and clicks (in-house in-chat post) are
+            # independent mechanisms — a missing/misconfigured BotoHub key
+            # must not also block the in-house click ads from posting.
+            if settings.botohub_views_key:
+                await _send_views_for_chat(session, chat)
             await _maybe_post_click_ad(bot, session, chat)
             await settle_chat_ad_revenue(session, chat)
 

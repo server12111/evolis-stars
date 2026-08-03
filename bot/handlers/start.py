@@ -14,6 +14,8 @@ from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.link_clicks import LinkButtonRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
+from bot.keyboards.tos import tos_accept_kb
+from bot.services.tos import get_tos_urls
 from bot.middlewares.sponsor_wall import run_sponsor_wall_check
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
@@ -40,6 +42,27 @@ async def _send_main_menu(message: Message, user: User, session: AsyncSession) -
         await message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+
+
+async def _send_tos_gate(message: Message, session: AsyncSession) -> None:
+    repo = ContentRepository(session)
+    text = await repo.get_text("tos")
+    user_agreement_url, privacy_policy_url = await get_tos_urls(session)
+    kb = tos_accept_kb(user_agreement_url, privacy_policy_url)
+    await message.answer(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+
+
+async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    """Runs once tos_accepted is guaranteed True — the sponsor wall (if any
+    providers are configured) is the next gate, then the main menu."""
+    if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
+        if not await run_sponsor_wall_check(message, db_user, session):
+            return
+    db_user.sponsors_verified = True
+    await session.commit()
+    await notify_user_sponsors_verified(db_user, session, bot)
+    await check_referral_reward(db_user, session, bot)
+    await _send_main_menu(message, db_user, session)
 
 
 @router.message(CommandStart())
@@ -108,23 +131,21 @@ async def cmd_start(
         name=f"send-ad-{db_user.user_id}",
     )
 
-    # Admins bypass sponsor wall
+    # Admins bypass ToS and the sponsor wall entirely
     if db_user.is_admin or db_user.user_id in settings.admin_id_list:
         db_user.sponsors_verified = True
+        db_user.tos_accepted = True
         await session.commit()
         await _send_main_menu(message, db_user, session)
         return
 
-    # Show sponsor wall if not verified yet
-    if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
-        if not await run_sponsor_wall_check(message, db_user, session):
-            return
+    # ToS/privacy policy gate comes first, before anything else is shown —
+    # only after "Принимаю" does the sponsor wall (if configured) run.
+    if not db_user.tos_accepted:
+        await _send_tos_gate(message, session)
+        return
 
-    db_user.sponsors_verified = True
-    await session.commit()
-    await notify_user_sponsors_verified(db_user, session, bot)
-    await check_referral_reward(db_user, session, bot)
-    await _send_main_menu(message, db_user, session)
+    await _proceed_after_tos(message, db_user, session, bot)
 
 
 @router.callback_query(lambda c: c.data == "menu:main")
@@ -174,7 +195,8 @@ async def cb_sponsor_check(
     if not await run_sponsor_wall_check(callback, db_user, session):
         return
 
-    # All subscribed
+    # All subscribed — ToS is always accepted by this point (the sponsor
+    # wall only ever starts after it), so go straight to the main menu.
     db_user.sponsors_verified = True
     await session.commit()
     await notify_user_sponsors_verified(db_user, session, bot)
@@ -196,3 +218,15 @@ async def cb_sponsor_check(
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
         except Exception:
             await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+
+
+@router.callback_query(lambda c: c.data == "tos_accept")
+async def cb_tos_accept(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    db_user.tos_accepted = True
+    await session.commit()
+    await callback.answer("✅ Спасибо!")
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await _proceed_after_tos(callback.message, db_user, session, bot)

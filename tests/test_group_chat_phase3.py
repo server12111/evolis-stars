@@ -11,16 +11,17 @@ from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.handlers.group.games_doors import cb_doors_cashout, cb_doors_next, cb_doors_pick, msg_doors_start
 from bot.handlers.group.games_maze import cb_maze_cashout, cb_maze_continue, msg_maze_start
 from bot.handlers.group.games_roulette import msg_roulette_bet
-from bot.handlers.group.games_safe import msg_safe_guess, msg_safe_start
+from bot.handlers.group.games_tower import cb_tower_cashout, cb_tower_pick, msg_tower_start
 from bot.services import chat_games
 
 
 def _message(chat_id: int, user_id: int, text: str):
+    sent = SimpleNamespace(edit_text=AsyncMock())
     return SimpleNamespace(
         chat=SimpleNamespace(id=chat_id, title="Chat"),
         from_user=SimpleNamespace(id=user_id, first_name="U"),
         text=text,
-        reply=AsyncMock(),
+        reply=AsyncMock(return_value=sent),
         answer=AsyncMock(),
     )
 
@@ -58,12 +59,14 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
 class RouletteTests(ChatModelsTestCase):
     async def test_win_pays_out_and_lose_takes_the_bet(self) -> None:
         await self._add_user(1, "100")
-        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="red"):
+        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="red"), \
+                patch("bot.handlers.group.games_roulette.asyncio.sleep", new=AsyncMock()):
             message = _message(-1, 1, "ред 10")
             async with self.sessions() as session:
                 await msg_roulette_bet(message, session)
         message.reply.assert_awaited_once()
-        rendered = message.reply.await_args.args[0]
+        sent = message.reply.return_value
+        rendered = sent.edit_text.await_args.args[0]
         self.assertIn("Угадал", rendered)
         async with self.sessions() as session:
             user = await session.get(User, 1)
@@ -71,7 +74,8 @@ class RouletteTests(ChatModelsTestCase):
 
     async def test_lose_deducts_bet_only(self) -> None:
         await self._add_user(2, "100")
-        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="black"):
+        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="black"), \
+                patch("bot.handlers.group.games_roulette.asyncio.sleep", new=AsyncMock()):
             message = _message(-1, 2, "ред 10")
             async with self.sessions() as session:
                 await msg_roulette_bet(message, session)
@@ -91,67 +95,57 @@ class RouletteTests(ChatModelsTestCase):
         self.assertEqual(user.stars_balance, Decimal("1"))
 
 
-class SafeTests(ChatModelsTestCase):
-    async def test_five_of_five_wins_immediately(self) -> None:
+class TowerTests(ChatModelsTestCase):
+    async def test_picking_safe_tile_advances_and_cashout_pays(self) -> None:
         await self._add_user(10, "100")
-        with patch("bot.handlers.group.games_safe.generate_safe_code", return_value="13579"):
-            message = _message(-2, 10, "сейф 5")
+        with patch("bot.handlers.group.games_tower.random.randint", return_value=2):
+            message = _message(-2, 10, "башня 10")
             async with self.sessions() as session:
-                await msg_safe_start(message, session)
+                await msg_tower_start(message, session)
 
-        guess_msg = _message(-2, 10, "13579")
+            cb = _callback(-2, 10, "chattower:pick:0")
+            async with self.sessions() as session:
+                await cb_tower_pick(cb, session)
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("Уровень: <b>2/8</b>", rendered)
+
+        cashout_cb = _callback(-2, 10, "chattower:cashout")
         async with self.sessions() as session:
-            await msg_safe_guess(guess_msg, session)
-        rendered = guess_msg.reply.await_args.args[0]
-        self.assertIn("5/5", rendered)
-
+            await cb_tower_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 10)
-            round_ = await ChatGameRoundRepository(session).get_active(-2, 10, "safe")
-        self.assertEqual(user.stars_balance, Decimal("103.00"))  # 100 - 5 + 5*1.6
-        self.assertIsNone(round_)
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.00"))  # 10 * chat_tower_coeff_0 (1.00, a push)
 
-    async def test_exhausting_attempts_settles_on_best_guess(self) -> None:
+    async def test_hitting_mine_loses_bet(self) -> None:
         await self._add_user(11, "100")
-        with patch("bot.handlers.group.games_safe.generate_safe_code", return_value="00000"):
-            message = _message(-3, 11, "сейф 10")
+        with patch("bot.handlers.group.games_tower.random.randint", return_value=0):
+            message = _message(-3, 11, "башня 10")
             async with self.sessions() as session:
-                await msg_safe_start(message, session)
-
-        # First 5 guesses all wrong (0 matches), last guess gets exactly 3 right.
-        for guess in ["11111", "22222", "33333", "44444", "55555"]:
-            g = _message(-3, 11, guess)
+                await msg_tower_start(message, session)
+            cb = _callback(-3, 11, "chattower:pick:0")
             async with self.sessions() as session:
-                await msg_safe_guess(g, session)
-        final = _message(-3, 11, "00090")  # 4 of 5 digits match position (0,0,0,_,0)
-        async with self.sessions() as session:
-            await msg_safe_guess(final, session)
-        rendered = final.reply.await_args.args[0]
-        self.assertIn("4/5", rendered)
-
+                await cb_tower_pick(cb, session)
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("Мина", rendered)
         async with self.sessions() as session:
             user = await session.get(User, 11)
-        self.assertEqual(user.stars_balance, Decimal("102.00"))  # 100 - 10 + 10*1.2
+            round_ = await ChatGameRoundRepository(session).get_active(-3, 11, "tower")
+        self.assertEqual(user.stars_balance, Decimal("90"))
+        self.assertIsNone(round_)
 
     async def test_cannot_start_second_round_while_one_active(self) -> None:
         await self._add_user(12, "100")
-        message = _message(-4, 12, "сейф 5")
+        message = _message(-4, 12, "башня 5")
         async with self.sessions() as session:
-            await msg_safe_start(message, session)
-        message2 = _message(-4, 12, "сейф 5")
+            await msg_tower_start(message, session)
+        message2 = _message(-4, 12, "башня 5")
         async with self.sessions() as session:
-            await msg_safe_start(message2, session)
+            await msg_tower_start(message2, session)
         rendered = message2.reply.await_args.args[0]
         self.assertIn("уже есть", rendered)
         async with self.sessions() as session:
             user = await session.get(User, 12)
         self.assertEqual(user.stars_balance, Decimal("95"))  # only charged once
-
-    async def test_random_five_digits_without_active_round_ignored_silently(self) -> None:
-        message = _message(-5, 999, "42069")
-        async with self.sessions() as session:
-            await msg_safe_guess(message, session)
-        message.reply.assert_not_awaited()
 
 
 class MazeTests(ChatModelsTestCase):
@@ -173,8 +167,8 @@ class MazeTests(ChatModelsTestCase):
             await cb_maze_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 20)
-        # step=1, house_edge=0.24 default -> base = min(max_coeff, (1/0.82)*0.76) = 0.9268...
-        expected_payout = round(10 * min(10.0, (1 / 0.82) * 0.76), 2)
+        # step=1, house_edge=0.1 default -> base = min(max_coeff, ((1-0.1)/0.82)**1)
+        expected_payout = round(10 * min(10.0, ((1 - 0.1) / 0.82) ** 1), 2)
         self.assertEqual(user.stars_balance, Decimal("90") + Decimal(str(expected_payout)))
 
     async def test_trap_without_shield_ends_run_and_takes_bet(self) -> None:

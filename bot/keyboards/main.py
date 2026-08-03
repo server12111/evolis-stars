@@ -19,6 +19,9 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🎰 Игры", callback_data="menu:games", style="primary"),
         InlineKeyboardButton(text="👑 Топ", callback_data="menu:top", style="primary"),
     )
+    builder.row(
+        InlineKeyboardButton(text="🎲 Рандом", callback_data="menu:random", style="primary"),
+    )
     return builder.as_markup()
 
 

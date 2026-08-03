@@ -3,10 +3,11 @@ from aiogram import F, Router
 from bot.handlers import (
     start, earn, withdraw, bonus, tasks,
     profile, top, games, duel, cases, wheel, lottery,
-    casino, mines, tower, auction,
+    casino, mines, tower, auction, random_game,
 )
 from bot.handlers.admin import router as admin_router
 from bot.handlers.group import router as group_router  # noqa: F401 — re-exported for main.py
+from bot.handlers.link_click import router as link_click_router  # noqa: F401 — re-exported; chat-type agnostic, included directly in main.py
 
 router = Router()
 
@@ -34,4 +35,5 @@ router.include_router(lottery.router)
 router.include_router(mines.router)
 router.include_router(tower.router)
 router.include_router(auction.router)
+router.include_router(random_game.router)
 router.include_router(admin_router)

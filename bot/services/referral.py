@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import ReferralReactivation, User
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
-from bot.services.sponsor_waves import classify_sponsor_type
+from bot.services.sponsor_waves import classify_sponsor_type, total_sponsor_count
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 logger = logging.getLogger(__name__)
@@ -215,7 +215,7 @@ async def reward_returning_referral(
                 f"♻️ Ваш реферал {username_display} вернулся по ссылке после {REFERRAL_RETURN_DAYS} дней неактивности.\n\nНачислено <b>{format_stars(reward)} ⭐</b> — половина обычной награды.",
                 parse_mode="HTML",
             )
-        except:
+        except Exception:
             pass
     return reward
 
@@ -362,20 +362,21 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                 msg,
                 parse_mode="HTML",
             )
-        except:
+        except Exception:
             pass
 
 
 async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: Bot) -> None:
     if not user.referrer_id or user.referral_reward_given:
         return
+    count = total_sponsor_count(user)
     try:
         await bot.send_message(
             user.user_id,
-            "✅ <b>Вы подписались на спонсоров!</b>",
+            f"✅ <b>Вы подписались на {count} {sponsors_word(count)}!</b>",
             parse_mode="HTML",
         )
-    except:
+    except Exception:
         pass
 
 
@@ -391,5 +392,5 @@ async def notify_referrer_joined(referrer_id: int, new_user: User, session: Asyn
             f"⚡ Пользователь {username_display} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
             parse_mode="HTML",
         )
-    except:
+    except Exception:
         pass

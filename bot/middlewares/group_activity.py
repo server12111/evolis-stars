@@ -3,6 +3,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Update
 
+from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_membership import ChatMembershipRepository
 
 
@@ -29,6 +30,7 @@ class GroupActivityMiddleware(BaseMiddleware):
             and isinstance(event, Update)
             and event.message is not None
         ):
+            await ChatRepository(session).ensure_exists(event_chat.id, getattr(event_chat, "title", "") or "")
             await ChatMembershipRepository(session).touch_message(event_chat.id, tg_user.id)
 
         return await handler(event, data)

@@ -7,18 +7,29 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.promo import PromoRepository
 from bot.keyboards.main import back_to_menu_kb
+from bot.keyboards.tos import tos_view_kb
+from bot.services.tos import get_tos_urls
 from bot.states.promo import PromoStates
 
 router = Router()
+settings = get_settings()
 
 
 def profile_kb() -> InlineKeyboardBuilder:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="🎁 Промокод", callback_data="profile:promo"))
+    builder.row(
+        InlineKeyboardButton(
+            text="➕ Добавить в группу",
+            url=f"https://t.me/{settings.bot_username}?startgroup=owner",
+        )
+    )
+    builder.row(InlineKeyboardButton(text="📜 Соглашение и политика", callback_data="profile:tos"))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     return builder
 
@@ -60,6 +71,19 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "profile:tos")
+async def cb_profile_tos(callback: CallbackQuery, session: AsyncSession) -> None:
+    repo = ContentRepository(session)
+    text = await repo.get_text("tos")
+    user_agreement_url, privacy_policy_url = await get_tos_urls(session)
+    kb = tos_view_kb(user_agreement_url, privacy_policy_url)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
     await callback.answer()
 
 

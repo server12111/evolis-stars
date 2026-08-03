@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import Chat, ChatMembership, User
 from bot.database.repositories.base import BaseRepository
@@ -10,6 +11,31 @@ from bot.database.repositories.base import BaseRepository
 class ChatRepository(BaseRepository):
     async def get(self, chat_id: int) -> Chat | None:
         return await self.session.get(Chat, chat_id)
+
+    async def ensure_exists(self, chat_id: int, title: str = "") -> Chat:
+        """Cheap idempotent stub-creation for GroupActivityMiddleware, which
+        runs on every group message. A chat the bot was already a member of
+        before this feature shipped never fires my_chat_member's "added"
+        event (that only fires on the actual join), so nothing else
+        guarantees a Chat row exists before ChatMembership's FK needs one —
+        confirmed live: every message in a pre-existing chat raised a
+        FOREIGN KEY IntegrityError without this. Leaves status/member_count/
+        owner untouched if the row already exists; on_my_chat_member and
+        /EvolisOpen are still what fill those in properly via upsert()."""
+        chat = await self.session.get(Chat, chat_id)
+        if chat is not None:
+            return chat
+        chat = Chat(chat_id=chat_id, title=title, status="pending")
+        self.session.add(chat)
+        try:
+            await self.session.flush()
+            await self.session.commit()
+        except IntegrityError:
+            # Lost the create race against a concurrent message in the same
+            # brand-new chat — the other insert already won, just use it.
+            await self.session.rollback()
+            chat = await self.session.get(Chat, chat_id)
+        return chat
 
     async def upsert(
         self,
@@ -70,3 +96,10 @@ class ChatRepository(BaseRepository):
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def all_active_chat_ids(self, opted_in_only: bool = False) -> list[int]:
+        query = select(Chat.chat_id).where(Chat.status == "active")
+        if opted_in_only:
+            query = query.where(Chat.broadcast_opt_in == True)  # noqa: E712
+        result = await self.session.execute(query)
+        return [row[0] for row in result.all()]

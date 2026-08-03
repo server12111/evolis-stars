@@ -87,6 +87,12 @@ def _total_waves(user: User) -> int:
     return 0
 
 
+def total_sponsor_count(user: User) -> int:
+    """Total sponsors across every wave the user was shown — used for the
+    "you subscribed to N sponsors" confirmation message."""
+    return len(_load(user.sponsor_wave_one)) + len(_load(user.sponsor_wave_two))
+
+
 def initialize_waves(
     user: User,
     *,

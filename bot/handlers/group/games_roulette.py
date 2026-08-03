@@ -1,3 +1,5 @@
+import asyncio
+import random
 import re
 from decimal import Decimal
 
@@ -22,12 +24,44 @@ _COLOR_WORDS = {"red", "ред", "black", "блек", "блэк", "чёрный"
 _COLOR_RU = {"red": "красный", "black": "чёрный", "white": "белый", "green": "зелёный"}
 _COLOR_EMOJI = {"red": "🔴", "black": "⚫️", "white": "⚪️", "green": "🟢"}
 
+# Spin animation: 5 circles in a row, the center one is always white and
+# never changes — only the 4 side positions flicker red/black while
+# spinning, then lock onto the real outcome's color once it lands.
+_SIDE_EMOJI = ("🔴", "⚫️")
+_SPIN_FRAMES = 4
+_SPIN_DELAY = 0.35
+
 
 def _matches_roulette_command(message: Message) -> bool:
     if not message.text:
         return False
     match = _PATTERN.match(message.text.strip())
     return bool(match and match.group(1).lower() in _COLOR_WORDS)
+
+
+def _spin_row() -> str:
+    sides = [random.choice(_SIDE_EMOJI) for _ in range(4)]
+    return f"{sides[0]}{sides[1]}⚪️{sides[2]}{sides[3]}"
+
+
+def _result_row(result_color: str) -> str:
+    dot = _COLOR_EMOJI[result_color]
+    return f"{dot}{dot}⚪️{dot}{dot}"
+
+
+async def _animate_and_reveal(message: Message, result_color: str, final_text: str) -> None:
+    sent = await message.reply(f"🎰 <b>Рулетка крутится...</b>\n\n{_spin_row()}", parse_mode="HTML")
+    for _ in range(_SPIN_FRAMES):
+        await asyncio.sleep(_SPIN_DELAY)
+        try:
+            await sent.edit_text(f"🎰 <b>Рулетка крутится...</b>\n\n{_spin_row()}", parse_mode="HTML")
+        except Exception:
+            pass
+    await asyncio.sleep(_SPIN_DELAY)
+    try:
+        await sent.edit_text(f"{_result_row(result_color)}\n\n{final_text}", parse_mode="HTML")
+    except Exception:
+        pass
 
 
 @router.message(_matches_roulette_command)
@@ -65,10 +99,11 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     emoji = _COLOR_EMOJI[result_color]
     outcome_name = _COLOR_RU[result_color]
     if won:
-        text = (
+        final_text = (
             f"{emoji} Выпало: <b>{outcome_name}</b>!\n\n"
             f"🎉 Угадал! Выигрыш: <b>+{payout:.2f} ⭐</b>"
         )
     else:
-        text = f"{emoji} Выпало: <b>{outcome_name}</b>.\n\n❌ Ставка сгорела: -{bet:.2f} ⭐"
-    await message.reply(text, parse_mode="HTML")
+        final_text = f"{emoji} Выпало: <b>{outcome_name}</b>.\n\n❌ Ставка сгорела: -{bet:.2f} ⭐"
+
+    await _animate_and_reveal(message, result_color, final_text)

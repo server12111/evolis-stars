@@ -32,6 +32,7 @@ class User(Base):
     referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
     referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    tos_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
     sponsor_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)
     sponsor_wave_two: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -42,6 +43,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_bonus_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_random_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # game-specific counters (ported from SrvNkreferal)
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -446,8 +448,8 @@ class ChatLinkClick(Base):
 
 class ChatGameRound(Base):
     """Persisted in-progress round for the multi-step chat games (Doors,
-    Maze, Safe) — deleted on cash-out/bust/finish. The unique constraint
-    also doubles as the "already have an active round" guard."""
+    Maze, Tower) — deleted on cash-out/bust/finish/timeout. The unique
+    constraint also doubles as the "already have an active round" guard."""
 
     __tablename__ = "chat_game_rounds"
     __table_args__ = (
@@ -457,7 +459,7 @@ class ChatGameRound(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     chat_id: Mapped[int] = mapped_column(BigInteger)
     user_id: Mapped[int] = mapped_column(BigInteger)
-    game_type: Mapped[str] = mapped_column(String(16))  # doors / maze / safe
+    game_type: Mapped[str] = mapped_column(String(16))  # doors / maze / tower
     bet: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     level: Mapped[int] = mapped_column(Integer, default=0)
     state_json: Mapped[str] = mapped_column(Text)
