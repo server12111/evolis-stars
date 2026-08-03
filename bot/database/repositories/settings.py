@@ -111,6 +111,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # Group-chat feature
     "chat_min_members": "250",
     "chat_bonus_commission": "0.07",
+    "chat_promo_reward": "0.3",
+    "chat_promo_reward_vip": "0.5",
+    "chat_promo_min_days": "2",
+    "chat_promo_min_messages": "500",
     # Sponsor wall
     "sponsor_max_channels": "10",
     # PiarFlow

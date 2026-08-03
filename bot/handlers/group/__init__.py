@@ -1,6 +1,13 @@
 from aiogram import F, Router
 
-from bot.handlers.group import chat_leaderboard, membership, onboarding, owner_menu
+from bot.handlers.group import (
+    chat_bonus,
+    chat_leaderboard,
+    chat_promo,
+    membership,
+    onboarding,
+    owner_menu,
+)
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -14,4 +21,6 @@ router.callback_query.filter(
 router.include_router(onboarding.router)
 router.include_router(membership.router)
 router.include_router(owner_menu.router)
+router.include_router(chat_promo.router)
+router.include_router(chat_bonus.router)
 router.include_router(chat_leaderboard.router)
