@@ -87,25 +87,20 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
     return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
-REFERRAL_REWARD_MIN_TIER = 3
-REFERRAL_REWARD_MAX_TIER = 5
-_REFERRAL_REWARD_DEFAULTS = {3: "3", 4: "4", 5: "5"}
-_REFERRAL_REWARD_PREMIUM_DEFAULTS = {3: "5", 4: "6", 5: "7"}
+REFERRAL_REWARD_UPPER_TIER_THRESHOLD = 5
 
 
 async def get_referral_reward(session: AsyncSession, sponsor_count: int, is_premium: bool = False) -> Decimal:
-    """Reward scales with how many sponsors the referred user subscribed to
-    (3, 4, or 5+ — each independently admin-configurable), separately for
-    Premium vs regular referrals. Counts below the minimum tier or above
-    the top tier clamp to the nearest configured tier."""
-    tier = min(max(sponsor_count, REFERRAL_REWARD_MIN_TIER), REFERRAL_REWARD_MAX_TIER)
+    """Premium referrals pay one flat, separately configurable amount
+    regardless of sponsor count. Regular referrals pay a flat base reward
+    for 3-5 sponsors, and a separate (higher) flat reward for 6+. The
+    min-sponsors-for-reward gate (see get_min_sponsors_for_reward) still
+    applies to both before either path is even reached."""
     if is_premium:
-        key = f"referral_reward_{tier}_premium"
-        default = _REFERRAL_REWARD_PREMIUM_DEFAULTS[tier]
-    else:
-        key = f"referral_reward_{tier}"
-        default = _REFERRAL_REWARD_DEFAULTS[tier]
-    return await _get_decimal_setting(session, key, default)
+        return await _get_decimal_setting(session, "referral_reward_premium", "4.5")
+    if sponsor_count > REFERRAL_REWARD_UPPER_TIER_THRESHOLD:
+        return await _get_decimal_setting(session, "referral_reward_above_5", "3.5")
+    return await _get_decimal_setting(session, "referral_reward", "3")
 
 
 async def get_min_sponsors_for_reward(session: AsyncSession) -> int:

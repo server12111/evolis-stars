@@ -45,7 +45,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_referral_reward_rounds_to_stars_precision(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward_3", value="4.005"))
+            session.add(BotSettings(key="referral_reward", value="4.005"))
             await session.commit()
             reward = await get_referral_reward(session, 3)
         self.assertEqual(reward, Decimal("4.01"))

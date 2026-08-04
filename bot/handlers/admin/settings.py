@@ -16,12 +16,9 @@ from bot.states.admin import AdminSettingsStates
 router = Router()
 
 SETTING_LABELS = {
-    "referral_reward_3": ("🎁 Награда за реферала (3 спонсора)", "число ⭐"),
-    "referral_reward_4": ("🎁 Награда за реферала (4 спонсора)", "число ⭐"),
-    "referral_reward_5": ("🎁 Награда за реферала (5+ спонсоров)", "число ⭐"),
-    "referral_reward_3_premium": ("💎 Награда за Premium-реферала (3 спонсора)", "число ⭐"),
-    "referral_reward_4_premium": ("💎 Награда за Premium-реферала (4 спонсора)", "число ⭐"),
-    "referral_reward_5_premium": ("💎 Награда за Premium-реферала (5+ спонсоров)", "число ⭐"),
+    "referral_reward": ("🎁 Награда за реферала (3-5 спонсоров)", "число ⭐"),
+    "referral_reward_above_5": ("🎁 Награда за реферала (6+ спонсоров)", "число ⭐"),
+    "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число ⭐"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
     "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число ⭐"),
     "referral_bonus_15": ("🏅 Бонус за 15 рефералов", "число ⭐"),
@@ -67,12 +64,9 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     if not _is_admin(db_user): return
     await state.clear()
     repo = SettingsRepository(session)
-    r3 = await repo.get_float("referral_reward_3", 3.0)
-    r4 = await repo.get_float("referral_reward_4", 4.0)
-    r5 = await repo.get_float("referral_reward_5", 5.0)
-    r3p = await repo.get_float("referral_reward_3_premium", 5.0)
-    r4p = await repo.get_float("referral_reward_4_premium", 6.0)
-    r5p = await repo.get_float("referral_reward_5_premium", 7.0)
+    referral_reward = await repo.get_float("referral_reward", 3.0)
+    referral_reward_above_5 = await repo.get_float("referral_reward_above_5", 3.5)
+    referral_reward_premium = await repo.get_float("referral_reward_premium", 4.5)
     min_sponsors = await repo.get_int("min_sponsors_for_reward", 3)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
@@ -84,8 +78,8 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
-        f"🎁 Награда за реферала: 3сп <b>{r3:.2f}</b> / 4сп <b>{r4:.2f}</b> / 5+сп <b>{r5:.2f}</b> ⭐\n"
-        f"💎 Награда за Premium-реферала: 3сп <b>{r3p:.2f}</b> / 4сп <b>{r4p:.2f}</b> / 5+сп <b>{r5p:.2f}</b> ⭐\n"
+        f"🎁 Награда за реферала: 3-5сп <b>{referral_reward:.2f}</b> / 6+сп <b>{referral_reward_above_5:.2f}</b> ⭐\n"
+        f"💎 Награда за Premium-реферала: <b>{referral_reward_premium:.2f} ⭐</b> (фикс.)\n"
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
