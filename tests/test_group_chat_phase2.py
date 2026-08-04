@@ -11,6 +11,7 @@ from bot.database.models import Chat, ChatBonusCode, ChatMembership, ChatPromoCo
 from bot.database.repositories.chat_bonus import ChatBonusRepository
 from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.handlers.group.chat_bonus import (
+    cb_bonus_mode,
     msg_bonus_conditions,
     msg_bonus_limit,
     msg_bonus_pick_winner,
@@ -338,6 +339,36 @@ class ChatBonusTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_bonus_pick_winner(pick_msg2, session)
         pick_msg2.reply.assert_not_awaited()
+
+    async def test_contest_mode_is_a_stub_no_fsm_no_bonus_created(self) -> None:
+        state = _fsm_state({"chat_id": -14, "code": "CONTESTCODE", "reward": "1", "limit": 5})
+        message = SimpleNamespace(answer=AsyncMock())
+        callback = SimpleNamespace(message=message, data="chatbonus:mode:contest", answer=AsyncMock())
+
+        await cb_bonus_mode(callback, state)
+
+        message.answer.assert_awaited_once_with("🚧 Этот раздел пока находится в разработке.")
+        callback.answer.assert_awaited_once()
+        # No FSM transition and no data written — the choose_mode prompt
+        # (with both mode buttons) is left exactly as it was.
+        state.set_state.assert_not_awaited()
+        state.update_data.assert_not_awaited()
+
+        async with self.sessions() as session:
+            bonus = await ChatBonusRepository(session).get_by_code(-14, "CONTESTCODE")
+        self.assertIsNone(bonus)
+
+    async def test_self_serve_mode_still_advances_fsm_normally(self) -> None:
+        state = _fsm_state({"chat_id": -14, "code": "SELFCODE", "reward": "1", "limit": 5})
+        message = SimpleNamespace(answer=AsyncMock())
+        callback = SimpleNamespace(message=message, data="chatbonus:mode:self_serve", answer=AsyncMock())
+
+        await cb_bonus_mode(callback, state)
+
+        state.update_data.assert_awaited_once_with(mode="self_serve")
+        state.set_state.assert_awaited_once_with(ChatOwnerBonusStates.enter_conditions)
+        message.answer.assert_awaited_once()
+        self.assertNotIn("разработке", message.answer.await_args.args[0])
 
     async def test_self_serve_code_cannot_be_redeemed_via_pick_winner_path(self) -> None:
         async with self.sessions() as session:

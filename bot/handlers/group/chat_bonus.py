@@ -103,6 +103,16 @@ async def cb_bonus_mode(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     mode = callback.data.split(":")[-1]
+
+    if mode == "contest":
+        # Contests aren't built yet — stub only: no FSM transition, no
+        # bonus created, no further menus. The choose_mode prompt (with
+        # both mode buttons) stays on screen so the owner can still pick
+        # "Обычный бонус" instead.
+        await callback.message.answer("🚧 Этот раздел пока находится в разработке.")
+        await callback.answer()
+        return
+
     await state.update_data(mode=mode)
     await state.set_state(ChatOwnerBonusStates.enter_conditions)
     await callback.message.answer(
