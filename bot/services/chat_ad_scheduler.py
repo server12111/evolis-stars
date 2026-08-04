@@ -21,7 +21,6 @@ settings = get_settings()
 _VIEWS_PASS_INTERVAL_SECONDS = 900  # 15 min
 _AD_SEND_COOLDOWN = timedelta(hours=1)
 _CLICK_POST_INTERVAL = timedelta(hours=3)
-_last_click_post_at: dict[int, datetime] = {}
 
 
 async def chat_ad_loop(bot: Bot) -> None:
@@ -80,9 +79,11 @@ async def _send_views_for_chat(session, chat: Chat) -> None:
 
 
 async def _maybe_post_click_ad(bot: Bot, session, chat: Chat) -> None:
-    last_posted = _last_click_post_at.get(chat.chat_id)
+    # Persisted on the Chat row (not an in-memory dict) — a process restart
+    # must not forget when a chat was last posted to and immediately
+    # re-post, which is exactly what an in-memory-only cooldown did before.
     now = datetime.utcnow()
-    if last_posted and now - last_posted < _CLICK_POST_INTERVAL:
+    if chat.last_click_ad_posted_at and now - chat.last_click_ad_posted_at < _CLICK_POST_INTERVAL:
         return
 
     link_repo = LinkButtonRepository(session)
@@ -101,6 +102,7 @@ async def _maybe_post_click_ad(bot: Bot, session, chat: Chat) -> None:
             parse_mode="HTML",
             reply_markup=builder.as_markup(),
         )
-        _last_click_post_at[chat.chat_id] = now
+        chat.last_click_ad_posted_at = now
+        await session.commit()
     except Exception as exc:
         logger.warning("Cannot post click-ad into chat %s: %s", chat.chat_id, exc)

@@ -87,6 +87,19 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE game_sessions ADD COLUMN result_choice VARCHAR(16)")
         )
+    chat_columns = {column["name"] for column in inspect(connection).get_columns("chats")}
+    if "last_click_ad_posted_at" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN last_click_ad_posted_at DATETIME")
+        )
+        # Backfill to "now" instead of leaving it NULL: an empty column
+        # would otherwise read as "never posted", so the very first pass
+        # after this migration would immediately fire one spurious ad post
+        # into every broadcast-enabled chat before any real cooldown
+        # history exists — exactly the bug this column exists to prevent.
+        connection.execute(
+            text("UPDATE chats SET last_click_ad_posted_at = CURRENT_TIMESTAMP")
+        )
     _ensure_integrity_indexes(connection)
 
 
