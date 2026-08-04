@@ -83,8 +83,9 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
         await message.reply("🎰 Рулетка временно недоступна.")
         return
     min_bet = await settings_repo.get_float("roulette_min_bet", 1.0)
+    max_bet = await settings_repo.get_float("roulette_max_bet", 500.0)
 
-    ok, error = await place_bet(session, message.from_user.id, bet, min_bet)
+    ok, error = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
     if not ok:
         await message.reply(error)
         return

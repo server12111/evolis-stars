@@ -102,6 +102,14 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
             await callback.answer()
         return
 
+    max_bet = await s_repo.get_float("tower_max_bet", 500.0)
+    if bet > max_bet:
+        txt = f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>"
+        await _reply(txt, tower_cancel_kb())
+        if callback:
+            await callback.answer()
+        return
+
     if float(db_user.stars_balance) < bet:
         await _reply("❌ Недостаточно звёзд.", tower_cancel_kb())
         if callback:

@@ -91,6 +91,11 @@ async def msg_mines_bet_custom(message: Message, state: FSMContext, session: Asy
         await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
+    max_bet = await s_repo.get_float("mines_max_bet", 500.0)
+    if bet > max_bet:
+        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
+        return
+
     if float(db_user.stars_balance) < bet:
         await message.answer("❌ Недостаточно звёзд.", reply_markup=mines_cancel_kb())
         return
@@ -109,6 +114,10 @@ async def _ask_mines_count(callback: CallbackQuery, state: FSMContext, session: 
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     if bet < min_bet:
         await callback.answer(f"❌ Мин. ставка: {min_bet:.0f} ⭐", show_alert=True)
+        return
+    max_bet = await s_repo.get_float("mines_max_bet", 500.0)
+    if bet > max_bet:
+        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} ⭐", show_alert=True)
         return
     if float(db_user.stars_balance) < bet:
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)

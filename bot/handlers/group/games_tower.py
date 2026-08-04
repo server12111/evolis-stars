@@ -41,7 +41,8 @@ async def msg_tower_start(message: Message, session: AsyncSession) -> None:
         return
 
     min_bet = await settings_repo.get_float("chat_tower_min_bet", 1.0)
-    ok, error = await place_bet(session, message.from_user.id, bet, min_bet)
+    max_bet = await settings_repo.get_float("chat_tower_max_bet", 500.0)
+    ok, error = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
     if not ok:
         await message.reply(error)
         return

@@ -82,6 +82,10 @@ async def msg_wheel_bet(message: Message, state: FSMContext, session: AsyncSessi
     if not await SettingsRepository(session).get_bool("game_wheel_enabled", True):
         await message.answer("🎡 Игра временно отключена.")
         return
+    max_bet = await SettingsRepository(session).get_float("wheel_max_bet", 500.0)
+    if bet > max_bet:
+        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=wheel_cancel_kb())
+        return
     if db_user.stars_balance < bet:
         await message.answer("❌ Недостаточно звёзд.", reply_markup=wheel_cancel_kb())
         return

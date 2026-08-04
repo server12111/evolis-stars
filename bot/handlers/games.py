@@ -315,6 +315,11 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
         await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
+    max_bet = await repo.get_float(f"game_{game_type}_max_bet", 500.0)
+    if bet > max_bet:
+        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        return
+
     if bet_step > 1.0 and abs(bet % bet_step) > 0.001:
         await message.answer(f"❌ Ставка кратна <b>{bet_step:.4g} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
