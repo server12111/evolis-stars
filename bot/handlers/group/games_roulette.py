@@ -10,24 +10,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.repositories.settings import SettingsRepository
 from bot.services.chat_eligibility import credit_stars
 from bot.services.chat_games import (
+    COLOR_EMOJI,
     get_roulette_coeff,
     normalize_roulette_color,
     place_bet,
     record_result,
     roulette_spin,
 )
+from bot.services.house_edge import is_in_recovery
 
 router = Router()
 
 _PATTERN = re.compile(r"^(\S+)\s+(\d+(?:[.,]\d+)?)\s*$")
-_COLOR_WORDS = {"red", "ред", "black", "блек", "блэк", "чёрный", "черный", "красный"}
+_COLOR_WORDS = {
+    "red", "ред", "black", "блек", "блэк", "чёрный", "черный", "красный",
+    "green", "грин", "зелёный", "зеленый",
+}
 _COLOR_RU = {"red": "красный", "black": "чёрный", "white": "белый", "green": "зелёный"}
-_COLOR_EMOJI = {"red": "🔴", "black": "⚫️", "white": "⚪️", "green": "🟢"}
 
 # Spin animation: 5 circles in a row, the center one is always white and
-# never changes — only the 4 side positions flicker red/black while
-# spinning, then lock onto the real outcome's color once it lands.
-_SIDE_EMOJI = ("🔴", "⚫️")
+# never changes — the 4 side positions flicker red/black/green (green rare,
+# matching the real pool odds) while spinning, then lock onto the real
+# outcome's color once it lands.
+_SIDE_EMOJI_WEIGHTED = (("🔴", 45), ("⚫️", 45), ("🟢", 10))
 _SPIN_FRAMES = 4
 _SPIN_DELAY = 0.35
 
@@ -40,12 +45,13 @@ def _matches_roulette_command(message: Message) -> bool:
 
 
 def _spin_row() -> str:
-    sides = [random.choice(_SIDE_EMOJI) for _ in range(4)]
+    colors, weights = zip(*_SIDE_EMOJI_WEIGHTED)
+    sides = random.choices(colors, weights=weights, k=4)
     return f"{sides[0]}{sides[1]}⚪️{sides[2]}{sides[3]}"
 
 
 def _result_row(result_color: str) -> str:
-    dot = _COLOR_EMOJI[result_color]
+    dot = COLOR_EMOJI[result_color]
     return f"{dot}{dot}⚪️{dot}{dot}"
 
 
@@ -83,8 +89,9 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
         await message.reply(error)
         return
 
-    result_color = roulette_spin()
-    coeff = await get_roulette_coeff(session)
+    punish = await is_in_recovery(session, "roulette")
+    result_color = roulette_spin(punish=punish)
+    coeff = await get_roulette_coeff(session, color)
     won = result_color == color
     payout = round(bet * coeff, 2) if won else 0.0
 
@@ -94,14 +101,15 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     await record_result(
         session, message.from_user.id, message.chat.id, "roulette",
         bet, payout, "roulette_total_bet", "roulette_total_payout",
+        bet_choice=color,
     )
 
-    emoji = _COLOR_EMOJI[result_color]
+    emoji = COLOR_EMOJI[result_color]
     outcome_name = _COLOR_RU[result_color]
     if won:
         final_text = (
             f"{emoji} Выпало: <b>{outcome_name}</b>!\n\n"
-            f"🎉 Угадал! Выигрыш: <b>+{payout:.2f} ⭐</b>"
+            f"🎉 Угадал! Выигрыш: <b>+{payout:.2f} ⭐</b> (×{coeff:.2f})"
         )
     else:
         final_text = f"{emoji} Выпало: <b>{outcome_name}</b>.\n\n❌ Ставка сгорела: -{bet:.2f} ⭐"

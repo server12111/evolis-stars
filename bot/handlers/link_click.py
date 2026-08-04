@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,7 @@ from bot.services.chat_revenue import settle_chat_ad_revenue
 
 router = Router()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @router.callback_query(F.data.startswith("lc:"))
@@ -24,6 +27,10 @@ async def cb_link_click(callback: CallbackQuery, session: AsyncSession) -> None:
 
     button = await LinkButtonRepository(session).get(link_id)
     if not button or not button.is_active:
+        logger.warning(
+            "LINK_CLICK inactive link_id=%s found=%s is_active=%s uid=%s",
+            link_id, button is not None, getattr(button, "is_active", None), callback.from_user.id,
+        )
         await callback.answer("⚠️ Ссылка больше не активна.", show_alert=True)
         return
 

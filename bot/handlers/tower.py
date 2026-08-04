@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.tower import tower_bet_kb, tower_playing_kb, tower_over_kb, tower_cancel_kb
+from bot.services.house_edge import is_in_recovery
 from bot.states.games import TowerStates
 
 router = Router()
@@ -16,7 +17,7 @@ router = Router()
 
 async def _get_coeff(session: AsyncSession, level: int) -> float:
     repo = SettingsRepository(session)
-    return await repo.get_float(f"tower_coeff_{level}", [1.20, 1.50, 1.90, 2.40, 3.00, 3.75, 4.75, 6.00][min(level, 7)])
+    return await repo.get_float(f"tower_coeff_{level}", [1.20, 1.80, 2.70, 4.05, 6.08, 9.11, 13.67, 20.50][min(level, 7)])
 
 
 @router.callback_query(lambda c: c.data == "menu:tower")
@@ -111,7 +112,10 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
     db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
     await session.commit()
 
-    mines = [random.randint(0, 2) for _ in range(max_levels)]
+    # Recovery mode: 2-of-3 tiles are mines instead of 1-of-3, frozen for the
+    # whole round at start so odds can't shift mid-game. See house_edge.py.
+    mine_count = 2 if await is_in_recovery(session, "tower") else 1
+    mines = [random.sample(range(3), mine_count) for _ in range(max_levels)]
     await state.set_state(TowerStates.playing)
     await state.update_data(bet=bet, level=0, max_levels=max_levels, mines=mines, history=[])
 
@@ -147,15 +151,18 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
     history = data["history"]
     bet = data["bet"]
 
-    mine_pos = mines[level]
+    mine_positions = mines[level]
     history = history + [slot]
 
-    if slot == mine_pos:
+    if slot in mine_positions:
         # Hit a mine — game over
         session.add(GameSession(
             user_id=db_user.user_id, game_type="tower",
             bet=bet, payout=0, result="lose",
         ))
+        s_repo = SettingsRepository(session)
+        await s_repo.add_float("tower_total_bet", bet)
+        await s_repo.add_float("tower_total_payout", 0)
         await session.commit()
         await state.clear()
 
@@ -181,6 +188,9 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
                 user_id=db_user.user_id, game_type="tower",
                 bet=bet, payout=payout, result="win",
             ))
+            s_repo = SettingsRepository(session)
+            await s_repo.add_float("tower_total_bet", bet)
+            await s_repo.add_float("tower_total_payout", payout)
             await session.commit()
             await state.clear()
 
@@ -234,6 +244,9 @@ async def cb_tower_cashout(callback: CallbackQuery, state: FSMContext, session: 
         user_id=db_user.user_id, game_type="tower",
         bet=bet, payout=payout, result="win",
     ))
+    s_repo = SettingsRepository(session)
+    await s_repo.add_float("tower_total_bet", bet)
+    await s_repo.add_float("tower_total_payout", payout)
     await session.commit()
     await state.clear()
 

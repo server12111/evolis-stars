@@ -11,10 +11,8 @@ from sqlalchemy import case, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import User, Withdrawal
-from bot.database.repositories.settings import SettingsRepository
+from bot.database.models import User
 from bot.database.repositories.user import UserRepository
-from bot.database.repositories.withdrawal import WithdrawalRepository
 from bot.handlers.admin.stats import _is_admin
 from bot.keyboards.admin.main import back_to_admin_kb
 from bot.keyboards.admin.users import cancel_kb, user_actions_kb, users_menu_kb
@@ -23,52 +21,6 @@ from bot.states.admin import AdminUserStates
 router = Router()
 settings = get_settings()
 logger = logging.getLogger(__name__)
-
-
-async def _update_public_withdrawal_status(
-    callback: CallbackQuery,
-    session: AsyncSession,
-    withdrawal: Withdrawal,
-    status: str,
-    status_icon: str,
-) -> None:
-    if not withdrawal.channel_message_id:
-        return
-
-    payments_channel_id = (
-        settings.payments_channel_id
-        or await SettingsRepository(session).get("payments_channel_id")
-    )
-    if not payments_channel_id:
-        return
-
-    user = await UserRepository(session).get(withdrawal.user_id)
-    username_display = (
-        f"@{user.username}"
-        if user and user.username
-        else html.escape(user.first_name if user else str(withdrawal.user_id))
-    )
-    vip_badge = " 💎 VIP" if user and user.is_vip else ""
-    text = (
-        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
-        f"👤 Пользователь: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
-        f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
-        f"{status_icon} Статус: <b>{status}</b>"
-    )
-    try:
-        await callback.bot.edit_message_text(
-            chat_id=int(payments_channel_id),
-            message_id=withdrawal.channel_message_id,
-            text=text,
-            parse_mode="HTML",
-        )
-    except Exception as exc:
-        logger.warning(
-            "Cannot update withdrawal %s in payments channel %s: %s",
-            withdrawal.id,
-            payments_channel_id,
-            exc,
-        )
 
 
 @router.callback_query(lambda c: c.data == "admin:users")
@@ -323,65 +275,3 @@ async def msg_add_refs(message: Message, state: FSMContext, session: AsyncSessio
     target.referrals_count += amount
     await session.commit()
     await message.answer(f"✅ Начислено <b>+{amount}</b> рефералов. Итого: <b>{target.referrals_count}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
-
-
-@router.callback_query(lambda c: c.data and c.data.startswith("admin:withdraw_approve:"))
-async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
-    if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
-        return
-    wid = int(callback.data.split(":")[2])
-    w_repo = WithdrawalRepository(session)
-    w = await w_repo.approve(wid)
-    if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
-        return
-    try:
-        await callback.message.edit_text(
-            callback.message.text + "\n\n✅ <b>Принято</b>",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-    try:
-        await callback.bot.send_message(
-            w.user_id,
-            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nСумма: <b>{float(w.amount):.0f} ⭐</b>\nСкоро вы получите выплату.",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-    await _update_public_withdrawal_status(callback, session, w, "Принято", "✅")
-    await callback.answer("✅ Одобрено")
-
-
-@router.callback_query(lambda c: c.data and c.data.startswith("admin:withdraw_reject:"))
-async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession, db_user: User) -> None:
-    if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
-        return
-    wid = int(callback.data.split(":")[2])
-    w_repo = WithdrawalRepository(session)
-    w = await w_repo.reject(wid)
-    if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
-        return
-    await session.commit()
-
-    try:
-        await callback.message.edit_text(
-            callback.message.text + "\n\n❌ <b>Отклонено</b>",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-    try:
-        await callback.bot.send_message(
-            w.user_id,
-            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\nСумма <b>{float(w.amount):.0f} ⭐</b> списана без возврата на баланс.",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-    await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌")
-    await callback.answer("❌ Отклонено")

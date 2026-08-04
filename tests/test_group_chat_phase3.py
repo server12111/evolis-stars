@@ -70,7 +70,7 @@ class RouletteTests(ChatModelsTestCase):
         self.assertIn("Угадал", rendered)
         async with self.sessions() as session:
             user = await session.get(User, 1)
-        self.assertEqual(user.stars_balance, Decimal("106.00"))  # 100 - 10 + 10*1.6
+        self.assertEqual(user.stars_balance, Decimal("112.00"))  # 100 - 10 + 10*2.2
 
     async def test_lose_deducts_bet_only(self) -> None:
         await self._add_user(2, "100")
@@ -98,7 +98,7 @@ class RouletteTests(ChatModelsTestCase):
 class TowerTests(ChatModelsTestCase):
     async def test_picking_safe_tile_advances_and_cashout_pays(self) -> None:
         await self._add_user(10, "100")
-        with patch("bot.handlers.group.games_tower.random.randint", return_value=2):
+        with patch("bot.handlers.group.games_tower.random.sample", return_value=[2]):
             message = _message(-2, 10, "башня 10")
             async with self.sessions() as session:
                 await msg_tower_start(message, session)
@@ -114,11 +114,11 @@ class TowerTests(ChatModelsTestCase):
             await cb_tower_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 10)
-        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.00"))  # 10 * chat_tower_coeff_0 (1.00, a push)
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("12.00"))  # 10 * chat_tower_coeff_0 (1.20)
 
     async def test_hitting_mine_loses_bet(self) -> None:
         await self._add_user(11, "100")
-        with patch("bot.handlers.group.games_tower.random.randint", return_value=0):
+        with patch("bot.handlers.group.games_tower.random.sample", return_value=[0]):
             message = _message(-3, 11, "башня 10")
             async with self.sessions() as session:
                 await msg_tower_start(message, session)
@@ -167,8 +167,8 @@ class MazeTests(ChatModelsTestCase):
             await cb_maze_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 20)
-        # step=1, house_edge=0.1 default -> base = min(max_coeff, ((1-0.1)/0.82)**1)
-        expected_payout = round(10 * min(10.0, ((1 - 0.1) / 0.82) ** 1), 2)
+        # step=1, house_edge=0.15 default -> base = min(max_coeff, ((1-0.15)/0.82)**1)
+        expected_payout = round(10 * round(min(10.0, ((1 - 0.15) / 0.82) ** 1), 4), 2)
         self.assertEqual(user.stars_balance, Decimal("90") + Decimal(str(expected_payout)))
 
     async def test_trap_without_shield_ends_run_and_takes_bet(self) -> None:

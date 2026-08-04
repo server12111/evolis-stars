@@ -1,21 +1,25 @@
 import random
 from datetime import datetime, timedelta
-from decimal import Decimal
 
 from aiogram import Router
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.database.models import GameSession, User
+from bot.database.models import User
 from bot.database.repositories.settings import SettingsRepository
-from bot.services.casino import get_case_outcome, get_wheel_outcome, update_casino_profit
 
 router = Router()
 
-# Only games with a pure server-side RNG outcome (no live Telegram dice
-# animation needed) are eligible — Wheel and the 3⭐ case both already match
-# the fixed 3⭐ virtual stake this button hands out for free.
-_POOL = ("wheel", "case_3")
+# The user plays this themselves now (no auto-play), so any game reachable
+# from the main menu works — not just the pure-RNG ones a silent auto-play
+# was previously limited to.
+_POOL = {
+    "wheel": ("🎡 Колесо", "menu:wheel"),
+    "cases": ("🎁 Кейсы", "menu:cases"),
+    "mines": ("💣 Мины", "menu:mines"),
+    "tower": ("🗼 Башня", "menu:tower"),
+}
 
 
 @router.callback_query(lambda c: c.data == "menu:random")
@@ -35,40 +39,22 @@ async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSessio
         return
 
     stake = await settings_repo.get_float("random_stake", 3.0)
-    choice = random.choice(_POOL)
-
-    if choice == "wheel":
-        coeff = await get_wheel_outcome(session)
-        payout = round(stake * coeff, 2)
-        game_label = "🎰 Колесо"
-        detail = f"Множитель: <b>×{coeff:.1f}</b>\n"
-    else:
-        payout = await get_case_outcome(session, 3)
-        game_label = "🎁 Кейс 3⭐"
-        detail = ""
+    choice = random.choice(list(_POOL))
+    game_label, deep_link = _POOL[choice]
 
     db_user.last_random_at = now
-    if payout > 0:
-        db_user.stars_balance = Decimal(str(db_user.stars_balance)) + Decimal(str(payout))
-    session.add(
-        GameSession(
-            user_id=db_user.user_id,
-            game_type=choice,
-            bet=Decimal("0"),
-            payout=Decimal(str(payout)),
-            result="win" if payout > 0 else "lose",
-        )
-    )
-    await update_casino_profit(session, choice, stake, payout)
+    db_user.stars_balance = round(float(db_user.stars_balance) + stake, 2)
     await session.commit()
+
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=f"🎮 Играть — {game_label}", callback_data=deep_link))
+    builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
 
     text = (
         f"🎲 <b>Рандом!</b>\n\n"
-        f"Тебе выпала бесплатная игра: {game_label}\n"
-        f"{detail}"
-        f"Бесплатная ставка: <b>{stake:.2f} ⭐</b>\n"
-        f"Выигрыш: <b>+{payout:.2f} ⭐</b>\n\n"
+        f"Тебе повезло — бесплатная ставка <b>{stake:.2f} ⭐</b> уже зачислена на баланс.\n"
+        f"Разыграй её здесь: {game_label}\n\n"
         f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
     )
-    await callback.message.answer(text, parse_mode="HTML")
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()

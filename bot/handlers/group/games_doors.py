@@ -16,6 +16,7 @@ from bot.services.chat_games import (
     place_bet,
     record_result,
 )
+from bot.services.house_edge import is_in_recovery
 
 router = Router()
 
@@ -67,9 +68,11 @@ async def msg_doors_start(message: Message, session: AsyncSession) -> None:
         await message.reply(error)
         return
 
-    safe_positions = doors_generate_safe_positions()
+    in_recovery = await is_in_recovery(session, "doors")
+    safe_positions = doors_generate_safe_positions(punish=in_recovery)
     created = await round_repo.create(
-        message.chat.id, message.from_user.id, "doors", bet, {"safe_positions": safe_positions}
+        message.chat.id, message.from_user.id, "doors",
+        bet, {"safe_positions": safe_positions, "in_recovery": in_recovery},
     )
     if created is None:
         await credit_stars(session, message.from_user.id, Decimal(str(bet)))
@@ -147,7 +150,7 @@ async def cb_doors_next(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     state = round_repo.load_state(round_)
-    state["safe_positions"] = doors_generate_safe_positions()
+    state["safe_positions"] = doors_generate_safe_positions(punish=state.get("in_recovery", False))
     await round_repo.save_state(round_, state)
 
     await _show_level(callback.message, round_, edit=True)

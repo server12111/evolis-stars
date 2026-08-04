@@ -30,6 +30,7 @@ async def record_result(
     payout: float,
     total_bet_key: str,
     total_payout_key: str,
+    bet_choice: str | None = None,
 ) -> None:
     result = "win" if payout > 0 else "lose"
     session.add(
@@ -40,6 +41,7 @@ async def record_result(
             bet=Decimal(str(bet)),
             payout=Decimal(str(payout)),
             result=result,
+            bet_choice=bet_choice,
         )
     )
     settings_repo = SettingsRepository(session)
@@ -48,8 +50,8 @@ async def record_result(
     await session.commit()
 
 # ─── Roulette ───────────────────────────────────────────────────────────────
-# 11-cube pool: 2 white, 4 black, 4 red, 1 green. Only red/black are
-# bettable colors — white/green just make a red/black bet lose.
+# 11-cube pool: 2 white, 4 black, 4 red, 1 green (rarest). White is never
+# bettable — it's the pool's built-in "everyone bet-on-a-color loses" slot.
 
 ROULETTE_CUBES: tuple[tuple[str, int], ...] = (
     ("white", 2),
@@ -57,15 +59,27 @@ ROULETTE_CUBES: tuple[tuple[str, int], ...] = (
     ("red", 4),
     ("green", 1),
 )
+# Recovery-mode pool: crushes the odds of any bettable color landing,
+# concentrating weight on the un-bettable white slot. See services/house_edge.py.
+ROULETTE_CUBES_PUNISH: tuple[tuple[str, int], ...] = (
+    ("white", 6),
+    ("black", 2),
+    ("red", 2),
+    ("green", 0),
+)
+
+COLOR_EMOJI = {"red": "🔴", "black": "⚫️", "white": "⚪️", "green": "🟢"}
 
 _ROULETTE_COLOR_ALIASES = {
     "red": "red", "ред": "red", "красный": "red", "красное": "red", "краснный": "red",
     "black": "black", "блек": "black", "блэк": "black", "чёрный": "black", "черный": "black", "черное": "black",
+    "green": "green", "грин": "green", "зелёный": "green", "зеленый": "green", "зеленое": "green",
 }
 
 
-def roulette_spin() -> str:
-    colors, weights = zip(*ROULETTE_CUBES)
+def roulette_spin(punish: bool = False) -> str:
+    pool = ROULETTE_CUBES_PUNISH if punish else ROULETTE_CUBES
+    colors, weights = zip(*pool)
     return random.choices(colors, weights=weights, k=1)[0]
 
 
@@ -73,8 +87,10 @@ def normalize_roulette_color(raw: str) -> str | None:
     return _ROULETTE_COLOR_ALIASES.get(raw.strip().lower())
 
 
-async def get_roulette_coeff(session: AsyncSession) -> float:
-    return await SettingsRepository(session).get_float("roulette_coeff_red_black", 1.6)
+async def get_roulette_coeff(session: AsyncSession, color: str) -> float:
+    key = "roulette_coeff_green" if color == "green" else "roulette_coeff_red_black"
+    default = 8.8 if color == "green" else 2.2
+    return await SettingsRepository(session).get_float(key, default)
 
 
 # ─── Maze ───────────────────────────────────────────────────────────────────
@@ -94,6 +110,15 @@ MAZE_TILE_WEIGHTS: tuple[tuple[str, int], ...] = (
     ("treasure", 30),
     ("jackpot", 5),
 )
+# Recovery-mode tile weights: trap share more than doubles, treasure/jackpot
+# shrink. See services/house_edge.py.
+MAZE_TILE_WEIGHTS_PUNISH: tuple[tuple[str, int], ...] = (
+    ("trap", 40),
+    ("shield", 5),
+    ("empty", 40),
+    ("treasure", 13),
+    ("jackpot", 2),
+)
 MAZE_SURVIVAL_PROB = 0.82  # 1 - P(trap), used for the base-coefficient formula
 MAZE_MAX_HOUSE_EDGE = 0.17  # keeps growth factor (1-edge)/MAZE_SURVIVAL_PROB > 1
 MAZE_TREASURE_BONUS = 0.03
@@ -101,8 +126,9 @@ MAZE_JACKPOT_BONUS = 0.15
 MAZE_MAX_SHIELDS = 2
 
 
-def maze_draw_tile() -> str:
-    tiles, weights = zip(*MAZE_TILE_WEIGHTS)
+def maze_draw_tile(punish: bool = False) -> str:
+    pool = MAZE_TILE_WEIGHTS_PUNISH if punish else MAZE_TILE_WEIGHTS
+    tiles, weights = zip(*pool)
     return random.choices(tiles, weights=weights, k=1)[0]
 
 
@@ -119,7 +145,7 @@ async def get_maze_params(session: AsyncSession) -> tuple[float, float]:
     """Returns (house_edge, max_coeff)."""
     repo = SettingsRepository(session)
     return (
-        await repo.get_float("maze_house_edge", 0.1),
+        await repo.get_float("maze_house_edge", 0.15),
         await repo.get_float("maze_max_coeff", 10.0),
     )
 
@@ -128,12 +154,18 @@ async def get_maze_params(session: AsyncSession) -> tuple[float, float]:
 
 DOORS_PER_LEVEL = 4
 DOORS_SAFE_PER_LEVEL = 2
+DOORS_SAFE_PER_LEVEL_PUNISH = 1  # recovery mode: 1-of-4 safe instead of 2-of-4
 DOORS_LEVELS = 10
-_DOORS_DEFAULT_COEFFS = [1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6, 819.2]
+# True 20%-edge formula (2^level * 0.8) through level 4, then clamped flat at
+# 20.0 — levels 5-10 are reached 3% of the time or less, so this barely
+# moves the average edge while keeping the top payout in Tower's ballpark
+# instead of an untamed 819.2x.
+_DOORS_DEFAULT_COEFFS = [1.6, 3.2, 6.4, 12.8, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
 
 
-def doors_generate_safe_positions() -> list[int]:
-    return random.sample(range(DOORS_PER_LEVEL), DOORS_SAFE_PER_LEVEL)
+def doors_generate_safe_positions(punish: bool = False) -> list[int]:
+    n = DOORS_SAFE_PER_LEVEL_PUNISH if punish else DOORS_SAFE_PER_LEVEL
+    return random.sample(range(DOORS_PER_LEVEL), n)
 
 
 async def get_doors_coeff(session: AsyncSession, level: int) -> float:
@@ -146,11 +178,10 @@ async def get_doors_coeff(session: AsyncSession, level: int) -> float:
 # ─── Tower (group) ─────────────────────────────────────────────────────────
 # Own settings namespace (chat_tower_*) — deliberately separate from the
 # private-chat Tower's tower_coeff_* so this group game can be rebalanced
-# without touching the private game. coeff(k) = fair(k-1) i.e. one level
-# "behind" fair value (fair(k) = 1.5**k, since survival per level is 2/3) —
-# level 1 is a pure push (1.00x), real profit only starts from level 2 on.
+# without touching the private game. coeff(k) = fair(k) * 0.8, since survival
+# per level is 2/3 — a flat 20% house edge at every level.
 CHAT_TOWER_LEVELS = 8
-CHAT_TOWER_DEFAULT_COEFFS = [1.00, 1.50, 2.25, 3.38, 5.06, 7.59, 11.39, 17.09]
+CHAT_TOWER_DEFAULT_COEFFS = [1.20, 1.80, 2.70, 4.05, 6.08, 9.11, 13.67, 20.50]
 
 
 async def get_chat_tower_coeff(session: AsyncSession, level: int) -> float:

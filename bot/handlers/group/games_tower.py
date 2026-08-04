@@ -11,6 +11,7 @@ from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.games_tower import tower_playing_kb
 from bot.services.chat_eligibility import credit_stars
 from bot.services.chat_games import get_chat_tower_coeff, place_bet, record_result
+from bot.services.house_edge import is_in_recovery
 
 router = Router()
 
@@ -46,7 +47,8 @@ async def msg_tower_start(message: Message, session: AsyncSession) -> None:
         return
 
     max_levels = await settings_repo.get_int("chat_tower_levels", 8)
-    mines = [random.randint(0, 2) for _ in range(max_levels)]
+    mine_count = 2 if await is_in_recovery(session, "chat_tower") else 1
+    mines = [random.sample(range(3), mine_count) for _ in range(max_levels)]
     created = await round_repo.create(
         message.chat.id, message.from_user.id, "tower", bet, {"mines": mines, "history": []}
     )
@@ -83,13 +85,13 @@ async def cb_tower_pick(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     state = round_repo.load_state(round_)
-    mines: list[int] = state["mines"]
+    mines: list[list[int]] = state["mines"]
     history: list[int] = state["history"] + [slot]
     level = round_.level
     max_levels = len(mines)
     bet = float(round_.bet)
 
-    if slot == mines[level]:
+    if slot in mines[level]:
         await round_repo.delete(round_)
         await record_result(
             session, callback.from_user.id, callback.message.chat.id, "tower",
@@ -161,7 +163,7 @@ async def cb_tower_cashout(callback: CallbackQuery, session: AsyncSession) -> No
         return
 
     state = round_repo.load_state(round_)
-    mines: list[int] = state["mines"]
+    mines: list[list[int]] = state["mines"]
     history: list[int] = state["history"]
     max_levels = len(mines)
     coeff = await get_chat_tower_coeff(session, round_.level - 1)

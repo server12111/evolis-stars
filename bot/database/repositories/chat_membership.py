@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import select, update
 
-from bot.database.models import ChatMembership
+from bot.database.models import ChatMembership, User
 from bot.database.repositories.base import BaseRepository
 
 
@@ -15,6 +15,16 @@ class ChatMembershipRepository(BaseRepository):
             )
         )
         return result.scalar_one_or_none()
+
+    async def top_users_by_balance(self, chat_id: int, limit: int = 10) -> list[User]:
+        result = await self.session.execute(
+            select(User)
+            .join(ChatMembership, ChatMembership.user_id == User.user_id)
+            .where(ChatMembership.chat_id == chat_id, ChatMembership.left_at.is_(None))
+            .order_by(User.stars_balance.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
     async def touch_message(self, chat_id: int, user_id: int) -> None:
         """Upsert + atomic increment, called on every observed group message."""

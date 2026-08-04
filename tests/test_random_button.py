@@ -28,45 +28,32 @@ def _callback():
 
 
 class RandomButtonTests(ChatModelsTestCase):
-    async def test_wheel_win_credits_balance_and_sets_cooldown(self) -> None:
+    async def test_credits_stake_and_shows_play_button(self) -> None:
         async with self.sessions() as session:
             session.add(User(user_id=1, first_name="U", stars_balance=Decimal("10")))
             await session.commit()
 
         cb = _callback()
-        with patch("bot.handlers.random_game.random.choice", return_value="wheel"), \
-                patch("bot.handlers.random_game.get_wheel_outcome", AsyncMock(return_value=50.0)):
+        with patch("bot.handlers.random_game.random.choice", return_value="wheel"):
             async with self.sessions() as session:
                 db_user = await session.get(User, 1)
                 await cb_random(cb, db_user, session)
 
         cb.message.answer.assert_awaited_once()
-        rendered = cb.message.answer.await_args.args[0]
-        self.assertIn("Колесо", rendered)
-        self.assertIn("150.00", rendered)  # 3 stake * 50.0 coeff
+        args, kwargs = cb.message.answer.await_args
+        rendered = args[0]
+        self.assertIn("Рандом", rendered)
+        self.assertIn("3.00", rendered)  # default random_stake credited
+
+        markup = kwargs["reply_markup"]
+        play_button = markup.inline_keyboard[0][0]
+        self.assertIn("Играть", play_button.text)
+        self.assertEqual(play_button.callback_data, "menu:wheel")
 
         async with self.sessions() as session:
             user = await session.get(User, 1)
-        self.assertEqual(user.stars_balance, Decimal("10") + Decimal("150.00"))
+        self.assertEqual(user.stars_balance, Decimal("10") + Decimal("3.0"))
         self.assertIsNotNone(user.last_random_at)
-
-    async def test_case_outcome_credits_flat_prize(self) -> None:
-        async with self.sessions() as session:
-            session.add(User(user_id=2, first_name="U", stars_balance=Decimal("10")))
-            await session.commit()
-
-        cb = _callback()
-        with patch("bot.handlers.random_game.random.choice", return_value="case_3"), \
-                patch("bot.handlers.random_game.get_case_outcome", AsyncMock(return_value=5.0)):
-            async with self.sessions() as session:
-                db_user = await session.get(User, 2)
-                await cb_random(cb, db_user, session)
-
-        rendered = cb.message.answer.await_args.args[0]
-        self.assertIn("Кейс", rendered)
-        async with self.sessions() as session:
-            user = await session.get(User, 2)
-        self.assertEqual(user.stars_balance, Decimal("10") + Decimal("5.0"))
 
     async def test_second_tap_within_cooldown_is_blocked(self) -> None:
         async with self.sessions() as session:
@@ -97,8 +84,7 @@ class RandomButtonTests(ChatModelsTestCase):
             await session.commit()
 
         cb = _callback()
-        with patch("bot.handlers.random_game.random.choice", return_value="wheel"), \
-                patch("bot.handlers.random_game.get_wheel_outcome", AsyncMock(return_value=0.1)):
+        with patch("bot.handlers.random_game.random.choice", return_value="wheel"):
             async with self.sessions() as session:
                 db_user = await session.get(User, 4)
                 await cb_random(cb, db_user, session)

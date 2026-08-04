@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from bot.database.models import Withdrawal
-from bot.handlers.admin.users import _update_public_withdrawal_status
+from bot.handlers.admin_channel import _update_public_withdrawal_status
 
 
 class WithdrawalStatusTests(unittest.IsolatedAsyncioTestCase):
@@ -20,11 +20,11 @@ class WithdrawalStatusTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "bot.handlers.admin.users.settings",
+                "bot.handlers.admin_channel.settings",
                 SimpleNamespace(payments_channel_id="-100123"),
             ),
             patch(
-                "bot.handlers.admin.users.UserRepository.get",
+                "bot.handlers.admin_channel.UserRepository.get",
                 AsyncMock(return_value=user),
             ),
         ):

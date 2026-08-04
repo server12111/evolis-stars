@@ -76,6 +76,10 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE game_sessions ADD COLUMN chat_id BIGINT")
         )
+    if "bet_choice" not in game_session_columns:
+        connection.execute(
+            text("ALTER TABLE game_sessions ADD COLUMN bet_choice VARCHAR(16)")
+        )
     _ensure_integrity_indexes(connection)
 
 

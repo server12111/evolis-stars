@@ -86,13 +86,13 @@ class TimeoutSweepTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 3)
-        # step=1, house_edge=0.1 default -> base = ((1-0.1)/0.82)**1
-        expected_payout = round(10 * ((1 - 0.1) / 0.82) ** 1, 2)
+        # step=1, house_edge=0.15 default -> base = ((1-0.15)/0.82)**1
+        expected_payout = round(10 * round(((1 - 0.15) / 0.82) ** 1, 4), 2)
         self.assertEqual(user.stars_balance, Decimal("40") + Decimal(str(expected_payout)))
 
     async def test_tower_progress_auto_cashed_out(self) -> None:
         await self._add_user(4, "40")
-        await self._add_stale_round(-4, 4, "tower", 10, 1, {"mines": [0] * 8, "history": [1]})
+        await self._add_stale_round(-4, 4, "tower", 10, 1, {"mines": [[0]] * 8, "history": [1]})
 
         bot = SimpleNamespace(send_message=AsyncMock())
         async with self.sessions() as session:
@@ -100,8 +100,8 @@ class TimeoutSweepTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 4)
-        # level-1=0 -> chat_tower_coeff_0 default 1.00 (push)
-        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("10.00"))
+        # level-1=0 -> chat_tower_coeff_0 default 1.20
+        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("12.00"))
 
     async def test_fresh_round_is_not_swept(self) -> None:
         await self._add_user(5, "50")

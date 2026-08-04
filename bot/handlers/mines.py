@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
 from bot.services.mines import mines_coeff, get_mines_params
+from bot.services.house_edge import is_in_recovery
 from bot.keyboards.mines import (
     mines_bet_kb, mines_count_kb, mines_playing_kb, mines_over_kb, mines_cancel_kb,
 )
@@ -146,10 +147,13 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
     await session.commit()
 
     board = _make_board(mines_count)
+    in_recovery = await is_in_recovery(session, "mines")
     await state.set_state(MinesStates.playing)
-    await state.update_data(bet=bet, mines_count=mines_count, board=board, opened=[], gems=0)
+    await state.update_data(
+        bet=bet, mines_count=mines_count, board=board, opened=[], gems=0, in_recovery=in_recovery,
+    )
 
-    house_edge, max_coeff = await get_mines_params(session)
+    house_edge, max_coeff = await get_mines_params(session, punish=in_recovery)
     coeff = mines_coeff(mines_count, 0, house_edge, max_coeff)
     payout = round(bet * coeff, 2)
 
@@ -222,7 +226,7 @@ async def cb_mines_open(callback: CallbackQuery, state: FSMContext, session: Asy
             await callback.message.answer(text, parse_mode="HTML", reply_markup=mines_over_kb(board, opened))
     else:
         gems = gems + 1
-        house_edge, max_coeff = await get_mines_params(session)
+        house_edge, max_coeff = await get_mines_params(session, punish=data.get("in_recovery", False))
         coeff = mines_coeff(mines_count, gems, house_edge, max_coeff)
         payout = round(bet * coeff, 2)
 
@@ -258,7 +262,7 @@ async def cb_mines_cashout(callback: CallbackQuery, state: FSMContext, session: 
         await callback.answer("⚠️ Сначала открой хотя бы одну клетку!", show_alert=True)
         return
 
-    house_edge, max_coeff = await get_mines_params(session)
+    house_edge, max_coeff = await get_mines_params(session, punish=data.get("in_recovery", False))
     coeff = mines_coeff(mines_count, gems, house_edge, max_coeff)
     payout = round(bet * coeff, 2)
 

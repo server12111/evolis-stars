@@ -55,13 +55,18 @@ async def _send_tos_gate(message: Message, session: AsyncSession) -> None:
 async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
     """Runs once tos_accepted is guaranteed True — the sponsor wall (if any
     providers are configured) is the next gate, then the main menu."""
+    was_verified = db_user.sponsors_verified
     if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
         if not await run_sponsor_wall_check(message, db_user, session):
             return
     db_user.sponsors_verified = True
     await session.commit()
-    await notify_user_sponsors_verified(db_user, session, bot)
-    await check_referral_reward(db_user, session, bot)
+    if not was_verified:
+        # Only on the genuine transition into verified — otherwise an
+        # already-verified user (e.g. stuck in the "insufficient sponsors"
+        # state forever) would get renotified on every single /start.
+        await notify_user_sponsors_verified(db_user, session, bot)
+        await check_referral_reward(db_user, session, bot)
     await _send_main_menu(message, db_user, session)
 
 
@@ -192,6 +197,7 @@ async def cb_sponsor_check(
         )
         return
 
+    was_verified = db_user.sponsors_verified
     if not await run_sponsor_wall_check(callback, db_user, session):
         return
 
@@ -199,8 +205,9 @@ async def cb_sponsor_check(
     # wall only ever starts after it), so go straight to the main menu.
     db_user.sponsors_verified = True
     await session.commit()
-    await notify_user_sponsors_verified(db_user, session, bot)
-    await check_referral_reward(db_user, session, bot)
+    if not was_verified:
+        await notify_user_sponsors_verified(db_user, session, bot)
+        await check_referral_reward(db_user, session, bot)
 
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")

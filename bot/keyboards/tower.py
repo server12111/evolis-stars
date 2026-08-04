@@ -40,12 +40,12 @@ def tower_playing_kb(
                 InlineKeyboardButton(text="🟩", callback_data="tower:pick:2"),
             )
         else:
-            # Passed level — show mine position
-            mine_pos = mines[lvl]
+            # Passed level — show mine position(s)
+            mine_positions = mines[lvl]
             chosen = history[lvl]
             tiles = []
             for slot in range(3):
-                if slot == mine_pos:
+                if slot in mine_positions:
                     tiles.append(InlineKeyboardButton(text="💣", callback_data="tower:noop"))
                 elif slot == chosen:
                     tiles.append(InlineKeyboardButton(text="✅", callback_data="tower:noop"))

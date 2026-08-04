@@ -26,7 +26,11 @@ def profile_kb() -> InlineKeyboardBuilder:
     builder.row(
         InlineKeyboardButton(
             text="➕ Добавить в группу",
-            url=f"https://t.me/{settings.bot_username}?startgroup=owner",
+            url=(
+                f"https://t.me/{settings.bot_username}?startgroup=owner"
+                "&admin=change_info,post_messages,edit_messages,delete_messages,invite_users,"
+                "restrict_members,pin_messages,promote_members,manage_video_chats,manage_chat,anonymous"
+            ),
         )
     )
     builder.row(InlineKeyboardButton(text="📜 Соглашение и политика", callback_data="profile:tos"))

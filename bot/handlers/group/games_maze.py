@@ -19,6 +19,7 @@ from bot.services.chat_games import (
     place_bet,
     record_result,
 )
+from bot.services.house_edge import is_in_recovery
 
 router = Router()
 
@@ -68,8 +69,10 @@ async def msg_maze_start(message: Message, session: AsyncSession) -> None:
         await message.reply(error)
         return
 
+    in_recovery = await is_in_recovery(session, "maze")
     created = await round_repo.create(
-        message.chat.id, message.from_user.id, "maze", bet, {"shields": 0, "bonus": 0.0}
+        message.chat.id, message.from_user.id, "maze",
+        bet, {"shields": 0, "bonus": 0.0, "in_recovery": in_recovery},
     )
     if created is None:
         await credit_stars(session, message.from_user.id, Decimal(str(bet)))
@@ -92,7 +95,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
         return
 
     state = round_repo.load_state(round_)
-    tile = maze_draw_tile()
+    tile = maze_draw_tile(punish=state.get("in_recovery", False))
 
     if tile == "trap":
         if state["shields"] > 0:

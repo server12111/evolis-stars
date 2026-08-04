@@ -104,6 +104,7 @@ class GameSession(Base):
     payout: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"))
     played_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # set only for the 4 chat-only games
+    bet_choice: Mapped[str | None] = mapped_column(String(16), nullable=True)  # e.g. roulette color bet on; reusable for future bet-target games
 
 
 # ─── Duel ─────────────────────────────────────────────────────────────────────

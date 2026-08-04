@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
-from bot.database.models import Chat, GameSession, User
+from bot.database.models import Chat, ChatMembership, GameSession, User
 from bot.handlers.admin.stats import cb_admin_stats_bot, cb_admin_stats_chats
 from bot.handlers.group.info import msg_group_profile, msg_info, msg_roulette_log, msg_top_users
 
@@ -46,6 +46,8 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             session.add(User(user_id=1, first_name="A", stars_balance=Decimal("50")))
             session.add(User(user_id=2, first_name="B", stars_balance=Decimal("200")))
+            session.add(ChatMembership(chat_id=-1, user_id=1))
+            session.add(ChatMembership(chat_id=-1, user_id=2))
             await session.commit()
 
         message = _message("топ")
@@ -54,12 +56,27 @@ class InfoCommandTests(ChatModelsTestCase):
         rendered = message.answer.await_args.args[0]
         self.assertLess(rendered.index("B"), rendered.index("A"))
 
+    async def test_top_is_scoped_to_the_current_chat(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=1, first_name="A", stars_balance=Decimal("50")))
+            session.add(User(user_id=2, first_name="B", stars_balance=Decimal("200")))
+            session.add(ChatMembership(chat_id=-1, user_id=1))
+            session.add(ChatMembership(chat_id=-2, user_id=2))  # different chat
+            await session.commit()
+
+        message = _message("топ", chat_id=-1)
+        async with self.sessions() as session:
+            await msg_top_users(message, session)
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("A", rendered)
+        self.assertNotIn("B", rendered)
+
     async def test_log_shows_recent_roulette_games_only(self) -> None:
         async with self.sessions() as session:
             session.add(User(user_id=3, first_name="C", stars_balance=Decimal("10")))
             session.add(GameSession(
                 user_id=3, game_type="roulette", bet=Decimal("10"),
-                result="win", payout=Decimal("16"), chat_id=-1,
+                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
             ))
             session.add(GameSession(
                 user_id=3, game_type="tower", bet=Decimal("5"),
@@ -71,8 +88,28 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertIn("16.00", rendered)
+        self.assertIn("10🔴", rendered)
         self.assertNotIn("tower", rendered.lower())
+
+    async def test_log_is_scoped_to_the_current_chat(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=3, first_name="C", stars_balance=Decimal("10")))
+            session.add(GameSession(
+                user_id=3, game_type="roulette", bet=Decimal("10"),
+                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
+            ))
+            session.add(GameSession(
+                user_id=3, game_type="roulette", bet=Decimal("7"),
+                result="lose", payout=Decimal("0"), chat_id=-2, bet_choice="black",
+            ))
+            await session.commit()
+
+        message = _message("лог", chat_id=-1)
+        async with self.sessions() as session:
+            await msg_roulette_log(message, session)
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("10🔴", rendered)
+        self.assertNotIn("7⚫", rendered)
 
     async def test_log_with_no_games_replies_gracefully(self) -> None:
         message = _message("лог", user_id=999)

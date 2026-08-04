@@ -6,6 +6,7 @@ from bot.handlers import (
     casino, mines, tower, auction, random_game,
 )
 from bot.handlers.admin import router as admin_router
+from bot.handlers.admin_channel import router as admin_channel_router  # noqa: F401 — re-exported; chat-type agnostic, included directly in main.py
 from bot.handlers.group import router as group_router  # noqa: F401 — re-exported for main.py
 from bot.handlers.link_click import router as link_click_router  # noqa: F401 — re-exported; chat-type agnostic, included directly in main.py
 

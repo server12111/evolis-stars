@@ -17,11 +17,11 @@ def tower_playing_kb(
     builder = InlineKeyboardBuilder()
     for lvl in range(max_levels - 1, -1, -1):
         if lvl < len(history):
-            mine_pos = mines[lvl]
+            mine_positions = mines[lvl]
             chosen = history[lvl]
             tiles = []
             for slot in range(3):
-                if slot == mine_pos:
+                if slot in mine_positions:
                     tiles.append(InlineKeyboardButton(text="💣", callback_data="chattower:noop"))
                 elif slot == chosen:
                     tiles.append(InlineKeyboardButton(text="✅", callback_data="chattower:noop"))

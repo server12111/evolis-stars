@@ -6,8 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import GameSession, User
+from bot.database.repositories.chat_membership import ChatMembershipRepository
 from bot.database.repositories.game import GameRepository
-from bot.database.repositories.user import UserRepository
+from bot.services.chat_games import COLOR_EMOJI
 
 router = Router()
 
@@ -18,7 +19,7 @@ _INFO_TEXT = (
     "💰 <b>Баланс</b>\n"
     "б / бал / балик / баланс — показать свой баланс\n\n"
     "🎰 <b>Игры</b>\n"
-    "ред &lt;ставка&gt; / блек &lt;ставка&gt; — Рулетка (угадай цвет, ×1.6)\n"
+    "ред &lt;ставка&gt; / блек &lt;ставка&gt; / грин &lt;ставка&gt; — Рулетка (угадай цвет)\n"
     "башня &lt;ставка&gt; — Башня (10 уровней, забирай выигрыш в любой момент)\n"
     "лабиринт &lt;ставка&gt; — Лабиринт (иди дальше или забирай выигрыш)\n"
     "двери &lt;ставка&gt; — Двери (10 уровней, 2 из 4 дверей — мина)\n\n"
@@ -28,8 +29,8 @@ _INFO_TEXT = (
     "выбрать &lt;код&gt; — (только владелец, ответом на сообщение победителя) выбрать победителя конкурса\n\n"
     "📊 <b>Топы и статистика</b>\n"
     "топ чатов — топ 10 чатов по числу участников\n"
-    "топ — топ 10 пользователей по звёздам\n"
-    "лог — последние 10 игр в рулетку\n"
+    "топ — топ 10 пользователей этого чата по звёздам\n"
+    "лог — последние 10 игр в рулетку в этом чате\n"
     "профиль / пас — твой юзернейм, баланс и число сыгранных игр (всего и в этом чате)\n\n"
     "⚙️ <b>Владельцу чата</b>\n"
     "/EvolisOpen — панель управления чатом (только владелец, от 250 участников)\n\n"
@@ -86,11 +87,11 @@ async def msg_info(message: Message) -> None:
 
 @router.message(_matches_top)
 async def msg_top_users(message: Message, session: AsyncSession) -> None:
-    users = await UserRepository(session).top_by_balance(10)
+    users = await ChatMembershipRepository(session).top_users_by_balance(message.chat.id, 10)
     if not users:
         await message.reply("Пока нет пользователей.")
         return
-    lines = ["🏆 <b>Топ 10 пользователей по звёздам</b>\n"]
+    lines = ["🏆 <b>Топ 10 пользователей чата по звёздам</b>\n"]
     for i, user in enumerate(users, 1):
         medal = _MEDALS[i - 1] if i <= 3 else f"{i}."
         name = escape(f"@{user.username}" if user.username else user.first_name)
@@ -101,9 +102,8 @@ async def msg_top_users(message: Message, session: AsyncSession) -> None:
 @router.message(_matches_log)
 async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
-        select(GameSession, User)
-        .join(User, User.user_id == GameSession.user_id)
-        .where(GameSession.game_type == "roulette")
+        select(GameSession.bet, GameSession.bet_choice)
+        .where(GameSession.game_type == "roulette", GameSession.chat_id == message.chat.id)
         .order_by(GameSession.played_at.desc())
         .limit(10)
     )
@@ -113,10 +113,9 @@ async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
         return
 
     lines = ["🎰 <b>Последние 10 игр в рулетку</b>\n"]
-    for game, user in rows:
-        name = escape(f"@{user.username}" if user.username else user.first_name)
-        if game.result == "win":
-            lines.append(f"{name}: ставка {float(game.bet):.2f} ⭐ — 🎉 +{float(game.payout):.2f} ⭐")
-        else:
-            lines.append(f"{name}: ставка {float(game.bet):.2f} ⭐ — ❌ -{float(game.bet):.2f} ⭐")
+    for bet, bet_choice in rows:
+        emoji = COLOR_EMOJI.get(bet_choice, "⚪️")
+        val = float(bet)
+        bet_str = f"{val:.0f}" if val == int(val) else f"{val:.2f}".rstrip("0").rstrip(".")
+        lines.append(f"{bet_str}{emoji}")
     await message.answer("\n".join(lines), parse_mode="HTML")

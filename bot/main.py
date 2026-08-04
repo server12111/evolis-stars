@@ -14,7 +14,7 @@ settings = get_settings()
 from bot.database.engine import SessionFactory, init_db
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
-from bot.handlers import group_router, link_click_router, router
+from bot.handlers import admin_channel_router, group_router, link_click_router, router
 from bot.middlewares.database import DatabaseMiddleware
 from bot.middlewares.group_activity import GroupActivityMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
@@ -105,6 +105,7 @@ async def main() -> None:
         dp.include_router(router)
         dp.include_router(group_router)
         dp.include_router(link_click_router)
+        dp.include_router(admin_channel_router)
         dp.errors.register(on_error)
 
         dp.startup.register(on_startup)
