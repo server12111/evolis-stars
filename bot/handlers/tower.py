@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.random_game import try_consume_free_game_credit
 from bot.keyboards.tower import tower_bet_kb, tower_playing_kb, tower_over_kb, tower_cancel_kb
 from bot.services.house_edge import is_in_recovery
 from bot.states.games import TowerStates
@@ -110,14 +111,16 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
             await callback.answer()
         return
 
-    if float(db_user.stars_balance) < bet:
+    free = await try_consume_free_game_credit(session, db_user, bet)
+    if not free and float(db_user.stars_balance) < bet:
         await _reply("❌ Недостаточно звёзд.", tower_cancel_kb())
         if callback:
             await callback.answer()
         return
 
-    # Deduct bet
-    db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
+    # Deduct bet (unless it was covered by a free-game credit)
+    if not free:
+        db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
     await session.commit()
 
     # Recovery mode: 2-of-3 tiles are mines instead of 1-of-3, frozen for the

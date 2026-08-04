@@ -117,6 +117,40 @@ class InfoCommandTests(ChatModelsTestCase):
             await msg_roulette_log(message, session)
         message.reply.assert_awaited_once()
 
+    async def test_log_shows_username_in_monospace_and_win_result(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=8, first_name="Nick", username="realuser", stars_balance=Decimal("0")))
+            session.add(GameSession(
+                user_id=8, game_type="roulette", bet=Decimal("10"),
+                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
+            ))
+            await session.commit()
+
+        message = _message("лог", chat_id=-1)
+        async with self.sessions() as session:
+            await msg_roulette_log(message, session)
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("<code>@realuser</code>", rendered)
+        self.assertIn("✅", rendered)
+        self.assertIn("22.00", rendered)  # payout shown on a win
+
+    async def test_log_falls_back_to_first_name_and_shows_loss_result(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=9, first_name="NoHandle", stars_balance=Decimal("0")))
+            session.add(GameSession(
+                user_id=9, game_type="roulette", bet=Decimal("15"),
+                result="lose", payout=Decimal("0"), chat_id=-1, bet_choice="black",
+            ))
+            await session.commit()
+
+        message = _message("лог", chat_id=-1)
+        async with self.sessions() as session:
+            await msg_roulette_log(message, session)
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("<code>NoHandle</code>", rendered)
+        self.assertIn("❌", rendered)
+        self.assertIn("-15", rendered)
+
     async def test_profile_aliases_show_balance_and_game_counts(self) -> None:
         async with self.sessions() as session:
             session.add(User(user_id=5, first_name="P", username="pname", stars_balance=Decimal("42.50")))

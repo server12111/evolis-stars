@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
 from bot.database.models import User
-from bot.handlers.start import cb_tos_accept
+from bot.handlers.start import cb_tos_accept, cmd_start
 from bot.middlewares.tos_gate import TosGateMiddleware
 from bot.services.referral import notify_user_sponsors_verified
 from bot.services.sponsor_waves import total_sponsor_count
@@ -134,6 +134,26 @@ class TosGateMiddlewareTests(ChatModelsTestCase):
 
         handler.assert_awaited_once()
         self.assertEqual(result, "ok")
+
+
+class CmdStartNeverReshowsTosTests(ChatModelsTestCase):
+    async def test_already_accepted_user_skips_tos_gate_on_every_start(self) -> None:
+        async with self.sessions() as session:
+            db_user = _user(user_id=50, tos_accepted=True, sponsors_verified=True)
+            session.add(db_user)
+            await session.commit()
+
+            message = SimpleNamespace(text="/start", answer=AsyncMock(), answer_photo=AsyncMock())
+            state = SimpleNamespace(get_state=AsyncMock(return_value=None), clear=AsyncMock())
+            with patch("bot.handlers.start._send_tos_gate", AsyncMock()) as gate:
+                for _ in range(3):  # repeated /start calls must never re-show it
+                    await cmd_start(
+                        message, session, db_user, is_new_user=False,
+                        bot=SimpleNamespace(), state=state,
+                    )
+
+        gate.assert_not_awaited()
+        self.assertTrue(db_user.tos_accepted)
 
 
 class TosAcceptCallbackTests(ChatModelsTestCase):

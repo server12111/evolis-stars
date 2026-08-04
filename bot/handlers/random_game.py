@@ -22,6 +22,32 @@ _POOL = {
 }
 
 
+async def has_free_game_credit_for(session: AsyncSession, user: User, bet: float) -> bool:
+    """Read-only check — does the user have an unused "free 3⭐ game" credit
+    that would cover this exact bet? Used for intermediate steps (choosing
+    a bet, choosing a mine count, ...) where actually spending the credit
+    would be premature since the user could still back out."""
+    if (user.free_game_credits or 0) <= 0:
+        return False
+    stake = await SettingsRepository(session).get_float("random_stake", 3.0)
+    return bet == stake
+
+
+async def try_consume_free_game_credit(session: AsyncSession, user: User, bet: float) -> bool:
+    """If the user holds an unused "free 3⭐ game" credit and this bet
+    matches the configured free-game stake, consumes exactly one credit and
+    returns True — the caller must then NOT debit `bet` from the balance
+    for this round (everything else, including payout math, proceeds
+    exactly as if it were a normal paid bet). Returns False otherwise, in
+    which case the caller debits the bet as usual. Call this only at the
+    point the bet is actually committed, not at earlier "choose a bet"
+    steps — see has_free_game_credit_for for those."""
+    if not await has_free_game_credit_for(session, user, bet):
+        return False
+    user.free_game_credits -= 1
+    return True
+
+
 @router.callback_query(lambda c: c.data == "menu:random")
 async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     settings_repo = SettingsRepository(session)
@@ -43,7 +69,7 @@ async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSessio
     game_label, deep_link = _POOL[choice]
 
     db_user.last_random_at = now
-    db_user.stars_balance = round(float(db_user.stars_balance) + stake, 2)
+    db_user.free_game_credits = (db_user.free_game_credits or 0) + 1
     await session.commit()
 
     builder = InlineKeyboardBuilder()
@@ -52,8 +78,10 @@ async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSessio
 
     text = (
         f"🎲 <b>Рандом!</b>\n\n"
-        f"Тебе повезло — бесплатная ставка <b>{stake:.2f} ⭐</b> уже зачислена на баланс.\n"
-        f"Разыграй её здесь: {game_label}\n\n"
+        f"Тебе повезло — бесплатная игра на <b>{stake:.2f} ⭐</b>! "
+        f"Она не зачисляется на баланс, а хранится отдельно — сделай ставку ровно "
+        f"<b>{stake:.2f} ⭐</b> в любой игре, и эта ставка спишется с бонуса, а не с баланса.\n"
+        f"Попробуй здесь: {game_label}\n\n"
         f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
     )
     await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())

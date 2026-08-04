@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.random_game import try_consume_free_game_credit
 from bot.services.casino import get_case_outcome, update_casino_profit, CASE_PRIZES
 from bot.keyboards.cases import cases_menu_kb, case_confirm_kb, case_result_kb
 
@@ -69,15 +70,16 @@ async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: 
         await callback.answer("❌ Неверный кейс.", show_alert=True)
         return
 
-    if float(db_user.stars_balance) < tier:
+    bet = float(tier)
+    free = await try_consume_free_game_credit(session, db_user, bet)
+    if not free and float(db_user.stars_balance) < tier:
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
         return
 
     prize = await get_case_outcome(session, tier)
     payout = round(prize, 2)
-    bet = float(tier)
 
-    db_user.stars_balance = round(float(db_user.stars_balance) - bet + payout, 2)
+    db_user.stars_balance = round(float(db_user.stars_balance) + (0 if free else -bet) + payout, 2)
     session.add(GameSession(
         user_id=db_user.user_id, game_type=f"case_{tier}",
         bet=bet, payout=payout, result="win" if payout > bet else "lose",

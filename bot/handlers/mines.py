@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.random_game import has_free_game_credit_for, try_consume_free_game_credit
 from bot.services.mines import mines_coeff, get_mines_params
 from bot.services.house_edge import is_in_recovery
 from bot.keyboards.mines import (
@@ -96,7 +97,7 @@ async def msg_mines_bet_custom(message: Message, state: FSMContext, session: Asy
         await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
-    if float(db_user.stars_balance) < bet:
+    if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
         await message.answer("❌ Недостаточно звёзд.", reply_markup=mines_cancel_kb())
         return
 
@@ -119,7 +120,7 @@ async def _ask_mines_count(callback: CallbackQuery, state: FSMContext, session: 
     if bet > max_bet:
         await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} ⭐", show_alert=True)
         return
-    if float(db_user.stars_balance) < bet:
+    if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
         return
 
@@ -146,13 +147,15 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
     data = await state.get_data()
     bet = data["bet"]
 
-    if float(db_user.stars_balance) < bet:
+    free = await try_consume_free_game_credit(session, db_user, bet)
+    if not free and float(db_user.stars_balance) < bet:
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
         await state.clear()
         return
 
-    # Deduct bet
-    db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
+    # Deduct bet (unless it was covered by a free-game credit)
+    if not free:
+        db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
     await session.commit()
 
     board = _make_board(mines_count)

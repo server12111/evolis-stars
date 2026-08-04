@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
-from aiogram import BaseMiddleware
+from aiogram import Bot, BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from bot.services.sponsor_waves import (
     sponsor_wave_markup,
     sponsor_wave_text,
 )
+from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -96,10 +97,44 @@ def _describe_result(result: list[dict] | BaseException | None) -> str:
     return "None"
 
 
+async def _drop_confirmed_subscriptions(
+    bot: Bot | None, user_id: int, provider_result: list[dict] | BaseException | None,
+) -> list[dict] | BaseException | None:
+    """Providers (tgrass/botohub) sometimes lag behind Telegram's own
+    membership state — propagation delay, a rotated task set, etc. — and
+    keep reporting a t.me channel as unsubscribed even after the user has
+    genuinely joined it. Independently re-check each t.me link ourselves
+    and drop it from the "still unsubscribed" list when our own bot
+    confirms membership, so a stale provider verdict can never cause a
+    false "not subscribed". Mirrors the same don't-trust-the-provider-
+    blindly principle already used for reward payouts (see
+    referral.py::_verify_tg_subscriptions), applied to the other side of
+    the check. Non-t.me links and anything the live lookup can't resolve
+    are left exactly as the provider reported them."""
+    if bot is None or not isinstance(provider_result, list):
+        return provider_result
+
+    async def _check(item: dict) -> dict | None:
+        chat_id = telegram_chat_id(item.get("url") or item.get("link"))
+        if chat_id is None:
+            return item
+        try:
+            member = await bot.get_chat_member(chat_id, user_id)
+        except Exception:
+            return item
+        return None if is_subscribed(member) else item
+
+    results = await asyncio.gather(
+        *(_check(item) for item in provider_result), return_exceptions=True,
+    )
+    return [item for item in results if isinstance(item, dict)]
+
+
 async def run_sponsor_wall_check(
     inner: Message | CallbackQuery,
     db_user: User,
     session: AsyncSession,
+    bot: Bot | None = None,
 ) -> bool:
     """Check all configured sponsor providers and show the current wave.
 
@@ -133,6 +168,10 @@ async def run_sponsor_wall_check(
         ),
         check_botohub(db_user.user_id, settings.botohub_key),
         return_exceptions=True,
+    )
+    tgrass_result, botohub_result = await asyncio.gather(
+        _drop_confirmed_subscriptions(bot, db_user.user_id, tgrass_result),
+        _drop_confirmed_subscriptions(bot, db_user.user_id, botohub_result),
     )
 
     piarflow_needed = False
@@ -284,7 +323,8 @@ class SponsorWallMiddleware(BaseMiddleware):
                 )
             return
 
-        if not await run_sponsor_wall_check(inner, db_user, session):
+        bot = data.get("bot")
+        if not await run_sponsor_wall_check(inner, db_user, session, bot):
             return
 
         # The wave just resolved to "complete" outside the /start /
@@ -295,7 +335,6 @@ class SponsorWallMiddleware(BaseMiddleware):
         if not db_user.sponsors_verified:
             db_user.sponsors_verified = True
             await session.commit()
-            bot = data.get("bot")
             if bot is not None:
                 await notify_user_sponsors_verified(db_user, session, bot)
                 await check_referral_reward(db_user, session, bot)

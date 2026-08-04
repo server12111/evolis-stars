@@ -57,7 +57,7 @@ async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSess
     providers are configured) is the next gate, then the main menu."""
     was_verified = db_user.sponsors_verified
     if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
-        if not await run_sponsor_wall_check(message, db_user, session):
+        if not await run_sponsor_wall_check(message, db_user, session, bot):
             return
     db_user.sponsors_verified = True
     await session.commit()
@@ -198,7 +198,7 @@ async def cb_sponsor_check(
         return
 
     was_verified = db_user.sponsors_verified
-    if not await run_sponsor_wall_check(callback, db_user, session):
+    if not await run_sponsor_wall_check(callback, db_user, session, bot):
         return
 
     # All subscribed — ToS is always accepted by this point (the sponsor

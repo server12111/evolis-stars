@@ -4,8 +4,14 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import GameSession, User
+from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.services.chat_eligibility import debit_stars_if_enough
+
+# Russian labels for every persisted multi-step chat game (roulette resolves
+# instantly and never has an active round of its own, so it's not listed
+# here — but a bet on it is still blocked below while any of these is active).
+GAME_TYPE_LABELS = {"doors": "Двери", "maze": "Лабиринт", "tower": "Башня"}
 
 
 async def place_bet(
@@ -16,6 +22,10 @@ async def place_bet(
         return False, f"❌ Мин. ставка: {min_bet:.0f} ⭐."
     if max_bet is not None and bet > max_bet:
         return False, f"❌ Макс. ставка: {max_bet:.0f} ⭐."
+    active = await ChatGameRoundRepository(session).get_any_active(user_id)
+    if active is not None:
+        label = GAME_TYPE_LABELS.get(active.game_type, active.game_type)
+        return False, f"⚠️ У тебя уже есть активная игра «{label}» — заверши её, прежде чем начать новую."
     user = await session.get(User, user_id)
     if user is None:
         return False, "❌ Нужно быть зарегистрированным в боте — напиши /start в личных сообщениях."

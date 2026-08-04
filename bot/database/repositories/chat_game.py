@@ -19,6 +19,15 @@ class ChatGameRoundRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_any_active(self, user_id: int) -> ChatGameRound | None:
+        """Any in-progress round for this user, across every chat and game
+        type — used to enforce "only one active group game at a time"
+        globally, not just per (chat, game_type)."""
+        result = await self.session.execute(
+            select(ChatGameRound).where(ChatGameRound.user_id == user_id).limit(1)
+        )
+        return result.scalars().first()
+
     async def create(
         self, chat_id: int, user_id: int, game_type: str, bet: float, state: dict
     ) -> ChatGameRound | None:

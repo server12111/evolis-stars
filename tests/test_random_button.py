@@ -28,7 +28,7 @@ def _callback():
 
 
 class RandomButtonTests(ChatModelsTestCase):
-    async def test_credits_stake_and_shows_play_button(self) -> None:
+    async def test_grants_a_free_game_credit_not_stars(self) -> None:
         async with self.sessions() as session:
             session.add(User(user_id=1, first_name="U", stars_balance=Decimal("10")))
             await session.commit()
@@ -43,7 +43,7 @@ class RandomButtonTests(ChatModelsTestCase):
         args, kwargs = cb.message.answer.await_args
         rendered = args[0]
         self.assertIn("Рандом", rendered)
-        self.assertIn("3.00", rendered)  # default random_stake credited
+        self.assertIn("3.00", rendered)  # default random_stake mentioned
 
         markup = kwargs["reply_markup"]
         play_button = markup.inline_keyboard[0][0]
@@ -52,7 +52,9 @@ class RandomButtonTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 1)
-        self.assertEqual(user.stars_balance, Decimal("10") + Decimal("3.0"))
+        # Balance is untouched — the reward is a separate "free game" credit.
+        self.assertEqual(user.stars_balance, Decimal("10"))
+        self.assertEqual(user.free_game_credits, 1)
         self.assertIsNotNone(user.last_random_at)
 
     async def test_second_tap_within_cooldown_is_blocked(self) -> None:

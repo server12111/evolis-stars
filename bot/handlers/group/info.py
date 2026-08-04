@@ -102,7 +102,11 @@ async def msg_top_users(message: Message, session: AsyncSession) -> None:
 @router.message(_matches_log)
 async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
-        select(GameSession.bet, GameSession.bet_choice)
+        select(
+            GameSession.bet, GameSession.bet_choice, GameSession.result, GameSession.payout,
+            User.username, User.first_name,
+        )
+        .join(User, User.user_id == GameSession.user_id)
         .where(GameSession.game_type == "roulette", GameSession.chat_id == message.chat.id)
         .order_by(GameSession.played_at.desc())
         .limit(10)
@@ -113,9 +117,14 @@ async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
         return
 
     lines = ["🎰 <b>Последние 10 игр в рулетку</b>\n"]
-    for bet, bet_choice in rows:
+    for bet, bet_choice, game_result, payout, username, first_name in rows:
         emoji = COLOR_EMOJI.get(bet_choice, "⚪️")
         val = float(bet)
         bet_str = f"{val:.0f}" if val == int(val) else f"{val:.2f}".rstrip("0").rstrip(".")
-        lines.append(f"{bet_str}{emoji}")
+        name = escape(f"@{username}" if username else (first_name or "—"))
+        if game_result == "win":
+            outcome = f"✅ +{float(payout):.2f} ⭐"
+        else:
+            outcome = f"❌ -{bet_str} ⭐"
+        lines.append(f"<code>{name}</code>: {bet_str}{emoji} — {outcome}")
     await message.answer("\n".join(lines), parse_mode="HTML")

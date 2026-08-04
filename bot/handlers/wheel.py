@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User, GameSession
 from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.random_game import try_consume_free_game_credit
 from bot.services.casino import get_wheel_outcome, update_casino_profit
 from bot.keyboards.wheel import wheel_menu_kb, wheel_bet_kb, wheel_cancel_kb, wheel_result_kb
 from bot.states.games import WheelStates
@@ -53,10 +54,11 @@ async def cb_wheel_bet(callback: CallbackQuery, session: AsyncSession, bot: Bot,
     except (IndexError, ValueError):
         await callback.answer("❌ Неверная ставка.", show_alert=True)
         return
-    if db_user.stars_balance < bet:
+    free = await try_consume_free_game_credit(session, db_user, bet)
+    if not free and db_user.stars_balance < bet:
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
         return
-    await _spin_and_send(None, callback, session, bot, db_user, bet)
+    await _spin_and_send(None, callback, session, bot, db_user, bet, free=free)
 
 
 @router.callback_query(lambda c: c.data == "wheel:bet:custom")
@@ -86,17 +88,20 @@ async def msg_wheel_bet(message: Message, state: FSMContext, session: AsyncSessi
     if bet > max_bet:
         await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=wheel_cancel_kb())
         return
-    if db_user.stars_balance < bet:
+    free = await try_consume_free_game_credit(session, db_user, bet)
+    if not free and db_user.stars_balance < bet:
         await message.answer("❌ Недостаточно звёзд.", reply_markup=wheel_cancel_kb())
         return
-    await _spin_and_send(message, None, session, bot, db_user, bet)
+    await _spin_and_send(message, None, session, bot, db_user, bet, free=free)
 
 
-async def _spin_and_send(message, callback, session: AsyncSession, bot: Bot, user: User, bet: float) -> None:
+async def _spin_and_send(
+    message, callback, session: AsyncSession, bot: Bot, user: User, bet: float, free: bool = False,
+) -> None:
     coeff = await get_wheel_outcome(session)
     payout = round(bet * coeff, 2)
 
-    user.stars_balance = round(float(user.stars_balance) - bet + payout, 2)
+    user.stars_balance = round(float(user.stars_balance) + (0 if free else -bet) + payout, 2)
     session.add(GameSession(
         user_id=user.user_id, game_type="wheel",
         bet=bet, payout=payout, result="win" if payout > bet else "lose",

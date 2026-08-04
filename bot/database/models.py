@@ -45,6 +45,7 @@ class User(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_bonus_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_random_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    free_game_credits: Mapped[int] = mapped_column(Integer, default=0)  # unused "free 3⭐ game" tokens from the Random button
 
     # game-specific counters (ported from SrvNkreferal)
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
