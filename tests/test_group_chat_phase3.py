@@ -114,7 +114,7 @@ class TowerTests(ChatModelsTestCase):
             await cb_tower_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 10)
-        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("12.00"))  # 10 * chat_tower_coeff_0 (1.20)
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.50"))  # 10 * chat_tower_coeff_0 (1.05)
 
     async def test_hitting_mine_loses_bet(self) -> None:
         await self._add_user(11, "100")
@@ -224,13 +224,13 @@ class DoorsTests(ChatModelsTestCase):
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("Приз", rendered)
 
-        # Cash out at level 1 -> door_coeff_1 default 1.6
+        # Cash out at level 1 -> door_coeff_1 default 1.05
         cashout_cb = _callback(-9, 30, "doors:cashout")
         async with self.sessions() as session:
             await cb_doors_cashout(cashout_cb, session)
         async with self.sessions() as session:
             user = await session.get(User, 30)
-        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("16.00"))  # 10*1.6
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.50"))  # 10*1.05
 
     async def test_wrong_door_loses_bet(self) -> None:
         await self._add_user(31, "100")

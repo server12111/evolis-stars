@@ -6,6 +6,7 @@ from bot.services.chat_games import (
     DOORS_SAFE_PER_LEVEL_PUNISH,
     ROULETTE_CUBES,
     ROULETTE_CUBES_PUNISH,
+    _DOORS_DEFAULT_COEFFS,
     doors_generate_safe_positions,
     maze_base_coeff,
     roulette_spin,
@@ -34,9 +35,14 @@ class DoorsPunishModeTests(unittest.TestCase):
     def test_punish_mode_has_one_safe_door(self) -> None:
         self.assertEqual(len(doors_generate_safe_positions(punish=True)), DOORS_SAFE_PER_LEVEL_PUNISH)
 
-    def test_coeff_table_caps_at_20x_from_level_5(self) -> None:
-        levels_5_to_10 = [round(v, 2) for v in [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]]
-        self.assertEqual(levels_5_to_10, [20.0] * 6)
+    def test_coeff_table_matches_the_configured_values(self) -> None:
+        self.assertEqual(
+            _DOORS_DEFAULT_COEFFS,
+            [1.05, 1.15, 1.30, 1.50, 1.75, 2.10, 2.50, 3.00, 3.80, 5.00],
+        )
+
+    def test_coeffs_strictly_increase_with_level(self) -> None:
+        self.assertEqual(_DOORS_DEFAULT_COEFFS, sorted(_DOORS_DEFAULT_COEFFS))
 
 
 class MazeCoeffTests(unittest.TestCase):
@@ -49,12 +55,11 @@ class MazeCoeffTests(unittest.TestCase):
 
 
 class TowerCoeffTableTests(unittest.TestCase):
-    def test_flat_twenty_percent_edge_at_every_level(self) -> None:
-        # survival is 2/3 per level, so fair(k) = (3/2)**(k+1); coeff should
-        # sit at fair(k) * 0.8 (20% house edge) at every level, not just some.
-        for level, coeff in enumerate(CHAT_TOWER_DEFAULT_COEFFS):
-            fair = (3 / 2) ** (level + 1)
-            self.assertAlmostEqual(coeff, fair * 0.8, places=2)
+    def test_coeff_table_matches_the_configured_values(self) -> None:
+        self.assertEqual(
+            CHAT_TOWER_DEFAULT_COEFFS,
+            [1.05, 1.20, 1.40, 1.65, 1.95, 2.30, 2.70, 3.20],
+        )
 
     def test_coeffs_strictly_increase_with_level(self) -> None:
         self.assertEqual(CHAT_TOWER_DEFAULT_COEFFS, sorted(CHAT_TOWER_DEFAULT_COEFFS))

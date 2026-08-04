@@ -65,7 +65,7 @@ class TimeoutSweepTests(ChatModelsTestCase):
 
     async def test_doors_progress_auto_cashed_out(self) -> None:
         await self._add_user(2, "40")
-        # Level 1 passed -> door_coeff_1 default 1.6
+        # Level 1 passed -> door_coeff_1 default 1.05
         await self._add_stale_round(-2, 2, "doors", 10, 1, {"safe_positions": [0, 1]})
 
         bot = SimpleNamespace(send_message=AsyncMock())
@@ -74,7 +74,7 @@ class TimeoutSweepTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 2)
-        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("16.00"))  # 10*1.6
+        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("10.50"))  # 10*1.05
 
     async def test_maze_progress_auto_cashed_out(self) -> None:
         await self._add_user(3, "40")
@@ -100,8 +100,8 @@ class TimeoutSweepTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 4)
-        # level-1=0 -> chat_tower_coeff_0 default 1.20
-        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("12.00"))
+        # level-1=0 -> chat_tower_coeff_0 default 1.05
+        self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("10.50"))
 
     async def test_fresh_round_is_not_swept(self) -> None:
         await self._add_user(5, "50")

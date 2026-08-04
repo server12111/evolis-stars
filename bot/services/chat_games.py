@@ -170,11 +170,7 @@ DOORS_PER_LEVEL = 4
 DOORS_SAFE_PER_LEVEL = 2
 DOORS_SAFE_PER_LEVEL_PUNISH = 1  # recovery mode: 1-of-4 safe instead of 2-of-4
 DOORS_LEVELS = 10
-# True 20%-edge formula (2^level * 0.8) through level 4, then clamped flat at
-# 20.0 — levels 5-10 are reached 3% of the time or less, so this barely
-# moves the average edge while keeping the top payout in Tower's ballpark
-# instead of an untamed 819.2x.
-_DOORS_DEFAULT_COEFFS = [1.6, 3.2, 6.4, 12.8, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+_DOORS_DEFAULT_COEFFS = [1.05, 1.15, 1.30, 1.50, 1.75, 2.10, 2.50, 3.00, 3.80, 5.00]
 
 
 def doors_generate_safe_positions(punish: bool = False) -> list[int]:
@@ -192,10 +188,9 @@ async def get_doors_coeff(session: AsyncSession, level: int) -> float:
 # ─── Tower (group) ─────────────────────────────────────────────────────────
 # Own settings namespace (chat_tower_*) — deliberately separate from the
 # private-chat Tower's tower_coeff_* so this group game can be rebalanced
-# without touching the private game. coeff(k) = fair(k) * 0.8, since survival
-# per level is 2/3 — a flat 20% house edge at every level.
+# without touching the private game.
 CHAT_TOWER_LEVELS = 8
-CHAT_TOWER_DEFAULT_COEFFS = [1.20, 1.80, 2.70, 4.05, 6.08, 9.11, 13.67, 20.50]
+CHAT_TOWER_DEFAULT_COEFFS = [1.05, 1.20, 1.40, 1.65, 1.95, 2.30, 2.70, 3.20]
 
 
 async def get_chat_tower_coeff(session: AsyncSession, level: int) -> float:

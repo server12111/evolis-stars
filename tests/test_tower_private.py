@@ -121,9 +121,9 @@ class PrivateTowerTests(ChatModelsTestCase):
             repo = SettingsRepository(session)
             total_bet = await repo.get_float("tower_total_bet")
             total_payout = await repo.get_float("tower_total_payout")
-        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("12.00"))  # 10 * tower_coeff_0 (1.20)
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.50"))  # 10 * tower_coeff_0 (1.05)
         self.assertEqual(total_bet, 10.0)
-        self.assertEqual(total_payout, 12.0)
+        self.assertEqual(total_payout, 10.5)
 
 
 if __name__ == "__main__":
