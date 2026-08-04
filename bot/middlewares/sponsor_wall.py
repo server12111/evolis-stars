@@ -27,6 +27,7 @@ _BYPASS_PREFIXES = (
     "admin:",
     "wall_check",
     "sponsor_check",
+    "tos_accept",
 )
 
 
