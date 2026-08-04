@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from bot.database.repositories.content import DEFAULT_TEXTS
 from bot.services.referral import sponsors_word
 from bot.handlers.earn import cb_earn
 
@@ -63,6 +64,41 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
         rendered = callback.message.edit_text.await_args.args[0]
         self.assertIn("2 спонсора.", rendered)
         self.assertNotIn("2 спонсоров", rendered)
+
+    async def test_default_template_shows_both_normal_and_premium_reward(self) -> None:
+        callback = SimpleNamespace(
+            message=SimpleNamespace(
+                delete=AsyncMock(),
+                answer_photo=AsyncMock(),
+                edit_text=AsyncMock(),
+                answer=AsyncMock(),
+            ),
+            answer=AsyncMock(),
+        )
+        db_user = SimpleNamespace(user_id=1, referrals_count=0, stars_balance=0)
+        session = SimpleNamespace()
+
+        async def reward_side_effect(_session, is_premium=False):
+            return Decimal("9") if is_premium else Decimal("4")
+
+        with (
+            patch("bot.handlers.earn.ContentRepository.get_text", AsyncMock(
+                return_value=DEFAULT_TEXTS["earn"]
+            )),
+            patch("bot.handlers.earn.ContentRepository.get_photo", AsyncMock(return_value=None)),
+            patch(
+                "bot.handlers.earn.UserRepository.inactive_rewarded_referrals",
+                AsyncMock(return_value=([], 0, 0)),
+            ),
+            patch("bot.handlers.earn.get_referral_reward", AsyncMock(side_effect=reward_side_effect)),
+            patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=3)),
+            patch("bot.handlers.earn.get_milestone_bonus", AsyncMock(return_value=Decimal("0.1"))),
+        ):
+            await cb_earn(callback, db_user, session)
+
+        rendered = callback.message.edit_text.await_args.args[0]
+        self.assertIn("Награда за реферала: <b>4 ⭐</b>", rendered)
+        self.assertIn("Награда за Premium-реферала: <b>9 ⭐</b>", rendered)
 
 
 if __name__ == "__main__":

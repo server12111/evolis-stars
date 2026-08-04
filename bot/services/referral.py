@@ -87,7 +87,9 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
     return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
-async def get_referral_reward(session: AsyncSession) -> Decimal:
+async def get_referral_reward(session: AsyncSession, is_premium: bool = False) -> Decimal:
+    if is_premium:
+        return await _get_decimal_setting(session, "referral_reward_premium", "6")
     return await _get_decimal_setting(session, "referral_reward", "4")
 
 
@@ -175,7 +177,7 @@ async def reward_returning_referral(
         return None
 
     referred_user_id = user.user_id
-    base_reward = await get_referral_reward(session)
+    base_reward = await get_referral_reward(session, is_premium=bool(user.is_premium))
     reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
     if reward <= 0:
@@ -245,6 +247,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     referrer_id = user.referrer_id
     referred_username = user.username
     referred_first_name = user.first_name
+    referred_is_premium = bool(user.is_premium)
 
     tg_urls, web_urls = _current_sponsor_urls(user)
     tg_pre = len(tg_urls)
@@ -293,7 +296,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not referrer:
         return
 
-    reward = await get_referral_reward(session)
+    reward = await get_referral_reward(session, is_premium=referred_is_premium)
 
     # referrals_count is read-then-written, so two referrals for the same
     # referrer completing at nearly the same moment (plausible with the
@@ -341,9 +344,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     user.referral_reward_given = True
     await session.commit()
     logger.info(
-        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s is_vip=%s",
+        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s is_vip=%s is_premium=%s",
         referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
-        reward, bonus, referrer_is_vip,
+        reward, bonus, referrer_is_vip, referred_is_premium,
     )
 
     if bot:
@@ -352,8 +355,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
             if referred_username
             else escape(referred_first_name or str(referred_user_id))
         )
+        premium_tag = " 💎" if referred_is_premium else ""
         try:
-            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}."
+            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}{premium_tag}."
             if bonus > 0:
                 msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
 
@@ -386,10 +390,11 @@ async def notify_referrer_joined(referrer_id: int, new_user: User, session: Asyn
         if new_user.username
         else escape(new_user.first_name or str(new_user.user_id))
     )
+    premium_tag = " 💎 <b>(Premium)</b>" if new_user.is_premium else ""
     try:
         await bot.send_message(
             referrer_id,
-            f"⚡ Пользователь {username_display} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
+            f"⚡ Пользователь {username_display}{premium_tag} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
             parse_mode="HTML",
         )
     except Exception:

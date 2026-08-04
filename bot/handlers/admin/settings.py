@@ -17,6 +17,7 @@ router = Router()
 
 SETTING_LABELS = {
     "referral_reward": ("🎁 Награда за реферала", "число ⭐"),
+    "referral_reward_premium": ("💎 Награда за Premium-реферала", "число ⭐"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
     "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число ⭐"),
     "referral_bonus_15": ("🏅 Бонус за 15 рефералов", "число ⭐"),
@@ -63,6 +64,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     await state.clear()
     repo = SettingsRepository(session)
     referral_reward = await repo.get_float("referral_reward", 4.0)
+    referral_reward_premium = await repo.get_float("referral_reward_premium", 6.0)
     min_sponsors = await repo.get_int("min_sponsors_for_reward", 3)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
@@ -75,6 +77,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
         f"🎁 Награда за реферала: <b>{referral_reward:.2f} ⭐</b>\n"
+        f"💎 Награда за Premium-реферала: <b>{referral_reward_premium:.2f} ⭐</b>\n"
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"

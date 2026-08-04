@@ -40,6 +40,7 @@ class User(Base):
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_premium: Mapped[bool] = mapped_column(Boolean, default=False)  # Telegram Premium, synced from tg_user.is_premium on every update
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_bonus_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -45,6 +45,7 @@ class UserMiddleware(BaseMiddleware):
                 user_id=tg_user.id,
                 username=tg_user.username,
                 first_name=tg_user.first_name or "",
+                is_premium=bool(getattr(tg_user, "is_premium", False)),
             )
 
             if user.is_blocked and tg_user.id not in settings.admin_id_list:

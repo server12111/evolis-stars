@@ -7,6 +7,7 @@ from bot.database.repositories.base import BaseRepository
 
 DEFAULT_SETTINGS: dict[str, str] = {
     "referral_reward": "4",
+    "referral_reward_premium": "6",
     "min_sponsors_for_reward": "3",
     "referral_bonus_10": "0.05",
     "referral_bonus_15": "0.1",

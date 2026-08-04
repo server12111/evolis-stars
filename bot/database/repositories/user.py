@@ -16,6 +16,7 @@ class UserRepository(BaseRepository):
         username: str | None,
         first_name: str,
         referrer_id: int | None = None,
+        is_premium: bool = False,
     ) -> tuple[User, bool, datetime | None]:
         user = await self.session.get(User, user_id)
         if user:
@@ -23,6 +24,7 @@ class UserRepository(BaseRepository):
             user.username = username
             user.first_name = first_name
             user.last_seen_at = datetime.utcnow()
+            user.is_premium = is_premium
             await self.session.commit()
             return user, False, previous_last_seen_at
         user = User(
@@ -30,6 +32,7 @@ class UserRepository(BaseRepository):
             username=username,
             first_name=first_name,
             referrer_id=referrer_id,
+            is_premium=is_premium,
         )
         self.session.add(user)
         await self.session.commit()
