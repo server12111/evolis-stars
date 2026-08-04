@@ -46,8 +46,9 @@ async def _load_games_config(session: AsyncSession) -> dict:
             hi = await repo.get_float("game_basketball_coeff_clean", 4.0)
             cfg["coeff_label"] = f"x{lo:.4g}–x{hi:.4g}"
         elif game == "darts":
-            hi = await repo.get_float("game_darts_coeff_bullseye", 4.8)
-            cfg["coeff_label"] = f"x{hi:.4g}"
+            hi = await repo.get_float("game_darts_coeff_bullseye", 3.0)
+            lo = await repo.get_float("game_darts_coeff_bounce", 1.7)
+            cfg["coeff_label"] = f"x{lo:.4g}–x{hi:.4g}"
         elif game == "bowling":
             cs = await repo.get_float("game_bowling_coeff_strike", 4.8)
             cp = await repo.get_float("game_bowling_coeff_partial", 1.2)
@@ -118,8 +119,8 @@ async def _execute_game(
             won, payout = True, round(bet * cfruits, 2)
 
     elif game_type == "darts":
-        c_bull = await repo.get_float("game_darts_coeff_bullseye", 4.8)
-        c_bounce = await repo.get_float("game_darts_coeff_bounce", 4.8)
+        c_bull = await repo.get_float("game_darts_coeff_bullseye", 3.0)
+        c_bounce = await repo.get_float("game_darts_coeff_bounce", 1.7)
         if value == 6 and game_side == "center":
             won, payout = True, round(bet * c_bull, 2)
             db_user.darts_bullseye_count = (db_user.darts_bullseye_count or 0) + 1
@@ -353,9 +354,15 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
     if game_type in side_states:
         await state.set_state(side_states[game_type])
         await state.update_data(bet=bet)
+        if game_type == "darts":
+            coeff_center = await repo.get_float("game_darts_coeff_bullseye", 3.0)
+            coeff_bounce = await repo.get_float("game_darts_coeff_bounce", 1.7)
+            kb = darts_side_kb(coeff_center, coeff_bounce)
+        else:
+            kb = side_kbs[game_type]()
         await message.answer(
             f"<b>{GAME_LABELS[game_type]}</b>\n\nСтавка: <b>{bet:.0f} ⭐</b>\n\n{side_prompts[game_type]}",
-            parse_mode="HTML", reply_markup=side_kbs[game_type](),
+            parse_mode="HTML", reply_markup=kb,
         )
         return
 

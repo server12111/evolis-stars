@@ -85,8 +85,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "game_darts_max_bet": "500",
     "game_darts_bet_step": "1.0",
     "game_darts_daily_limit": "0",
-    "game_darts_coeff_bullseye": "4.8",
-    "game_darts_coeff_bounce": "4.8",
+    "game_darts_coeff_bullseye": "3.0",
+    "game_darts_coeff_bounce": "1.7",
     # Videos (file_id из Telegram, задаётся через админку)
     "wheel_max_bet": "500",
     "wheel_video_50x": "",

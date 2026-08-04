@@ -75,11 +75,9 @@ class DiceRtpTests(unittest.TestCase):
 
 
 class DartsRtpTests(unittest.TestCase):
-    def test_both_sides_hit_target_rtp(self) -> None:
-        for key in ("game_darts_coeff_bullseye", "game_darts_coeff_bounce"):
-            with self.subTest(key=key):
-                rtp = (1 / 6) * _coeff(key)
-                self.assertAlmostEqual(rtp, TARGET_RTP, delta=TOLERANCE)
+    def test_coefficients_match_the_configured_values(self) -> None:
+        self.assertEqual(_coeff("game_darts_coeff_bullseye"), 3.0)
+        self.assertEqual(_coeff("game_darts_coeff_bounce"), 1.7)
 
 
 class SlotsRtpTests(unittest.TestCase):

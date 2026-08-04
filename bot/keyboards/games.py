@@ -97,11 +97,11 @@ def bowling_side_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def darts_side_kb() -> InlineKeyboardMarkup:
+def darts_side_kb(coeff_center: float, coeff_bounce: float) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="🎯 В центр (x5)", callback_data="game:darts:center"),
-        InlineKeyboardButton(text="💨 Отскок (x5)", callback_data="game:darts:bounce"),
+        InlineKeyboardButton(text=f"🎯 В центр (x{coeff_center:.4g})", callback_data="game:darts:center"),
+        InlineKeyboardButton(text=f"💨 Отскок (x{coeff_bounce:.4g})", callback_data="game:darts:bounce"),
     )
     builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
     return builder.as_markup()
