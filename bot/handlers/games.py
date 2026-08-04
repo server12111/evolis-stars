@@ -34,26 +34,26 @@ async def _load_games_config(session: AsyncSession) -> dict:
         min_bet = await repo.get_float(f"game_{game}_min_bet", 1.0)
         cfg = {"enabled": enabled, "min_bet": min_bet}
         if game == "slots":
-            c1 = await repo.get_float("game_slots_coeff1", 10.0)
-            c2 = await repo.get_float("game_slots_coeff2", 2.0)
+            c1 = await repo.get_float("game_slots_coeff1", 42.2)
+            c2 = await repo.get_float("game_slots_coeff2", 3.0)
             cfg["coeff_label"] = f"x{c2:.4g}–x{c1:.4g}"
         elif game == "football":
-            cg = await repo.get_float("game_football_coeff_goal", 1.5)
-            cm = await repo.get_float("game_football_coeff_miss", 2.2)
+            cg = await repo.get_float("game_football_coeff_goal", 2.0)
+            cm = await repo.get_float("game_football_coeff_miss", 1.33)
             cfg["coeff_label"] = f"Гол x{cg:.4g}/Промах x{cm:.4g}"
         elif game == "basketball":
-            lo = await repo.get_float("game_basketball_coeff_miss", 1.5)
+            lo = await repo.get_float("game_basketball_coeff_miss", 2.0)
             hi = await repo.get_float("game_basketball_coeff_clean", 4.0)
             cfg["coeff_label"] = f"x{lo:.4g}–x{hi:.4g}"
         elif game == "darts":
-            hi = await repo.get_float("game_darts_coeff_bullseye", 5.0)
+            hi = await repo.get_float("game_darts_coeff_bullseye", 4.8)
             cfg["coeff_label"] = f"x{hi:.4g}"
         elif game == "bowling":
-            cs = await repo.get_float("game_bowling_coeff_strike", 5.0)
-            cp = await repo.get_float("game_bowling_coeff_partial", 2.0)
+            cs = await repo.get_float("game_bowling_coeff_strike", 4.8)
+            cp = await repo.get_float("game_bowling_coeff_partial", 1.2)
             cfg["coeff_label"] = f"x{cp:.4g}–x{cs:.4g}"
         else:
-            c = await repo.get_float(f"game_{game}_coeff", 1.9)
+            c = await repo.get_float(f"game_{game}_coeff", 1.6)
             cfg["coeff_label"] = f"x{c:.4g}"
         configs[game] = cfg
     return configs
@@ -70,8 +70,8 @@ async def _execute_game(
     won, payout = False, 0.0
 
     if game_type == "football":
-        cg = await repo.get_float("game_football_coeff_goal", 1.5)
-        cm = await repo.get_float("game_football_coeff_miss", 2.2)
+        cg = await repo.get_float("game_football_coeff_goal", 2.0)
+        cm = await repo.get_float("game_football_coeff_miss", 1.33)
         if value in (4, 5) and game_side == "goal":
             won, payout = True, round(bet * cg, 2)
         elif value not in (4, 5) and game_side == "miss":
@@ -79,9 +79,9 @@ async def _execute_game(
 
     elif game_type == "basketball":
         c_clean = await repo.get_float("game_basketball_coeff_clean", 4.0)
-        c_any = await repo.get_float("game_basketball_coeff_any", 2.2)
+        c_any = await repo.get_float("game_basketball_coeff_any", 2.0)
         c_stuck = await repo.get_float("game_basketball_coeff_stuck", 4.0)
-        c_miss = await repo.get_float("game_basketball_coeff_miss", 1.5)
+        c_miss = await repo.get_float("game_basketball_coeff_miss", 2.0)
         if value == 5:
             if game_side == "clean": won, payout = True, round(bet * c_clean, 2)
             elif game_side == "any": won, payout = True, round(bet * c_any, 2)
@@ -93,9 +93,9 @@ async def _execute_game(
             won, payout = True, round(bet * c_miss, 2)
 
     elif game_type == "bowling":
-        cs = await repo.get_float("game_bowling_coeff_strike", 5.0)
-        cp = await repo.get_float("game_bowling_coeff_partial", 2.0)
-        cm = await repo.get_float("game_bowling_coeff_miss", 4.0)
+        cs = await repo.get_float("game_bowling_coeff_strike", 4.8)
+        cp = await repo.get_float("game_bowling_coeff_partial", 1.2)
+        cm = await repo.get_float("game_bowling_coeff_miss", 4.8)
         if value == 6 and game_side == "strike":
             won, payout = True, round(bet * cs, 2)
         elif value in (2, 3, 4, 5) and game_side == "partial":
@@ -104,13 +104,13 @@ async def _execute_game(
             won, payout = True, round(bet * cm, 2)
 
     elif game_type == "dice":
-        coeff = await repo.get_float("game_dice_coeff", 1.9)
+        coeff = await repo.get_float("game_dice_coeff", 1.6)
         if (game_side == "high" and value > 3) or (game_side == "low" and value < 4):
             won, payout = True, round(bet * coeff, 2)
 
     elif game_type == "slots":
-        c777 = await repo.get_float("game_slots_coeff1", 10.0)
-        cfruits = await repo.get_float("game_slots_coeff2", 2.0)
+        c777 = await repo.get_float("game_slots_coeff1", 42.2)
+        cfruits = await repo.get_float("game_slots_coeff2", 3.0)
         if value == 64:
             won, payout = True, round(bet * c777, 2)
             db_user.slots_777_count = (db_user.slots_777_count or 0) + 1
@@ -118,8 +118,8 @@ async def _execute_game(
             won, payout = True, round(bet * cfruits, 2)
 
     elif game_type == "darts":
-        c_bull = await repo.get_float("game_darts_coeff_bullseye", 5.0)
-        c_bounce = await repo.get_float("game_darts_coeff_bounce", 5.0)
+        c_bull = await repo.get_float("game_darts_coeff_bullseye", 4.8)
+        c_bounce = await repo.get_float("game_darts_coeff_bounce", 4.8)
         if value == 6 and game_side == "center":
             won, payout = True, round(bet * c_bull, 2)
             db_user.darts_bullseye_count = (db_user.darts_bullseye_count or 0) + 1
