@@ -50,6 +50,7 @@ def _add_missing_user_columns(connection) -> None:
         "is_vip": "BOOLEAN NOT NULL DEFAULT 0",
         "is_premium": "BOOLEAN NOT NULL DEFAULT 0",
         "free_game_credits": "INTEGER NOT NULL DEFAULT 0",
+        "free_game_credit_amount": "NUMERIC(14,2)",
         "referral_insufficient_notified": "BOOLEAN NOT NULL DEFAULT 0",
         "tos_accepted": "BOOLEAN NOT NULL DEFAULT 0",
         "last_random_at": "DATETIME",
@@ -81,6 +82,10 @@ def _add_missing_user_columns(connection) -> None:
     if "bet_choice" not in game_session_columns:
         connection.execute(
             text("ALTER TABLE game_sessions ADD COLUMN bet_choice VARCHAR(16)")
+        )
+    if "result_choice" not in game_session_columns:
+        connection.execute(
+            text("ALTER TABLE game_sessions ADD COLUMN result_choice VARCHAR(16)")
         )
     _ensure_integrity_indexes(connection)
 

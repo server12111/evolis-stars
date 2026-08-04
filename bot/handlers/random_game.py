@@ -1,5 +1,6 @@
 import random
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from aiogram import Router
 from aiogram.types import CallbackQuery, InlineKeyboardButton
@@ -21,30 +22,30 @@ _POOL = {
     "tower": ("🗼 Башня", "menu:tower"),
 }
 
+# Each press picks one of these at random — all three must actually occur.
+RANDOM_STAKE_CHOICES = (1.0, 2.0, 3.0)
+
 
 async def has_free_game_credit_for(session: AsyncSession, user: User, bet: float) -> bool:
-    """Read-only check — does the user have an unused "free 3⭐ game" credit
-    that would cover this exact bet? Used for intermediate steps (choosing
-    a bet, choosing a mine count, ...) where actually spending the credit
+    """Read-only check — does the user have an unused free-game credit that
+    would cover this exact bet? Used for intermediate steps (choosing a
+    bet, choosing a mine count, ...) where actually spending the credit
     would be premature since the user could still back out."""
-    if (user.free_game_credits or 0) <= 0:
-        return False
-    stake = await SettingsRepository(session).get_float("random_stake", 3.0)
-    return bet == stake
+    amount = user.free_game_credit_amount
+    return amount is not None and float(amount) == bet
 
 
 async def try_consume_free_game_credit(session: AsyncSession, user: User, bet: float) -> bool:
-    """If the user holds an unused "free 3⭐ game" credit and this bet
-    matches the configured free-game stake, consumes exactly one credit and
-    returns True — the caller must then NOT debit `bet` from the balance
-    for this round (everything else, including payout math, proceeds
-    exactly as if it were a normal paid bet). Returns False otherwise, in
-    which case the caller debits the bet as usual. Call this only at the
-    point the bet is actually committed, not at earlier "choose a bet"
-    steps — see has_free_game_credit_for for those."""
+    """If the user holds an unused free-game credit for exactly this bet,
+    consumes it and returns True — the caller must then NOT debit `bet`
+    from the balance for this round (everything else, including payout
+    math, proceeds exactly as if it were a normal paid bet). Returns False
+    otherwise, in which case the caller debits the bet as usual. Call this
+    only at the point the bet is actually committed, not at earlier
+    "choose a bet" steps — see has_free_game_credit_for for those."""
     if not await has_free_game_credit_for(session, user, bet):
         return False
-    user.free_game_credits -= 1
+    user.free_game_credit_amount = None
     return True
 
 
@@ -64,12 +65,12 @@ async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSessio
         )
         return
 
-    stake = await settings_repo.get_float("random_stake", 3.0)
+    stake = random.choice(RANDOM_STAKE_CHOICES)
     choice = random.choice(list(_POOL))
     game_label, deep_link = _POOL[choice]
 
     db_user.last_random_at = now
-    db_user.free_game_credits = (db_user.free_game_credits or 0) + 1
+    db_user.free_game_credit_amount = Decimal(str(stake))
     await session.commit()
 
     builder = InlineKeyboardBuilder()

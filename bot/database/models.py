@@ -45,7 +45,11 @@ class User(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_bonus_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_random_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    free_game_credits: Mapped[int] = mapped_column(Integer, default=0)  # unused "free 3⭐ game" tokens from the Random button
+    free_game_credits: Mapped[int] = mapped_column(Integer, default=0)  # unused, kept for backward compat — superseded by free_game_credit_amount
+    # Amount (1/2/3 ⭐) of the single outstanding free-game credit from the
+    # Random button, or NULL if none is pending. A fresh Random press
+    # overwrites this (a stale unused credit is simply replaced).
+    free_game_credit_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     # game-specific counters (ported from SrvNkreferal)
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -107,6 +111,7 @@ class GameSession(Base):
     played_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # set only for the 4 chat-only games
     bet_choice: Mapped[str | None] = mapped_column(String(16), nullable=True)  # e.g. roulette color bet on; reusable for future bet-target games
+    result_choice: Mapped[str | None] = mapped_column(String(16), nullable=True)  # e.g. roulette color that actually landed
 
 
 # ─── Duel ─────────────────────────────────────────────────────────────────────

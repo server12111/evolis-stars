@@ -50,13 +50,13 @@ class RandomGrantsCreditTests(ChatModelsTestCase):
         async with self.sessions() as session:
             user = await session.get(User, 1)
         self.assertEqual(user.stars_balance, Decimal("0"))
-        self.assertEqual(user.free_game_credits, 1)
+        self.assertIn(user.free_game_credit_amount, (Decimal("1.0"), Decimal("2.0"), Decimal("3.0")))
 
 
 class WheelFreeCreditTests(ChatModelsTestCase):
     async def test_3_star_bet_with_credit_does_not_touch_balance_on_deduction(self) -> None:
         async with self.sessions() as session:
-            session.add(User(user_id=10, first_name="U", stars_balance=Decimal("0"), free_game_credits=1))
+            session.add(User(user_id=10, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
             await session.commit()
             db_user = await session.get(User, 10)
             cb = _callback("wheel:bet:3")
@@ -64,7 +64,7 @@ class WheelFreeCreditTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 10)
-        self.assertEqual(user.free_game_credits, 0)
+        self.assertIsNone(user.free_game_credit_amount)
         # Balance started at 0 and was never charged the 3⭐ bet — any
         # nonzero balance now is purely the payout (0.1x or 50x of 3⭐),
         # never negative, and never short by exactly the stake.
@@ -72,7 +72,7 @@ class WheelFreeCreditTests(ChatModelsTestCase):
 
     async def test_3_star_bet_without_credit_requires_balance(self) -> None:
         async with self.sessions() as session:
-            session.add(User(user_id=11, first_name="U", stars_balance=Decimal("0"), free_game_credits=0))
+            session.add(User(user_id=11, first_name="U", stars_balance=Decimal("0")))
             await session.commit()
             db_user = await session.get(User, 11)
             cb = _callback("wheel:bet:3")
@@ -85,7 +85,7 @@ class WheelFreeCreditTests(ChatModelsTestCase):
 class CasesFreeCreditTests(ChatModelsTestCase):
     async def test_tier_3_case_with_credit_does_not_charge_balance(self) -> None:
         async with self.sessions() as session:
-            session.add(User(user_id=20, first_name="U", stars_balance=Decimal("0"), free_game_credits=1))
+            session.add(User(user_id=20, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
             await session.commit()
             db_user = await session.get(User, 20)
             cb = _callback("cases:confirm:3")
@@ -93,14 +93,14 @@ class CasesFreeCreditTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 20)
-        self.assertEqual(user.free_game_credits, 0)
+        self.assertIsNone(user.free_game_credit_amount)
         self.assertGreaterEqual(user.stars_balance, Decimal("0"))
 
 
 class MinesFreeCreditTests(ChatModelsTestCase):
     async def test_3_star_bet_with_credit_reaches_playing_state_with_zero_balance(self) -> None:
         async with self.sessions() as session:
-            session.add(User(user_id=30, first_name="U", stars_balance=Decimal("0"), free_game_credits=1))
+            session.add(User(user_id=30, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
             await session.commit()
 
         state = _state()
@@ -117,7 +117,7 @@ class MinesFreeCreditTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 30)
-        self.assertEqual(user.free_game_credits, 0)
+        self.assertIsNone(user.free_game_credit_amount)
         self.assertEqual(user.stars_balance, Decimal("0"))  # never charged
         data = await state.get_data()
         self.assertEqual(data["bet"], 3.0)
@@ -126,7 +126,7 @@ class MinesFreeCreditTests(ChatModelsTestCase):
 class TowerFreeCreditTests(ChatModelsTestCase):
     async def test_3_star_bet_with_credit_does_not_charge_balance(self) -> None:
         async with self.sessions() as session:
-            session.add(User(user_id=40, first_name="U", stars_balance=Decimal("0"), free_game_credits=1))
+            session.add(User(user_id=40, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
             await session.commit()
 
         state = _state()
@@ -138,7 +138,7 @@ class TowerFreeCreditTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             user = await session.get(User, 40)
-        self.assertEqual(user.free_game_credits, 0)
+        self.assertIsNone(user.free_game_credit_amount)
         self.assertEqual(user.stars_balance, Decimal("0"))  # never charged
         data = await state.get_data()
         self.assertEqual(data["bet"], 3.0)

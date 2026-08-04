@@ -17,9 +17,10 @@ from bot.handlers.group.chat_bonus import (
     msg_bonus_redeem,
     msg_bonus_reward,
 )
-from bot.handlers.group.chat_promo import msg_chat_promo_code, msg_chat_promo_redeem
+from bot.handlers.group.chat_promo import cb_chat_promo_start, msg_chat_promo_code, msg_chat_promo_redeem
+from bot.keyboards.group.owner_menu import owner_menu_kb
 from bot.services.chat_eligibility import eligibility_reason
-from bot.states.group import ChatOwnerBonusStates
+from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates
 
 
 def _fsm_state(data: dict):
@@ -85,6 +86,61 @@ class ChatPromoTests(ChatModelsTestCase):
             promo = await ChatPromoRepository(session).get_by_code(-1, "WELCOME")
         self.assertIsNotNone(promo)
         self.assertEqual(promo.created_by, 42)
+
+    async def test_second_promo_creation_via_stale_state_is_blocked(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-20, title="T", status="active", owner_user_id=42, member_count=300))
+            await session.commit()
+
+        state = _fsm_state({"chat_id": -20})
+        first = _message(-20, 42, "FIRST")
+        async with self.sessions() as session:
+            await msg_chat_promo_code(first, state, session)
+
+        # A stale FSM state (e.g. the owner's client re-sent the same
+        # "enter_code" step, or the state never got cleared) must not be
+        # able to create a second promo code for the same chat.
+        state2 = _fsm_state({"chat_id": -20})
+        second = _message(-20, 42, "SECOND")
+        async with self.sessions() as session:
+            await msg_chat_promo_code(second, state2, session)
+
+        rendered = second.reply.await_args.args[0]
+        self.assertIn("уже был создан промокод", rendered)
+        async with self.sessions() as session:
+            repo = ChatPromoRepository(session)
+            self.assertIsNotNone(await repo.get_by_code(-20, "FIRST"))
+            self.assertIsNone(await repo.get_by_code(-20, "SECOND"))
+
+    async def test_promo_start_callback_blocks_when_promo_already_exists(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-21, title="T", status="active", owner_user_id=42, member_count=300))
+            await session.commit()
+            await ChatPromoRepository(session).create(-21, "EXISTING", created_by=42)
+
+        message = SimpleNamespace(chat=SimpleNamespace(id=-21))
+        callback = SimpleNamespace(message=message, from_user=SimpleNamespace(id=42), answer=AsyncMock())
+        state = _fsm_state({})
+        async with self.sessions() as session:
+            await cb_chat_promo_start(callback, session, state)
+
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+        state.set_state.assert_not_awaited()
+
+    async def test_promo_start_callback_allows_first_creation(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-22, title="T", status="active", owner_user_id=42, member_count=300))
+            await session.commit()
+
+        message = SimpleNamespace(chat=SimpleNamespace(id=-22), answer=AsyncMock())
+        callback = SimpleNamespace(message=message, from_user=SimpleNamespace(id=42), answer=AsyncMock())
+        state = _fsm_state({})
+        async with self.sessions() as session:
+            await cb_chat_promo_start(callback, session, state)
+
+        state.set_state.assert_awaited_once_with(ChatOwnerPromoStates.enter_code)
+        message.answer.assert_awaited_once()
 
     async def test_eligible_member_redeems_and_gets_reward(self) -> None:
         await self._setup_chat_and_member(-2, owner_id=42, member_id=500, joined_days_ago=5, message_count=600)
@@ -156,6 +212,19 @@ class ChatPromoTests(ChatModelsTestCase):
             await msg_chat_promo_redeem(message, session)
         rendered = message.reply.await_args.args[0]
         self.assertIn("зарегистрированным", rendered)
+
+
+class OwnerMenuKeyboardTests(unittest.TestCase):
+    def test_promo_button_shown_when_no_promo_exists(self) -> None:
+        kb = owner_menu_kb(broadcast_opt_in=False, has_promo=False)
+        callback_datas = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+        self.assertIn("chatmenu:promo", callback_datas)
+
+    def test_promo_button_hidden_once_promo_exists(self) -> None:
+        kb = owner_menu_kb(broadcast_opt_in=False, has_promo=True)
+        callback_datas = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+        self.assertNotIn("chatmenu:promo", callback_datas)
+        self.assertIn("chatmenu:bonus", callback_datas)
 
 
 class EligibilityHelperTests(ChatModelsTestCase):

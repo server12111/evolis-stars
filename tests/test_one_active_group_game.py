@@ -110,9 +110,10 @@ class OneActiveGameAcrossTypesTests(ChatModelsTestCase):
             await msg_tower_start(tower_msg, session)
 
         async with self.sessions() as session:
-            ok, error = await place_bet(session, 6, 10.0, 1.0)
+            ok, error, needs_registration = await place_bet(session, 6, 10.0, 1.0)
         self.assertFalse(ok)
         self.assertIn("Башня", error)
+        self.assertFalse(needs_registration)
 
 
 if __name__ == "__main__":

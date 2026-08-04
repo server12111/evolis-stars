@@ -5,9 +5,11 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.games_doors import doors_pick_kb, doors_result_kb
+from bot.keyboards.group.registration import registration_required_kb
 from bot.services.chat_eligibility import credit_stars
 from bot.services.chat_games import (
     DOORS_LEVELS,
@@ -17,6 +19,8 @@ from bot.services.chat_games import (
     record_result,
 )
 from bot.services.house_edge import is_in_recovery
+
+settings = get_settings()
 
 router = Router()
 
@@ -64,9 +68,10 @@ async def msg_doors_start(message: Message, session: AsyncSession) -> None:
 
     min_bet = await settings_repo.get_float("doors_min_bet", 1.0)
     max_bet = await settings_repo.get_float("doors_max_bet", 500.0)
-    ok, error = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
+    ok, error, needs_registration = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
     if not ok:
-        await message.reply(error)
+        kb = registration_required_kb(settings.bot_username) if needs_registration else None
+        await message.reply(error, reply_markup=kb)
         return
 
     in_recovery = await is_in_recovery(session, "doors")

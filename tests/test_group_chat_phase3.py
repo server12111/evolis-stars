@@ -3,10 +3,11 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
-from bot.database.models import ChatGameRound, User
+from bot.database.models import ChatGameRound, GameSession, User
 from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.handlers.group.games_doors import cb_doors_cashout, cb_doors_next, cb_doors_pick, msg_doors_start
 from bot.handlers.group.games_maze import cb_maze_cashout, cb_maze_continue, msg_maze_start
@@ -93,6 +94,25 @@ class RouletteTests(ChatModelsTestCase):
         async with self.sessions() as session:
             user = await session.get(User, 3)
         self.assertEqual(user.stars_balance, Decimal("1"))
+
+    async def test_logged_result_choice_is_the_landed_color_not_the_bet(self) -> None:
+        # Bet on red, but the wheel actually lands on black — the persisted
+        # row must record "black" as what landed, distinct from "red" (what
+        # was bet on), so the log can show the real outcome.
+        await self._add_user(4, "100")
+        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="black"), \
+                patch("bot.handlers.group.games_roulette.asyncio.sleep", new=AsyncMock()):
+            message = _message(-1, 4, "ред 10")
+            async with self.sessions() as session:
+                await msg_roulette_bet(message, session)
+
+        async with self.sessions() as session:
+            row = (await session.execute(
+                select(GameSession).where(GameSession.user_id == 4, GameSession.game_type == "roulette")
+            )).scalar_one()
+        self.assertEqual(row.bet_choice, "red")
+        self.assertEqual(row.result_choice, "black")
+        self.assertEqual(row.result, "lose")
 
 
 class TowerTests(ChatModelsTestCase):

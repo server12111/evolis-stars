@@ -55,20 +55,21 @@ class PlaceBetMaxLimitTests(ChatModelsTestCase):
     async def test_bet_over_max_is_rejected(self) -> None:
         await self._add_user(1, "10000")
         async with self.sessions() as session:
-            ok, error = await place_bet(session, 1, 600.0, 1.0, 500.0)
+            ok, error, needs_registration = await place_bet(session, 1, 600.0, 1.0, 500.0)
         self.assertFalse(ok)
         self.assertIn("Макс. ставка", error)
+        self.assertFalse(needs_registration)
 
     async def test_bet_at_max_is_accepted(self) -> None:
         await self._add_user(2, "10000")
         async with self.sessions() as session:
-            ok, error = await place_bet(session, 2, 500.0, 1.0, 500.0)
+            ok, error, needs_registration = await place_bet(session, 2, 500.0, 1.0, 500.0)
         self.assertTrue(ok)
 
     async def test_no_max_bet_means_unlimited(self) -> None:
         await self._add_user(3, "10000")
         async with self.sessions() as session:
-            ok, error = await place_bet(session, 3, 9999.0, 1.0)
+            ok, error, needs_registration = await place_bet(session, 3, 9999.0, 1.0)
         self.assertTrue(ok)
 
 

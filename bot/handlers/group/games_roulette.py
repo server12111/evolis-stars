@@ -7,7 +7,9 @@ from aiogram import Router
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.repositories.settings import SettingsRepository
+from bot.keyboards.group.registration import registration_required_kb
 from bot.services.chat_eligibility import credit_stars
 from bot.services.chat_games import (
     COLOR_EMOJI,
@@ -18,6 +20,8 @@ from bot.services.chat_games import (
     roulette_spin,
 )
 from bot.services.house_edge import is_in_recovery
+
+settings = get_settings()
 
 router = Router()
 
@@ -85,9 +89,10 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     min_bet = await settings_repo.get_float("roulette_min_bet", 1.0)
     max_bet = await settings_repo.get_float("roulette_max_bet", 500.0)
 
-    ok, error = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
+    ok, error, needs_registration = await place_bet(session, message.from_user.id, bet, min_bet, max_bet)
     if not ok:
-        await message.reply(error)
+        kb = registration_required_kb(settings.bot_username) if needs_registration else None
+        await message.reply(error, reply_markup=kb)
         return
 
     punish = await is_in_recovery(session, "roulette")
@@ -102,7 +107,7 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     await record_result(
         session, message.from_user.id, message.chat.id, "roulette",
         bet, payout, "roulette_total_bet", "roulette_total_payout",
-        bet_choice=color,
+        bet_choice=color, result_choice=result_color,
     )
 
     emoji = COLOR_EMOJI[result_color]

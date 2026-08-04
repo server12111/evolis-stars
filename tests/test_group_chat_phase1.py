@@ -281,8 +281,12 @@ class BalanceCommandTests(ChatModelsTestCase):
         message = await self._message("баланс", 556)
         async with self.sessions() as session:
             await msg_balance(message, session)
-        rendered = message.reply.await_args.args[0]
-        self.assertIn("/start", rendered)
+        args, kwargs = message.reply.await_args
+        self.assertIn("пройдите регистрацию", args[0])
+        markup = kwargs["reply_markup"]
+        button = markup.inline_keyboard[0][0]
+        self.assertIn("Пройти регистрацию", button.text)
+        self.assertIn("?start=group", button.url)
 
     async def test_unrelated_text_does_not_match(self) -> None:
         from bot.handlers.group.balance import _matches_balance

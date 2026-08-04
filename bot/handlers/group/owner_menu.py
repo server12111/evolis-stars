@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.repositories.chat import ChatRepository
+from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.owner_menu import owner_menu_kb
 
@@ -65,8 +66,9 @@ async def cmd_evolis_open(message: Message, bot: Bot, session: AsyncSession) -> 
         min_members=min_members,
     )
 
+    has_promo = await ChatPromoRepository(session).get_by_chat(chat_id) is not None
     text = await _render_menu_text(chat_repo, chat_id, member_count)
-    await message.answer(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
+    await message.answer(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in, has_promo))
 
 
 @router.callback_query(F.data == "chatmenu:refresh")
@@ -95,9 +97,10 @@ async def cb_chat_menu_refresh(callback: CallbackQuery, bot: Bot, session: Async
         min_members=min_members,
     )
 
+    has_promo = await ChatPromoRepository(session).get_by_chat(chat_id) is not None
     text = await _render_menu_text(chat_repo, chat_id, member_count)
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in, has_promo))
     except Exception as exc:
         if "message is not modified" not in str(exc).lower():
             raise
@@ -127,8 +130,9 @@ async def cb_chat_broadcast_toggle(callback: CallbackQuery, session: AsyncSessio
             "За каждую 1000 показов вам начисляется 0.5 ⭐, а после 400 переходов по кнопкам — "
             "ещё разово 4 ⭐ на баланс."
         )
+    has_promo = await ChatPromoRepository(session).get_by_chat(chat_id) is not None
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in))
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=owner_menu_kb(chat.broadcast_opt_in, has_promo))
     except Exception as exc:
         if "message is not modified" not in str(exc).lower():
             raise

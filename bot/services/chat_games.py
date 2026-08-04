@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import GameSession, User
 from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.database.repositories.settings import SettingsRepository
+from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT
 from bot.services.chat_eligibility import debit_stars_if_enough
 
 # Russian labels for every persisted multi-step chat game (roulette resolves
@@ -16,23 +17,26 @@ GAME_TYPE_LABELS = {"doors": "Двери", "maze": "Лабиринт", "tower": 
 
 async def place_bet(
     session: AsyncSession, user_id: int, bet: float, min_bet: float, max_bet: float | None = None,
-) -> tuple[bool, str]:
-    """Validate + atomically deduct a chat-game bet. Returns (ok, error_text)."""
+) -> tuple[bool, str, bool]:
+    """Validate + atomically deduct a chat-game bet.
+    Returns (ok, error_text, needs_registration) — needs_registration is
+    True only when the error is specifically "not registered yet", so the
+    caller knows to attach the registration-link button."""
     if not (bet > 0) or bet < min_bet:
-        return False, f"❌ Мин. ставка: {min_bet:.0f} ⭐."
+        return False, f"❌ Мин. ставка: {min_bet:.0f} ⭐.", False
     if max_bet is not None and bet > max_bet:
-        return False, f"❌ Макс. ставка: {max_bet:.0f} ⭐."
+        return False, f"❌ Макс. ставка: {max_bet:.0f} ⭐.", False
     active = await ChatGameRoundRepository(session).get_any_active(user_id)
     if active is not None:
         label = GAME_TYPE_LABELS.get(active.game_type, active.game_type)
-        return False, f"⚠️ У тебя уже есть активная игра «{label}» — заверши её, прежде чем начать новую."
+        return False, f"⚠️ У тебя уже есть активная игра «{label}» — заверши её, прежде чем начать новую.", False
     user = await session.get(User, user_id)
     if user is None:
-        return False, "❌ Нужно быть зарегистрированным в боте — напиши /start в личных сообщениях."
+        return False, REGISTRATION_REQUIRED_TEXT, True
     ok = await debit_stars_if_enough(session, user_id, Decimal(str(bet)))
     if not ok:
-        return False, "❌ Недостаточно звёзд на балансе."
-    return True, ""
+        return False, "❌ Недостаточно звёзд на балансе.", False
+    return True, "", False
 
 
 async def record_result(
@@ -45,6 +49,7 @@ async def record_result(
     total_bet_key: str,
     total_payout_key: str,
     bet_choice: str | None = None,
+    result_choice: str | None = None,
 ) -> None:
     result = "win" if payout > 0 else "lose"
     session.add(
@@ -56,6 +61,7 @@ async def record_result(
             payout=Decimal(str(payout)),
             result=result,
             bet_choice=bet_choice,
+            result_choice=result_choice,
         )
     )
     settings_repo = SettingsRepository(session)

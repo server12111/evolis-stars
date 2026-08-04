@@ -186,7 +186,6 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "case_5_total_bet": "0",
     "case_5_total_payout": "0",
     # Random button (free daily spin)
-    "random_stake": "3.0",
     "random_cooldown_hours": "24",
     # ToS / privacy policy links (Telegraph pages)
     "tos_user_agreement_url": "https://telegra.ph/Polzovatelskoe-soglashenie-EvolisStars-08-03-2",

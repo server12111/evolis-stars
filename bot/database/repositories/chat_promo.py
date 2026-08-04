@@ -17,6 +17,15 @@ class ChatPromoRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_chat(self, chat_id: int) -> ChatPromoCode | None:
+        """Any promo code already created in this chat — used to enforce
+        "one promo code creation per chat" (only the owner can create one,
+        and a chat has exactly one owner)."""
+        result = await self.session.execute(
+            select(ChatPromoCode).where(ChatPromoCode.chat_id == chat_id).limit(1)
+        )
+        return result.scalars().first()
+
     async def create(self, chat_id: int, code: str, created_by: int) -> ChatPromoCode:
         promo = ChatPromoCode(chat_id=chat_id, code=code.upper(), created_by=created_by)
         self.session.add(promo)

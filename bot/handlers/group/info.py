@@ -5,12 +5,15 @@ from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.models import GameSession, User
 from bot.database.repositories.chat_membership import ChatMembershipRepository
 from bot.database.repositories.game import GameRepository
+from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_games import COLOR_EMOJI
 
 router = Router()
+settings = get_settings()
 
 _MEDALS = ["🥇", "🥈", "🥉"]
 
@@ -60,7 +63,7 @@ async def msg_group_profile(message: Message, session: AsyncSession) -> None:
         return
     user = await session.get(User, message.from_user.id)
     if user is None:
-        await message.reply("❌ Нужно быть зарегистрированным в боте — напиши /start в личных сообщениях.")
+        await message.reply(REGISTRATION_REQUIRED_TEXT, reply_markup=registration_required_kb(settings.bot_username))
         return
 
     g_repo = GameRepository(session)
@@ -103,7 +106,7 @@ async def msg_top_users(message: Message, session: AsyncSession) -> None:
 async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
     result = await session.execute(
         select(
-            GameSession.bet, GameSession.bet_choice, GameSession.result, GameSession.payout,
+            GameSession.bet, GameSession.result_choice, GameSession.result, GameSession.payout,
             User.username, User.first_name,
         )
         .join(User, User.user_id == GameSession.user_id)
@@ -117,8 +120,8 @@ async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
         return
 
     lines = ["🎰 <b>Последние 10 игр в рулетку</b>\n"]
-    for bet, bet_choice, game_result, payout, username, first_name in rows:
-        emoji = COLOR_EMOJI.get(bet_choice, "⚪️")
+    for bet, result_choice, game_result, payout, username, first_name in rows:
+        emoji = COLOR_EMOJI.get(result_choice, "⚪️")
         val = float(bet)
         bet_str = f"{val:.0f}" if val == int(val) else f"{val:.2f}".rstrip("0").rstrip(".")
         name = escape(f"@{username}" if username else (first_name or "—"))
@@ -126,5 +129,5 @@ async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
             outcome = f"✅ +{float(payout):.2f} ⭐"
         else:
             outcome = f"❌ -{bet_str} ⭐"
-        lines.append(f"<code>{name}</code>: {bet_str}{emoji} — {outcome}")
+        lines.append(f"<code>{name}</code>: {bet_str}⭐ — {emoji} — {outcome}")
     await message.answer("\n".join(lines), parse_mode="HTML")

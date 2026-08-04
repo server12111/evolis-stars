@@ -27,6 +27,9 @@ async def cb_chat_promo_start(callback: CallbackQuery, session: AsyncSession, st
     if not chat or callback.from_user.id != chat.owner_user_id:
         await callback.answer()
         return
+    if await ChatPromoRepository(session).get_by_chat(chat_id):
+        await callback.answer("❌ В этом чате уже был создан промокод.", show_alert=True)
+        return
     await state.set_state(ChatOwnerPromoStates.enter_code)
     await state.update_data(chat_id=chat_id)
     await callback.message.answer("✏️ Напишите название промокода:")
@@ -51,6 +54,15 @@ async def msg_chat_promo_code(message: Message, state: FSMContext, session: Asyn
         return
 
     repo = ChatPromoRepository(session)
+    # Re-checked here (not just at the button) in case a stale FSM state was
+    # re-entered after a promo was already created — this is the atomic
+    # guard, since UserMiddleware's per-user lock serializes the owner's
+    # own requests but a straight "check then insert" is still the only
+    # thing standing between a re-sent state and a second promo code.
+    if await repo.get_by_chat(chat_id):
+        await message.reply("❌ В этом чате уже был создан промокод.")
+        return
+
     existing = await repo.get_by_code(chat_id, code)
     if existing:
         await message.reply("❌ Промокод с таким названием уже существует в этом чате.")

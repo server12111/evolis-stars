@@ -76,7 +76,8 @@ class InfoCommandTests(ChatModelsTestCase):
             session.add(User(user_id=3, first_name="C", stars_balance=Decimal("10")))
             session.add(GameSession(
                 user_id=3, game_type="roulette", bet=Decimal("10"),
-                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
+                result="win", payout=Decimal("22"), chat_id=-1,
+                bet_choice="red", result_choice="red",
             ))
             session.add(GameSession(
                 user_id=3, game_type="tower", bet=Decimal("5"),
@@ -88,7 +89,7 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertIn("10🔴", rendered)
+        self.assertIn("10⭐ — 🔴", rendered)
         self.assertNotIn("tower", rendered.lower())
 
     async def test_log_is_scoped_to_the_current_chat(self) -> None:
@@ -96,11 +97,13 @@ class InfoCommandTests(ChatModelsTestCase):
             session.add(User(user_id=3, first_name="C", stars_balance=Decimal("10")))
             session.add(GameSession(
                 user_id=3, game_type="roulette", bet=Decimal("10"),
-                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
+                result="win", payout=Decimal("22"), chat_id=-1,
+                bet_choice="red", result_choice="red",
             ))
             session.add(GameSession(
                 user_id=3, game_type="roulette", bet=Decimal("7"),
-                result="lose", payout=Decimal("0"), chat_id=-2, bet_choice="black",
+                result="lose", payout=Decimal("0"), chat_id=-2,
+                bet_choice="black", result_choice="black",
             ))
             await session.commit()
 
@@ -108,8 +111,8 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertIn("10🔴", rendered)
-        self.assertNotIn("7⚫", rendered)
+        self.assertIn("10⭐ — 🔴", rendered)
+        self.assertNotIn("7⭐ — ⚫️", rendered)
 
     async def test_log_with_no_games_replies_gracefully(self) -> None:
         message = _message("лог", user_id=999)
@@ -122,7 +125,8 @@ class InfoCommandTests(ChatModelsTestCase):
             session.add(User(user_id=8, first_name="Nick", username="realuser", stars_balance=Decimal("0")))
             session.add(GameSession(
                 user_id=8, game_type="roulette", bet=Decimal("10"),
-                result="win", payout=Decimal("22"), chat_id=-1, bet_choice="red",
+                result="win", payout=Decimal("22"), chat_id=-1,
+                bet_choice="red", result_choice="red",
             ))
             await session.commit()
 
@@ -139,7 +143,8 @@ class InfoCommandTests(ChatModelsTestCase):
             session.add(User(user_id=9, first_name="NoHandle", stars_balance=Decimal("0")))
             session.add(GameSession(
                 user_id=9, game_type="roulette", bet=Decimal("15"),
-                result="lose", payout=Decimal("0"), chat_id=-1, bet_choice="black",
+                result="lose", payout=Decimal("0"), chat_id=-1,
+                bet_choice="black", result_choice="white",
             ))
             await session.commit()
 
@@ -195,8 +200,11 @@ class InfoCommandTests(ChatModelsTestCase):
         message = _message("профиль", user_id=6, chat_id=-7)
         async with self.sessions() as session:
             await msg_group_profile(message, session)
-        rendered = message.reply.await_args.args[0]
-        self.assertIn("/start", rendered)
+        args, kwargs = message.reply.await_args
+        self.assertIn("пройдите регистрацию", args[0])
+        markup = kwargs["reply_markup"]
+        button = markup.inline_keyboard[0][0]
+        self.assertIn("?start=group", button.url)
 
 
 class AdminStatsScopeTests(ChatModelsTestCase):
