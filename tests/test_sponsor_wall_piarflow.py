@@ -99,7 +99,7 @@ class PiarFlowTopUpTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.piarflow.check_sponsors", AsyncMock()) as check_sponsors,
+            patch("bot.services.piarflow.check_sponsors", AsyncMock(return_value=True)) as check_sponsors,
             patch(
                 "bot.services.piarflow.get_sponsors",
                 AsyncMock(return_value=[]),
@@ -107,9 +107,39 @@ class PiarFlowTopUpTests(unittest.IsolatedAsyncioTestCase):
         ):
             await run_sponsor_wall_check(inner(), frozen_with_piarflow, session)
 
+        # check_sponsors is the authoritative per-link verdict — its True
+        # result must be trusted directly, not overridden by a re-fetch of
+        # a fresh (and here irrelevant) sponsor batch via get_sponsors.
         check_sponsors.assert_awaited_once_with("cfg", 1, ["https://t.me/pf0"])
-        get_sponsors.assert_awaited_once()
-        self.assertEqual(get_sponsors.await_args.kwargs.get("max_sponsors"), 20)
+        get_sponsors.assert_not_awaited()
+
+    async def test_frozen_wave_stays_pending_when_check_sponsors_says_not_subscribed(self) -> None:
+        session = SimpleNamespace(commit=AsyncMock())
+        frozen_with_piarflow = user(
+            sponsor_wave=1,
+            sponsor_wave_one=json.dumps(
+                [{"provider": "piarflow", "url": "https://t.me/pf0", "name": "PF"}]
+            ),
+        )
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", "cfg"),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=6),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.piarflow.check_sponsors", AsyncMock(return_value=False)),
+            patch("bot.services.piarflow.get_sponsors", AsyncMock(return_value=[])) as get_sponsors,
+        ):
+            result = await run_sponsor_wall_check(inner(), frozen_with_piarflow, session)
+
+        # Not subscribed per check_sponsors — must stay gated even though
+        # get_sponsors (a different, irrelevant endpoint) returned nothing.
+        self.assertFalse(result)
+        get_sponsors.assert_not_awaited()
 
     async def test_frozen_wave_without_piarflow_sponsor_skips_piarflow_entirely(self) -> None:
         session = SimpleNamespace(commit=AsyncMock())

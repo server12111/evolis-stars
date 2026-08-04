@@ -189,17 +189,23 @@ async def run_sponsor_wall_check(
             ]
             piarflow_needed = bool(piarflow_links)
             if piarflow_needed:
-                await check_sponsors(
+                # check_sponsors is the authoritative per-link subscription
+                # verdict from PiarFlow. Trust it directly instead of
+                # re-fetching a fresh batch via get_sponsors() — that's a
+                # different endpoint for handing out NEW sponsor tasks, and
+                # its contents don't reliably mean "still unsubscribed": an
+                # empty/different response there let unsubscribed users
+                # through the wave regardless of their real check_sponsors
+                # status.
+                all_subscribed = await check_sponsors(
                     settings.piarflow_key,
                     db_user.user_id,
                     piarflow_links,
                 )
-                piarflow_result = await get_sponsors(
-                    settings.piarflow_key,
-                    db_user.user_id,
-                    db_user.user_id,
-                    max_sponsors=20,
-                )
+                piarflow_result = [] if all_subscribed else [
+                    item for item in saved_items
+                    if str(item.get("provider", "")) == "piarflow"
+                ]
         else:
             # Not yet frozen — top PiarFlow up only far enough to cover the
             # reward-eligibility minimum that tgrass+botohub didn't reach.
