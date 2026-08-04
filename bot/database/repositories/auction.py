@@ -44,7 +44,7 @@ class AuctionRepository(BaseRepository):
         self.session.add(bid)
         round_.current_bid = new_bid
         round_.current_bidder_id = user_id
-        round_.prize_pool = Decimal(str(round(float(round_.prize_pool) + float(paid), 2)))
+        round_.prize_pool = (round_.prize_pool + paid).quantize(Decimal("0.01"))
         await self.session.commit()
         return True
 
