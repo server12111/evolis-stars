@@ -6,8 +6,12 @@ from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
 
 DEFAULT_SETTINGS: dict[str, str] = {
-    "referral_reward": "4",
-    "referral_reward_premium": "6",
+    "referral_reward_3": "3",
+    "referral_reward_4": "4",
+    "referral_reward_5": "5",
+    "referral_reward_3_premium": "5",
+    "referral_reward_4_premium": "6",
+    "referral_reward_5_premium": "7",
     "min_sponsors_for_reward": "3",
     "referral_bonus_10": "0.05",
     "referral_bonus_15": "0.1",

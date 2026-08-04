@@ -35,23 +35,32 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
 class PremiumReferralRewardTests(ChatModelsTestCase):
     async def test_get_referral_reward_reads_premium_setting_when_flagged(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3", value="4"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             await session.commit()
-            normal = await get_referral_reward(session)
-            premium = await get_referral_reward(session, is_premium=True)
+            normal = await get_referral_reward(session, 3)
+            premium = await get_referral_reward(session, 3, is_premium=True)
         self.assertEqual(normal, Decimal("4"))
         self.assertEqual(premium, Decimal("9"))
 
     async def test_get_referral_reward_premium_falls_back_to_default(self) -> None:
         async with self.sessions() as session:
-            premium = await get_referral_reward(session, is_premium=True)
-        self.assertEqual(premium, Decimal("6"))
+            premium = await get_referral_reward(session, 3, is_premium=True)
+        self.assertEqual(premium, Decimal("5"))
+
+    async def test_reward_scales_with_sponsor_count(self) -> None:
+        async with self.sessions() as session:
+            r3 = await get_referral_reward(session, 3)
+            r4 = await get_referral_reward(session, 4)
+            r5 = await get_referral_reward(session, 5)
+            r_above_5 = await get_referral_reward(session, 20)
+        self.assertEqual((r3, r4, r5), (Decimal("3"), Decimal("4"), Decimal("5")))
+        self.assertEqual(r_above_5, Decimal("5"))  # clamps to the top tier
 
     async def test_premium_referred_user_pays_the_premium_rate(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3", value="4"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             referrer = User(user_id=900, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=901,
@@ -75,8 +84,8 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
 
     async def test_non_premium_referred_user_pays_the_normal_rate(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3", value="4"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             referrer = User(user_id=910, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=911,
@@ -98,7 +107,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
 
     async def test_payout_message_flags_premium_referral(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             referrer = User(user_id=920, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=921,
@@ -121,7 +130,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
     async def test_returning_premium_referral_pays_half_the_premium_rate(self) -> None:
         inactive_since = datetime.utcnow() - timedelta(days=8)
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             referrer = User(user_id=930, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=931,

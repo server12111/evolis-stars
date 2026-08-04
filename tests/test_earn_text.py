@@ -65,7 +65,7 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("2 спонсора.", rendered)
         self.assertNotIn("2 спонсоров", rendered)
 
-    async def test_default_template_shows_both_normal_and_premium_reward(self) -> None:
+    async def test_default_template_shows_tiered_normal_and_premium_rewards(self) -> None:
         callback = SimpleNamespace(
             message=SimpleNamespace(
                 delete=AsyncMock(),
@@ -78,8 +78,9 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
         db_user = SimpleNamespace(user_id=1, referrals_count=0, stars_balance=0)
         session = SimpleNamespace()
 
-        async def reward_side_effect(_session, is_premium=False):
-            return Decimal("9") if is_premium else Decimal("4")
+        async def reward_side_effect(_session, sponsor_count, is_premium=False):
+            base = {3: 3, 4: 4, 5: 5}[sponsor_count]
+            return Decimal(str(base + 2)) if is_premium else Decimal(str(base))
 
         with (
             patch("bot.handlers.earn.ContentRepository.get_text", AsyncMock(
@@ -97,8 +98,9 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             await cb_earn(callback, db_user, session)
 
         rendered = callback.message.edit_text.await_args.args[0]
-        self.assertIn("Награда за реферала: <b>4 ⭐</b>", rendered)
-        self.assertIn("Награда за Premium-реферала: <b>9 ⭐</b>", rendered)
+        self.assertIn("3 спонсора: <b>3 ⭐</b> (<b>5 ⭐</b> 💎)", rendered)
+        self.assertIn("4 спонсора: <b>4 ⭐</b> (<b>6 ⭐</b> 💎)", rendered)
+        self.assertIn("5+ спонсоров: <b>5 ⭐</b> (<b>7 ⭐</b> 💎)", rendered)
 
 
 if __name__ == "__main__":

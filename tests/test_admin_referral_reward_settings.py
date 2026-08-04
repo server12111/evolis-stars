@@ -21,19 +21,29 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
 
-class ReferralRewardPremiumSettingTests(unittest.TestCase):
-    def test_setting_is_editable_via_admin_panel(self) -> None:
-        self.assertIn("referral_reward_premium", SETTING_LABELS)
+TIERED_REWARD_KEYS = [
+    "referral_reward_3", "referral_reward_4", "referral_reward_5",
+    "referral_reward_3_premium", "referral_reward_4_premium", "referral_reward_5_premium",
+]
 
-    def test_setting_has_a_menu_button(self) -> None:
+
+class ReferralRewardPremiumSettingTests(unittest.TestCase):
+    def test_settings_are_editable_via_admin_panel(self) -> None:
+        for key in TIERED_REWARD_KEYS:
+            with self.subTest(key=key):
+                self.assertIn(key, SETTING_LABELS)
+
+    def test_settings_have_menu_buttons(self) -> None:
         keys = [key for key, _ in NUMERIC_SETTINGS]
-        self.assertIn("referral_reward_premium", keys)
+        for key in TIERED_REWARD_KEYS:
+            with self.subTest(key=key):
+                self.assertIn(key, keys)
 
 
 class AdminSettingsScreenTests(ChatModelsTestCase):
-    async def test_summary_shows_premium_reward_amount(self) -> None:
+    async def test_summary_shows_tiered_reward_amounts(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward_premium", value="9"))
+            session.add(BotSettings(key="referral_reward_3_premium", value="9"))
             await session.commit()
 
         db_user = User(user_id=1, first_name="Admin", is_admin=True)

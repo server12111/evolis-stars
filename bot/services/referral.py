@@ -87,10 +87,25 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
     return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
-async def get_referral_reward(session: AsyncSession, is_premium: bool = False) -> Decimal:
+REFERRAL_REWARD_MIN_TIER = 3
+REFERRAL_REWARD_MAX_TIER = 5
+_REFERRAL_REWARD_DEFAULTS = {3: "3", 4: "4", 5: "5"}
+_REFERRAL_REWARD_PREMIUM_DEFAULTS = {3: "5", 4: "6", 5: "7"}
+
+
+async def get_referral_reward(session: AsyncSession, sponsor_count: int, is_premium: bool = False) -> Decimal:
+    """Reward scales with how many sponsors the referred user subscribed to
+    (3, 4, or 5+ — each independently admin-configurable), separately for
+    Premium vs regular referrals. Counts below the minimum tier or above
+    the top tier clamp to the nearest configured tier."""
+    tier = min(max(sponsor_count, REFERRAL_REWARD_MIN_TIER), REFERRAL_REWARD_MAX_TIER)
     if is_premium:
-        return await _get_decimal_setting(session, "referral_reward_premium", "6")
-    return await _get_decimal_setting(session, "referral_reward", "4")
+        key = f"referral_reward_{tier}_premium"
+        default = _REFERRAL_REWARD_PREMIUM_DEFAULTS[tier]
+    else:
+        key = f"referral_reward_{tier}"
+        default = _REFERRAL_REWARD_DEFAULTS[tier]
+    return await _get_decimal_setting(session, key, default)
 
 
 async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
@@ -177,7 +192,9 @@ async def reward_returning_referral(
         return None
 
     referred_user_id = user.user_id
-    base_reward = await get_referral_reward(session, is_premium=bool(user.is_premium))
+    tg_urls, web_urls = _current_sponsor_urls(user)
+    sponsor_count = len(tg_urls) + len(web_urls)
+    base_reward = await get_referral_reward(session, sponsor_count, is_premium=bool(user.is_premium))
     reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
     if reward <= 0:
@@ -296,7 +313,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not referrer:
         return
 
-    reward = await get_referral_reward(session, is_premium=referred_is_premium)
+    reward = await get_referral_reward(session, total, is_premium=referred_is_premium)
 
     # referrals_count is read-then-written, so two referrals for the same
     # referrer completing at nearly the same moment (plausible with the

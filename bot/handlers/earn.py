@@ -40,8 +40,12 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         cutoff,
         limit=1,
     )
-    referral_reward = await get_referral_reward(session)
-    referral_reward_premium = await get_referral_reward(session, is_premium=True)
+    reward_3 = await get_referral_reward(session, 3)
+    reward_4 = await get_referral_reward(session, 4)
+    reward_5 = await get_referral_reward(session, 5)
+    reward_3_premium = await get_referral_reward(session, 3, is_premium=True)
+    reward_4_premium = await get_referral_reward(session, 4, is_premium=True)
+    reward_5_premium = await get_referral_reward(session, 5, is_premium=True)
     min_sponsors = await get_min_sponsors_for_reward(session)
     top_tier = RECURRING_MILESTONE
     top_bonus = await get_milestone_bonus(session, top_tier)
@@ -59,10 +63,14 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         vip_threshold=VIP_THRESHOLD,
         top_tier=top_tier,
         top_bonus=format_stars(top_bonus),
-        reward=format_stars(referral_reward),  # fallback for old templates
-        referral_reward=format_stars(referral_reward),
-        referral_reward_premium=format_stars(referral_reward_premium),
-        return_reward=format_stars(referral_reward / Decimal("2")),
+        reward=format_stars(reward_3),  # fallback for old templates
+        referral_reward_3=format_stars(reward_3),
+        referral_reward_4=format_stars(reward_4),
+        referral_reward_5=format_stars(reward_5),
+        referral_reward_3_premium=format_stars(reward_3_premium),
+        referral_reward_4_premium=format_stars(reward_4_premium),
+        referral_reward_5_premium=format_stars(reward_5_premium),
+        return_reward=format_stars(reward_3 / Decimal("2")),
         returnable=returnable_count,
         **{
             f"bonus_{threshold}": format_stars(bonus)
@@ -142,7 +150,7 @@ async def cb_return_referrals(
             limit=RETURN_PAGE_SIZE,
         )
 
-    referral_reward = await get_referral_reward(session)
+    referral_reward = await get_referral_reward(session, 3)
     return_reward = referral_reward / 2
     without_username = max(0, total - contactable)
     if referrals:
