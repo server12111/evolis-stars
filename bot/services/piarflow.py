@@ -58,7 +58,11 @@ async def get_sponsors(
                         link = str(sp.get("link", ""))
                         if not link:
                             continue
-                        enriched.append({**sp, "name": "Канал"})
+                        # sponsor_waves.py's _decorate() (and every other
+                        # provider) reads the sponsor's "url" key — PiarFlow's
+                        # raw API only has "link", so without this the item
+                        # gets silently dropped and the wave looks empty.
+                        enriched.append({**sp, "name": "Канал", "url": link})
                     logger.info(
                         "PiarFlow get_sponsors user_id=%d chat_id=%d → %d sponsors",
                         user_id, chat_id, len(enriched),
