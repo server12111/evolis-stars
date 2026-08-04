@@ -53,6 +53,7 @@ def _add_missing_user_columns(connection) -> None:
         "free_game_credit_amount": "NUMERIC(14,2)",
         "referral_insufficient_notified": "BOOLEAN NOT NULL DEFAULT 0",
         "tos_accepted": "BOOLEAN NOT NULL DEFAULT 0",
+        "tos_gate_shown": "BOOLEAN NOT NULL DEFAULT 0",
         "last_random_at": "DATETIME",
     }
     referral_counted_added = "referral_counted" not in columns

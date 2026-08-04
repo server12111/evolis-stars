@@ -33,6 +33,7 @@ class User(Base):
     referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     tos_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
+    tos_gate_shown: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
     sponsor_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)
     sponsor_wave_two: Mapped[str | None] = mapped_column(Text, nullable=True)

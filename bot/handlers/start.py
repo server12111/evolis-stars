@@ -145,8 +145,16 @@ async def cmd_start(
         return
 
     # ToS/privacy policy gate comes first, before anything else is shown —
-    # only after "Принимаю" does the sponsor wall (if configured) run.
+    # only after "Принимаю" does the sponsor wall (if configured) run. The
+    # full gate (text + buttons) is only ever sent once per user — repeat
+    # /start presses while still pending get a short reminder instead of
+    # another full copy, so mashing /start can't spam duplicates.
     if not db_user.tos_accepted:
+        if db_user.tos_gate_shown:
+            await message.answer("⬆️ Прими соглашение в сообщении выше, чтобы продолжить.")
+            return
+        db_user.tos_gate_shown = True
+        await session.commit()
         await _send_tos_gate(message, session)
         return
 
