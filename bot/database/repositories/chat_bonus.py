@@ -3,8 +3,43 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from bot.database.models import ChatBonusCode, ChatBonusUse
+from bot.database.models import ChatBonusCode, ChatBonusSponsor, ChatBonusUse
 from bot.database.repositories.base import BaseRepository
+
+MAX_BONUS_SPONSORS = 3
+
+
+class ChatBonusSponsorRepository(BaseRepository):
+    async def list_for_bonus(self, bonus_id: int) -> list[ChatBonusSponsor]:
+        result = await self.session.execute(
+            select(ChatBonusSponsor).where(ChatBonusSponsor.bonus_id == bonus_id).order_by(ChatBonusSponsor.id)
+        )
+        return list(result.scalars().all())
+
+    async def add(
+        self, bonus_id: int, sponsor_chat_id: int, sponsor_type: str, title: str, username: str | None,
+    ) -> ChatBonusSponsor | None:
+        """Returns None (no-op) if this chat is already a sponsor of this
+        bonus or the 3-sponsor cap is already reached — both checked
+        atomically enough for this use case (single owner adds sponsors
+        one at a time via a slow, manual Telegram admin-rights flow)."""
+        existing = await self.list_for_bonus(bonus_id)
+        if len(existing) >= MAX_BONUS_SPONSORS:
+            return None
+        if any(s.sponsor_chat_id == sponsor_chat_id for s in existing):
+            return None
+        sponsor = ChatBonusSponsor(
+            bonus_id=bonus_id, sponsor_chat_id=sponsor_chat_id, sponsor_type=sponsor_type,
+            title=title, username=username,
+        )
+        self.session.add(sponsor)
+        try:
+            await self.session.flush()
+        except IntegrityError:
+            await self.session.rollback()
+            return None
+        await self.session.commit()
+        return sponsor
 
 
 class ChatBonusRepository(BaseRepository):
@@ -16,6 +51,9 @@ class ChatBonusRepository(BaseRepository):
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_by_id(self, bonus_id: int) -> ChatBonusCode | None:
+        return await self.session.get(ChatBonusCode, bonus_id)
 
     async def create(
         self,

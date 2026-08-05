@@ -416,6 +416,25 @@ class ChatBonusUse(Base):
     used_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class ChatBonusSponsor(Base):
+    """A channel/chat the owner attached to a bonus — subscription to all
+    of a bonus's sponsors is required before the bonus can be redeemed.
+    Up to 3 per bonus (enforced in the handler, not the schema)."""
+
+    __tablename__ = "chat_bonus_sponsors"
+    __table_args__ = (
+        UniqueConstraint("bonus_id", "sponsor_chat_id", name="uq_bonus_sponsor_chat"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bonus_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_bonus_codes.id", ondelete="CASCADE"))
+    sponsor_chat_id: Mapped[int] = mapped_column(BigInteger)
+    sponsor_type: Mapped[str] = mapped_column(String(16))  # "channel" / "chat"
+    title: Mapped[str] = mapped_column(String(256), default="")
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class ChatAdSend(Base):
     """Append-only attribution ledger — one row per successful BotoHub DM ad
     send that we attribute to a chat's registered membership. count(*) per

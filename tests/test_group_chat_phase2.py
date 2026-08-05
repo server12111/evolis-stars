@@ -12,7 +12,7 @@ from bot.database.repositories.chat_bonus import ChatBonusRepository
 from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.handlers.group.chat_bonus import (
     cb_bonus_mode,
-    msg_bonus_conditions,
+    cb_bonus_sponsors_done,
     msg_bonus_limit,
     msg_bonus_pick_winner,
     msg_bonus_redeem,
@@ -31,6 +31,16 @@ def _fsm_state(data: dict):
     state.set_state = AsyncMock()
     state.clear = AsyncMock()
     return state
+
+
+def _callback(chat_id: int, user_id: int, data: str, first_name: str = "User"):
+    message = SimpleNamespace(chat=SimpleNamespace(id=chat_id, title="Chat"), answer=AsyncMock())
+    return SimpleNamespace(
+        message=message,
+        from_user=SimpleNamespace(id=user_id, first_name=first_name),
+        data=data,
+        answer=AsyncMock(),
+    )
 
 
 def _message(chat_id: int, user_id: int, text: str, first_name: str = "User", reply_to=None):
@@ -211,8 +221,9 @@ class ChatPromoTests(ChatModelsTestCase):
         message = _message(-5, 999, f"промокод {promo.code}")
         async with self.sessions() as session:
             await msg_chat_promo_redeem(message, session)
-        rendered = message.reply.await_args.args[0]
-        self.assertIn("зарегистрированным", rendered)
+        args, kwargs = message.reply.await_args
+        self.assertIn("пройдите регистрацию", args[0])
+        self.assertIn("?start=group", kwargs["reply_markup"].inline_keyboard[0][0].url)
 
 
 class OwnerMenuKeyboardTests(unittest.TestCase):
@@ -261,10 +272,12 @@ class ChatBonusTests(ChatModelsTestCase):
             await msg_bonus_limit(message2, state2)
         state2.set_state.assert_awaited_with(ChatOwnerBonusStates.choose_mode)
 
-        state3 = _fsm_state({"chat_id": -10, "code": "GIVE10", "reward": "0.5", "limit": 10, "mode": "self_serve"})
-        message3 = _message(-10, 42, "-")
+        state3 = _fsm_state({
+            "chat_id": -10, "code": "GIVE10", "reward": "0.5", "limit": 10, "mode": "self_serve", "sponsors": [],
+        })
+        cb3 = _callback(-10, 42, "chatbonus:sponsors:done")
         async with self.sessions() as session:
-            await msg_bonus_conditions(message3, state3, session)
+            await cb_bonus_sponsors_done(cb3, state3, session)
 
         # 0.5 * 10 = 5, +7% commission = 5.35
         async with self.sessions() as session:
@@ -276,7 +289,7 @@ class ChatBonusTests(ChatModelsTestCase):
 
         redeem_msg = _message(-10, 700, "бонус GIVE10")
         async with self.sessions() as session:
-            await msg_bonus_redeem(redeem_msg, session)
+            await msg_bonus_redeem(redeem_msg, session, AsyncMock())
         redeem_msg.reply.assert_awaited_once()
         async with self.sessions() as session:
             member = await session.get(User, 700)
@@ -290,12 +303,14 @@ class ChatBonusTests(ChatModelsTestCase):
             session.add(User(user_id=42, first_name="Owner", stars_balance=Decimal("1")))
             await session.commit()
 
-        state = _fsm_state({"chat_id": -11, "code": "TOOEXPENSIVE", "reward": "1", "limit": 10, "mode": "self_serve"})
-        message = _message(-11, 42, "-")
+        state = _fsm_state({
+            "chat_id": -11, "code": "TOOEXPENSIVE", "reward": "1", "limit": 10, "mode": "self_serve", "sponsors": [],
+        })
+        cb = _callback(-11, 42, "chatbonus:sponsors:done")
         async with self.sessions() as session:
-            await msg_bonus_conditions(message, state, session)
+            await cb_bonus_sponsors_done(cb, state, session)
 
-        rendered = message.reply.await_args.args[0]
+        rendered = cb.message.answer.await_args.args[0]
         self.assertIn("Недостаточно", rendered)
         async with self.sessions() as session:
             owner = await session.get(User, 42)
@@ -365,8 +380,8 @@ class ChatBonusTests(ChatModelsTestCase):
 
         await cb_bonus_mode(callback, state)
 
-        state.update_data.assert_awaited_once_with(mode="self_serve")
-        state.set_state.assert_awaited_once_with(ChatOwnerBonusStates.enter_conditions)
+        state.update_data.assert_awaited_once_with(mode="self_serve", sponsors=[])
+        state.set_state.assert_awaited_once_with(ChatOwnerBonusStates.choose_sponsors)
         message.answer.assert_awaited_once()
         self.assertNotIn("разработке", message.answer.await_args.args[0])
 

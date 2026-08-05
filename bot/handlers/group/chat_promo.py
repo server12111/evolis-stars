@@ -1,4 +1,5 @@
 import logging
+import re
 from decimal import Decimal
 
 from aiogram import F, Router
@@ -6,15 +7,24 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.database.repositories.settings import SettingsRepository
+from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_eligibility import credit_stars, eligibility_reason
 from bot.states.group import ChatOwnerPromoStates
 
 router = Router()
 logger = logging.getLogger(__name__)
+settings = get_settings()
+
+_PROMO_REDEEM_PATTERN = re.compile(r"(?i)^промокод\s+(\S+)$")
+
+
+def _matches_promo_redeem(message: Message) -> bool:
+    return bool(message.text and _PROMO_REDEEM_PATTERN.match(message.text.strip()))
 
 
 @router.callback_query(F.data == "chatmenu:promo")
@@ -77,12 +87,18 @@ async def msg_chat_promo_code(message: Message, state: FSMContext, session: Asyn
     )
 
 
-@router.message(F.text.regexp(r"(?i)^промокод\s+(\S+)$"))
+@router.message(_matches_promo_redeem)
 async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None:
     if message.from_user is None or message.text is None:
         return
     chat_id = message.chat.id
-    code = message.text.split(maxsplit=1)[1].strip()
+    match = _PROMO_REDEEM_PATTERN.match(message.text.strip())
+    code = match.group(1).strip()
+
+    user = await session.get(User, message.from_user.id)
+    if user is None:
+        await message.reply(REGISTRATION_REQUIRED_TEXT, reply_markup=registration_required_kb(settings.bot_username))
+        return
 
     settings_repo = SettingsRepository(session)
     min_days = await settings_repo.get_int("chat_promo_min_days", 2)
@@ -99,8 +115,7 @@ async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None
         await message.reply("❌ Такой промокод не найден.")
         return
 
-    user = await session.get(User, message.from_user.id)
-    is_vip = bool(user and user.is_vip)
+    is_vip = bool(user.is_vip)
     reward = await settings_repo.get_float(
         "chat_promo_reward_vip" if is_vip else "chat_promo_reward",
         0.5 if is_vip else 0.3,

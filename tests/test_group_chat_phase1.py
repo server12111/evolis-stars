@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
@@ -35,17 +36,22 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
 
+def _state():
+    return SimpleNamespace(storage=MemoryStorage())
+
+
 class OnboardingTests(ChatModelsTestCase):
     async def test_my_chat_member_added_creates_pending_chat_under_threshold(self) -> None:
         event = _chat_member_updated(-100, 1, "member")
         bot = SimpleNamespace(
+            id=1,
             get_chat_member_count=AsyncMock(return_value=10),
             get_chat_administrators=AsyncMock(
                 return_value=[SimpleNamespace(status="creator", user=SimpleNamespace(id=42))]
             ),
         )
         async with self.sessions() as session:
-            await on_my_chat_member(event, bot, session)
+            await on_my_chat_member(event, bot, session, _state())
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -100)
@@ -57,13 +63,14 @@ class OnboardingTests(ChatModelsTestCase):
     async def test_my_chat_member_added_marks_active_over_threshold(self) -> None:
         event = _chat_member_updated(-101, 1, "administrator")
         bot = SimpleNamespace(
+            id=1,
             get_chat_member_count=AsyncMock(return_value=300),
             get_chat_administrators=AsyncMock(
                 return_value=[SimpleNamespace(status="creator", user=SimpleNamespace(id=42))]
             ),
         )
         async with self.sessions() as session:
-            await on_my_chat_member(event, bot, session)
+            await on_my_chat_member(event, bot, session, _state())
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -101)
@@ -75,9 +82,9 @@ class OnboardingTests(ChatModelsTestCase):
             await session.commit()
 
         event = _chat_member_updated(-102, 1, "kicked", old_status="member")
-        bot = SimpleNamespace(get_chat_member_count=AsyncMock(), get_chat_administrators=AsyncMock())
+        bot = SimpleNamespace(id=1, get_chat_member_count=AsyncMock(), get_chat_administrators=AsyncMock())
         async with self.sessions() as session:
-            await on_my_chat_member(event, bot, session)
+            await on_my_chat_member(event, bot, session, _state())
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -102)

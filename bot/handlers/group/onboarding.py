@@ -1,11 +1,13 @@
 import logging
 
 from aiogram import Bot, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import ChatMemberUpdated
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.settings import SettingsRepository
+from bot.handlers.group.chat_bonus import try_link_pending_sponsor
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -27,10 +29,17 @@ async def _resolve_owner(bot: Bot, chat_id: int) -> int | None:
 
 
 @router.my_chat_member()
-async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSession) -> None:
+async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSession, state: FSMContext) -> None:
     """Fires when the bot itself is added to / removed from / promoted in a
     chat. This is how a Chat row first gets created — no group.message
     handler can run before the bot has actually been added."""
+    # A bonus owner adding this chat/channel specifically as a bonus
+    # sponsor is a different flow entirely (no chat_min_members threshold,
+    # no "only the owner may add" rule tied to *this* chat) — resolve that
+    # first and skip normal chat-registration handling if it applies.
+    if await try_link_pending_sponsor(bot, state.storage, event):
+        return
+
     new_status = event.new_chat_member.status
     old_status = event.old_chat_member.status
     chat_id = event.chat.id
