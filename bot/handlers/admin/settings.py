@@ -151,9 +151,20 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
             reply_markup=settings_cancel_kb(),
         )
         return
-    if key == "mines_house_edge" and val > 1:
+    if key == "mines_house_edge" and val >= 1:
+        # val == 1 would zero out every non-tabled payout (mines.py computes
+        # raw = (1/prob) * (1 - house_edge)) — a 100% house edge that
+        # silently breaks the game rather than a valid extreme setting.
         await message.answer(
-            "❌ Комиссия казино в Минах — доля от 0 до 1 (напр. 0.1 = 10%):",
+            "❌ Комиссия казино в Минах — доля от 0 до 1, строго меньше 1 (напр. 0.1 = 10%):",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
+    if key == "mines_max_coeff" and val <= 0:
+        # Same failure mode as above: mines_coeff() clamps every payout to
+        # min(raw, max_coeff), so max_coeff == 0 zeroes everything out.
+        await message.answer(
+            "❌ Макс. множитель должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return

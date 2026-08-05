@@ -170,6 +170,14 @@ async def msg_game_value(message: Message, state: FSMContext, session: AsyncSess
         await message.answer("❌ Введи положительное число:")
         return
     data = await state.get_data()
+    if data.get("param") != "min_bet" and value > 100:
+        # Sanity ceiling on payout coefficients only (min_bet is
+        # legitimately allowed to go higher) — every real coefficient in
+        # this codebase tops out around 42x (slots jackpot), so >100x is
+        # almost certainly a typo (e.g. "200" meant as "2.00") rather than
+        # an intentional setting, and would pay players 100x+ their bet.
+        await message.answer("❌ Коэффициент больше 100x — проверь, не опечатка ли (например, 200 вместо 2.00):")
+        return
     await state.clear()
     repo = SettingsRepository(session)
     await repo.set(f"game_{data['game_type']}_{data['param']}", str(value))
