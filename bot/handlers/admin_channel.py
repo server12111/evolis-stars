@@ -38,15 +38,19 @@ async def _update_public_withdrawal_status(
         return
 
     user = await UserRepository(session).get(withdrawal.user_id)
+    # recipient_username is who Stars actually go to (may differ from the
+    # requester for a gift withdrawal) — nullable only for rows created
+    # before this field existed, which always meant "the requester's own".
+    recipient_username = withdrawal.recipient_username or (user.username if user else None)
     username_display = (
-        f"@{user.username}"
-        if user and user.username
+        f"@{recipient_username}"
+        if recipient_username
         else html.escape(user.first_name if user else str(withdrawal.user_id))
     )
     vip_badge = " 💎 VIP" if user and user.is_vip else ""
     text = (
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
-        f"👤 Пользователь: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
+        f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
         f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
         f"{status_icon} Статус: <b>{status}</b>"
     )

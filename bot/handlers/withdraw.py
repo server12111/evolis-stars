@@ -1,4 +1,5 @@
 import math
+import re
 from html import escape
 
 from aiogram import Bot, Router
@@ -17,12 +18,31 @@ from bot.keyboards.withdraw import (
     payments_channel_kb,
     withdraw_amounts_kb,
     withdraw_captcha_kb,
+    withdraw_confirm_kb,
+    withdraw_recipient_cancel_kb,
+    withdraw_recipient_choice_kb,
 )
 from bot.services.captcha import generate_captcha
 from bot.states.withdraw import WithdrawStates
 
 router = Router()
 settings = get_settings()
+
+# Telegram username rules: letters/digits/underscores, 5-32 characters
+# total, must start with a letter.
+_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+
+
+def _normalize_username(raw: str) -> str | None:
+    """Strip an optional leading '@' and whitespace, then validate against
+    Telegram's username format. Returns None if the result isn't a valid
+    username."""
+    candidate = raw.strip()
+    if candidate.startswith("@"):
+        candidate = candidate[1:]
+    if not _USERNAME_RE.fullmatch(candidate):
+        return None
+    return candidate
 
 
 @router.callback_query(lambda c: c.data == "menu:withdraw")
@@ -35,24 +55,9 @@ async def cb_withdraw_menu(callback: CallbackQuery, db_user: User, session: Asyn
         await callback.answer("💸 Вывод временно недоступен.", show_alert=True)
         return
 
-    if not db_user.username:
-        try:
-            await callback.message.edit_text(
-                "⚠️ <b>Вывод недоступен</b>\n\n"
-                "Для вывода средств необходимо установить Username в Telegram.",
-                parse_mode="HTML",
-                reply_markup=back_to_menu_kb(),
-            )
-        except Exception:
-            await callback.message.answer(
-                "⚠️ <b>Вывод недоступен</b>\n\n"
-                "Для вывода средств необходимо установить Username в Telegram.",
-                parse_mode="HTML",
-                reply_markup=back_to_menu_kb(),
-            )
-        await callback.answer()
-        return
-
+    # A Telegram username is only required for the "себе" (self) recipient
+    # mode, checked there — "другому пользователю" needs no username of
+    # the requester's own, so this is no longer an upfront gate.
     amounts_str = await repo.get("withdraw_min_amounts", "15,25,50,100")
     try:
         amounts = sorted({
@@ -146,27 +151,111 @@ async def cb_withdraw_amount(
         )
         return
 
+    await state.set_state(WithdrawStates.choose_recipient)
+    await state.update_data(amount=amount)
+
+    text = f"💫 Сумма: <b>{amount} ⭐</b>\n\nКому вывести звёзды?"
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_recipient_choice_kb())
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_recipient_choice_kb())
+    await callback.answer()
+
+
+@router.callback_query(WithdrawStates.choose_recipient, lambda c: c.data == "withdraw:recipient:self")
+async def cb_withdraw_recipient_self(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
+    data = await state.get_data()
+    amount = data.get("amount")
+    if amount is None:
+        await callback.answer()
+        return
+
+    if not db_user.username:
+        text = (
+            "⚠️ Для вывода себе нужен Telegram username.\n\n"
+            "Установи его в настройках Telegram или выбери «Другому пользователю»."
+        )
+        try:
+            await callback.message.edit_text(text, reply_markup=withdraw_recipient_choice_kb())
+        except Exception:
+            await callback.message.answer(text, reply_markup=withdraw_recipient_choice_kb())
+        await callback.answer()
+        return
+
+    await state.set_state(WithdrawStates.confirm)
+    await state.update_data(recipient_username=db_user.username)
+    text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n👤 Получатель: @{escape(db_user.username)}"
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+    await callback.answer()
+
+
+@router.callback_query(WithdrawStates.choose_recipient, lambda c: c.data == "withdraw:recipient:other")
+async def cb_withdraw_recipient_other(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(WithdrawStates.enter_recipient_username)
+    text = "✏️ Отправь Telegram username получателя (с @ или без):"
+    try:
+        await callback.message.edit_text(text, reply_markup=withdraw_recipient_cancel_kb())
+    except Exception:
+        await callback.message.answer(text, reply_markup=withdraw_recipient_cancel_kb())
+    await callback.answer()
+
+
+@router.message(WithdrawStates.enter_recipient_username)
+async def msg_recipient_username(message: Message, db_user: User, state: FSMContext) -> None:
+    data = await state.get_data()
+    amount = data.get("amount")
+    if amount is None:
+        await state.clear()
+        return
+
+    username = _normalize_username(message.text or "")
+    if not username:
+        await message.answer(
+            "❌ Некорректный username. Введи его ещё раз (с @ или без):",
+            reply_markup=withdraw_recipient_cancel_kb(),
+        )
+        return
+
+    if db_user.username and username.lower() == db_user.username.lower():
+        await message.answer(
+            "❌ Это твой собственный username — для вывода себе используй «Себе». "
+            "Введи другой username или отмени:",
+            reply_markup=withdraw_recipient_cancel_kb(),
+        )
+        return
+
+    await state.set_state(WithdrawStates.confirm)
+    await state.update_data(recipient_username=username)
+    text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n🎁 Получатель: @{escape(username)}"
+    await message.answer(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+
+
+@router.callback_query(WithdrawStates.confirm, lambda c: c.data == "withdraw:confirm")
+async def cb_withdraw_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    amount = data.get("amount")
+    recipient_username = data.get("recipient_username")
+    if amount is None or not recipient_username:
+        await callback.answer()
+        return
+
     question, answer = generate_captcha()
     await state.set_state(WithdrawStates.enter_captcha)
-    await state.update_data(amount=amount, captcha_answer=answer)
+    await state.update_data(captcha_answer=answer)
 
+    text = (
+        f"🔐 <b>Подтверждение вывода</b>\n\n"
+        f"Сумма: <b>{amount} ⭐</b>\n\n"
+        f"Решите пример для подтверждения:\n\n"
+        f"<b>{question} = ?</b>"
+    )
     try:
-        await callback.message.edit_text(
-            f"🔐 <b>Подтверждение вывода</b>\n\n"
-            f"Сумма: <b>{amount} ⭐</b>\n\n"
-            f"Решите пример для подтверждения:\n\n"
-            f"<b>{question} = ?</b>",
-            parse_mode="HTML",
-            reply_markup=withdraw_captcha_kb(),
-        )
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_captcha_kb())
     except Exception:
-        await callback.message.answer(
-            f"🔐 <b>Подтверждение вывода</b>\n\n"
-            f"Сумма: <b>{amount} ⭐</b>\n\n"
-            f"Решите пример:\n<b>{question} = ?</b>",
-            parse_mode="HTML",
-            reply_markup=withdraw_captcha_kb(),
-        )
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_captcha_kb())
     await callback.answer()
 
 
@@ -181,6 +270,7 @@ async def msg_captcha(
     data = await state.get_data()
     correct = data.get("captcha_answer")
     amount = data.get("amount", 0)
+    recipient_username = data.get("recipient_username")
 
     try:
         user_answer = int(message.text.strip())
@@ -212,7 +302,7 @@ async def msg_captcha(
         or amount <= 0
         or amount not in allowed_amounts
         or amount < minimum
-        or not db_user.username
+        or not recipient_username
     ):
         await state.clear()
         await message.answer("❌ Параметры вывода изменились. Выберите сумму заново.", reply_markup=back_to_menu_kb())
@@ -239,16 +329,19 @@ async def msg_captcha(
     # Deduct stars and create withdrawal in the same transaction.
     db_user.stars_balance = round(float(db_user.stars_balance) - amount, 2)
     w_repo = WithdrawalRepository(session)
-    withdrawal = await w_repo.create(db_user.user_id, float(amount))
+    withdrawal = await w_repo.create(db_user.user_id, float(amount), recipient_username)
 
-    username_display = (
-        f"@{db_user.username}" if db_user.username else escape(db_user.first_name)
+    username_display = f"@{escape(recipient_username)}"
+    gift_note = (
+        f" (заявитель: ID <code>{db_user.user_id}</code>)"
+        if db_user.username != recipient_username
+        else ""
     )
 
     vip_badge = " 💎 VIP" if db_user.is_vip else ""
     request_text = (
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
-        f"👤 Пользователь: {username_display} | ID: <code>{db_user.user_id}</code>\n"
+        f"👤 Получатель: {username_display}{gift_note} | ID: <code>{db_user.user_id}</code>\n"
         f"💫 Сумма: <b>{amount} ⭐</b>\n"
         f"⏳ Статус: На рассмотрении"
     )

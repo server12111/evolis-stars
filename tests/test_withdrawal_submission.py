@@ -35,7 +35,7 @@ class WithdrawalSubmissionTests(unittest.IsolatedAsyncioTestCase):
             message = SimpleNamespace(text="4", answer=AsyncMock())
             state = SimpleNamespace(
                 get_data=AsyncMock(
-                    return_value={"amount": 15, "captcha_answer": 4}
+                    return_value={"amount": 15, "captcha_answer": 4, "recipient_username": "withdraw_user"}
                 ),
                 clear=AsyncMock(),
             )

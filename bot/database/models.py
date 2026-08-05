@@ -179,6 +179,11 @@ class Withdrawal(Base):
     admin_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Who Stars actually get sent to — usually the requester's own
+    # username, but may be a different Telegram username when they
+    # withdraw as a gift to someone else. Nullable for rows created
+    # before this existed (those always meant "the requester's own").
+    recipient_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 # ─── PromoCode ────────────────────────────────────────────────────────────────

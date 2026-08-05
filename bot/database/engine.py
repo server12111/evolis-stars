@@ -101,6 +101,13 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("UPDATE chats SET last_click_ad_posted_at = CURRENT_TIMESTAMP")
         )
+    withdrawal_columns = {
+        column["name"] for column in inspect(connection).get_columns("withdrawals")
+    }
+    if "recipient_username" not in withdrawal_columns:
+        connection.execute(
+            text("ALTER TABLE withdrawals ADD COLUMN recipient_username VARCHAR(64)")
+        )
     _ensure_integrity_indexes(connection)
 
 

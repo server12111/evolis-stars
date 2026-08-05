@@ -20,6 +20,27 @@ def withdraw_captcha_kb() -> InlineKeyboardMarkup:
     ]])
 
 
+def withdraw_recipient_choice_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="👤 Себе", callback_data="withdraw:recipient:self"))
+    builder.row(InlineKeyboardButton(text="🎁 Другому пользователю", callback_data="withdraw:recipient:other"))
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"))
+    return builder.as_markup()
+
+
+def withdraw_recipient_cancel_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"),
+    ]])
+
+
+def withdraw_confirm_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Подтвердить", callback_data="withdraw:confirm", style="success"),
+        InlineKeyboardButton(text="❌ Отменить", callback_data="menu:withdraw", style="danger"),
+    ]])
+
+
 def payments_channel_kb(link: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📢 Канал выплат", url=link))
