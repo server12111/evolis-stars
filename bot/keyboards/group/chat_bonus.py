@@ -24,23 +24,23 @@ def bonus_sponsors_kb(sponsor_count: int) -> InlineKeyboardMarkup:
 
 
 # Per https://core.telegram.org/api/links — admin= rights are joined with
-# "+" (confirmed live). get_chat_member (all the subscription check
-# actually needs) works for any admin regardless of which specific rights
-# they hold, so this stays genuinely minimal rather than requesting
-# everything: invite_users only matters for a private channel/chat with
-# no public username (so an invite link could be generated for the
-# subscribe button), manage_chat is the general "view chat info" grant.
-# Same set for both channel and chat — Telegram's own dialog only shows
-# whichever of these are actually applicable to that chat type.
-_SPONSOR_ADMIN_RIGHTS = "invite_users+manage_chat"
+# "+" (confirmed live). Exact toggle sets picked and confirmed live via
+# Telegram's own "Add Bot as Admin" dialog for each chat type.
+_CHANNEL_SPONSOR_ADMIN_RIGHTS = (
+    "post_messages+edit_messages+delete_messages+"
+    "post_stories+edit_stories+delete_stories+"
+    "invite_users+manage_direct_messages"
+)
+_CHAT_SPONSOR_ADMIN_RIGHTS = "delete_messages+invite_users+pin_messages+manage_tags+anonymous"
 
 
 def bonus_sponsor_deeplink_kb(bot_username: str, sponsor_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     param = "startchannel" if sponsor_type == "channel" else "startgroup"
     text = "➕ Добавить канал" if sponsor_type == "channel" else "➕ Добавить чат"
+    rights = _CHANNEL_SPONSOR_ADMIN_RIGHTS if sponsor_type == "channel" else _CHAT_SPONSOR_ADMIN_RIGHTS
     builder.row(InlineKeyboardButton(
-        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin={_SPONSOR_ADMIN_RIGHTS}",
+        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin={rights}",
     ))
     return builder.as_markup()
 
