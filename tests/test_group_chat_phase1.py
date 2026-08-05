@@ -17,10 +17,10 @@ from bot.handlers.group.owner_menu import cmd_evolis_open
 from bot.middlewares.group_activity import GroupActivityMiddleware
 
 
-def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left"):
+def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left", is_bot: bool = False):
     return SimpleNamespace(
         chat=SimpleNamespace(id=chat_id, title="Test Chat"),
-        new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id)),
+        new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id, is_bot=is_bot)),
         old_chat_member=SimpleNamespace(status=old_status),
     )
 
@@ -130,9 +130,10 @@ class ChatUpsertConcurrencyTests(ChatModelsTestCase):
 
 class MembershipSyncTests(ChatModelsTestCase):
     async def test_chat_member_join_and_leave_tracked(self) -> None:
+        bot = AsyncMock()
         joined = _chat_member_updated(-200, 555, "member")
         async with self.sessions() as session:
-            await on_chat_member_update(joined, session)
+            await on_chat_member_update(joined, session, bot)
         async with self.sessions() as session:
             repo = ChatMembershipRepository(session)
             membership = await repo.get(-200, 555)
@@ -141,11 +142,47 @@ class MembershipSyncTests(ChatModelsTestCase):
 
         left = _chat_member_updated(-200, 555, "left", old_status="member")
         async with self.sessions() as session:
-            await on_chat_member_update(left, session)
+            await on_chat_member_update(left, session, bot)
         async with self.sessions() as session:
             repo = ChatMembershipRepository(session)
             membership = await repo.get(-200, 555)
         self.assertIsNotNone(membership.left_at)
+
+    async def test_genuine_join_sends_ephemeral_welcome(self) -> None:
+        bot = AsyncMock()
+        joined = _chat_member_updated(-201, 556, "member", old_status="left")
+        async with self.sessions() as session:
+            await on_chat_member_update(joined, session, bot)
+
+        bot.send_message.assert_awaited_once()
+        args, kwargs = bot.send_message.await_args
+        self.assertEqual(args[0], -201)
+        self.assertIn("Добро пожаловать", args[1])
+        self.assertEqual(kwargs["receiver_user_id"], 556)
+
+    async def test_promotion_of_existing_member_does_not_send_welcome(self) -> None:
+        bot = AsyncMock()
+        promoted = _chat_member_updated(-202, 557, "administrator", old_status="member")
+        async with self.sessions() as session:
+            await on_chat_member_update(promoted, session, bot)
+        bot.send_message.assert_not_awaited()
+
+    async def test_bot_being_added_does_not_get_a_welcome_message(self) -> None:
+        bot = AsyncMock()
+        joined = _chat_member_updated(-203, 558, "member", old_status="left", is_bot=True)
+        async with self.sessions() as session:
+            await on_chat_member_update(joined, session, bot)
+        bot.send_message.assert_not_awaited()
+
+    async def test_welcome_send_failure_does_not_crash_membership_tracking(self) -> None:
+        bot = AsyncMock()
+        bot.send_message.side_effect = Exception("boom")
+        joined = _chat_member_updated(-204, 559, "member", old_status="left")
+        async with self.sessions() as session:
+            await on_chat_member_update(joined, session, bot)
+        async with self.sessions() as session:
+            membership = await ChatMembershipRepository(session).get(-204, 559)
+        self.assertIsNotNone(membership)
 
 
 class GroupActivityMiddlewareTests(ChatModelsTestCase):
