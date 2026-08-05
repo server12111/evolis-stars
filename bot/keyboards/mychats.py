@@ -51,6 +51,12 @@ def mychat_back_kb(chat_id: int) -> InlineKeyboardMarkup:
     ]])
 
 
+def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="◀️ К списку чатов", callback_data="mychats:list"),
+    ]])
+
+
 def connected_instructions_kb(bot_username: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💬 Открыть панель чатов", callback_data="mychats:list"))

@@ -125,6 +125,63 @@ class AccessControlTests(ChatModelsTestCase):
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("-21", rendered)
 
+    async def test_open_blocked_for_pending_chat_under_threshold(self) -> None:
+        # /EvolisOpen always blocked management for a chat that hasn't
+        # crossed chat_min_members yet — the panel must not silently drop
+        # that gate just because it moved to a new entry point.
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-24, title="T", status="pending", owner_user_id=1, member_count=10))
+            await session.commit()
+
+        cb = _callback(1, "mychats:open:-24")
+        async with self.sessions() as session:
+            await cb_mychats_open(cb, session, _state())
+
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("250", rendered)
+        self.assertIn("10", rendered)
+        # The panel keyboard (with promo/bonus/broadcast buttons) must not
+        # have been rendered for a chat that hasn't crossed the threshold.
+        kb = cb.message.edit_text.await_args.kwargs["reply_markup"]
+        all_datas = {btn.callback_data for row in kb.inline_keyboard for btn in row}
+        self.assertNotIn("mychats:promo:-24", all_datas)
+
+    async def test_none_message_does_not_crash_any_handler(self) -> None:
+        # A callback whose original message is gone (deleted / inaccessible)
+        # must be handled gracefully, not raise.
+        for data in (
+            "mychats:list", "mychats:open:-1", "mychats:refresh:-1",
+            "mychats:broadcast:-1", "mychats:stats:-1", "mychats:top:-1",
+            "mychats:log:-1", "mychats:games:-1", "mychats:promo:-1", "mychats:bonus:-1",
+        ):
+            cb = SimpleNamespace(message=None, from_user=SimpleNamespace(id=1), data=data, answer=AsyncMock())
+            async with self.sessions() as session:
+                # Look the handler up by name instead of importing all ten
+                # at the top of the file.
+                import bot.handlers.mychats as mychats_mod
+                name_map = {
+                    "mychats:list": "cb_mychats_list",
+                    "mychats:open:-1": "cb_mychats_open",
+                    "mychats:refresh:-1": "cb_mychats_refresh",
+                    "mychats:broadcast:-1": "cb_mychats_broadcast_toggle",
+                    "mychats:stats:-1": "cb_mychats_stats",
+                    "mychats:top:-1": "cb_mychats_top",
+                    "mychats:log:-1": "cb_mychats_log",
+                    "mychats:games:-1": "cb_mychats_games",
+                    "mychats:promo:-1": "cb_mychats_promo_start",
+                    "mychats:bonus:-1": "cb_mychats_bonus_start",
+                }
+                func = getattr(mychats_mod, name_map[data])
+                kwargs = {"callback": cb, "session": session}
+                import inspect
+                params = inspect.signature(func).parameters
+                if "state" in params:
+                    kwargs["state"] = _state()
+                if "bot" in params:
+                    kwargs["bot"] = AsyncMock()
+                await func(**kwargs)
+            cb.answer.assert_awaited()
+
     async def test_broadcast_toggle_denied_for_non_owner_even_with_correct_chat_id(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-22, title="T", status="active", owner_user_id=1, broadcast_opt_in=False))

@@ -23,7 +23,7 @@ from bot.handlers.group.chat_bonus import (
 from bot.handlers.group.chat_promo import msg_chat_promo_code, start_promo_creation
 from bot.handlers.group.info import render_roulette_log_text, render_top_users_text
 from bot.handlers.group.owner_menu import render_chat_panel_text
-from bot.keyboards.mychats import mychat_back_kb, mychat_panel_kb, mychats_list_kb
+from bot.keyboards.mychats import mychat_back_kb, mychat_back_to_list_kb, mychat_panel_kb, mychats_list_kb
 from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates
 
 router = Router()
@@ -71,6 +71,9 @@ async def _render_panel(callback: CallbackQuery, session: AsyncSession, chat: Ch
 
 @router.callback_query(F.data == "mychats:list")
 async def cb_mychats_list(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     await state.clear()
     chats = await ChatRepository(session).list_owned_by(callback.from_user.id)
     text = (
@@ -88,6 +91,9 @@ async def cb_mychats_list(callback: CallbackQuery, session: AsyncSession, state:
 
 @router.callback_query(F.data.startswith("mychats:open:"))
 async def cb_mychats_open(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     await state.clear()
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
@@ -96,12 +102,35 @@ async def cb_mychats_open(callback: CallbackQuery, session: AsyncSession, state:
     chat = await _verify_owned_chat(callback, session, chat_id)
     if chat is None:
         return
+
+    # Same member-count gate /EvolisOpen always enforced — connecting the
+    # bot doesn't itself grant management access, only crossing the
+    # threshold does. Preserved here rather than silently dropped.
+    if chat.status != "active":
+        min_members = await SettingsRepository(session).get_int("chat_min_members", 250)
+        try:
+            await callback.message.edit_text(
+                f"⚠️ Управление чатом доступно от {min_members} участников. "
+                f"Сейчас в чате: {chat.member_count}.",
+                reply_markup=mychat_back_to_list_kb(),
+            )
+        except Exception:
+            await callback.message.answer(
+                f"⚠️ Управление чатом доступно от {min_members} участников. "
+                f"Сейчас в чате: {chat.member_count}."
+            )
+        await callback.answer()
+        return
+
     await _render_panel(callback, session, chat)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("mychats:refresh:"))
 async def cb_mychats_refresh(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -128,6 +157,9 @@ async def cb_mychats_refresh(callback: CallbackQuery, session: AsyncSession, bot
 
 @router.callback_query(F.data.startswith("mychats:broadcast:"))
 async def cb_mychats_broadcast_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -144,6 +176,9 @@ async def cb_mychats_broadcast_toggle(callback: CallbackQuery, session: AsyncSes
 
 @router.callback_query(F.data.startswith("mychats:stats:"))
 async def cb_mychats_stats(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -162,6 +197,9 @@ async def cb_mychats_stats(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data.startswith("mychats:top:"))
 async def cb_mychats_top(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -179,6 +217,9 @@ async def cb_mychats_top(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data.startswith("mychats:log:"))
 async def cb_mychats_log(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -196,6 +237,9 @@ async def cb_mychats_log(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data.startswith("mychats:games:"))
 async def cb_mychats_games(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -218,6 +262,9 @@ async def cb_mychats_games(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data.startswith("mychats:promo:"))
 async def cb_mychats_promo_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
@@ -229,6 +276,9 @@ async def cb_mychats_promo_start(callback: CallbackQuery, session: AsyncSession,
 
 @router.callback_query(F.data.startswith("mychats:bonus:"))
 async def cb_mychats_bonus_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
     chat_id = _parse_chat_id(callback)
     if chat_id is None:
         await callback.answer()
