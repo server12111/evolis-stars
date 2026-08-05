@@ -39,10 +39,16 @@ async def _is_owner(session: AsyncSession, chat_id: int, user_id: int) -> bool:
     return bool(chat and chat.owner_user_id == user_id)
 
 
+_GLOBAL_USER_STATE_CHAT_ID = 0  # never a real Telegram chat id — a private chat's id always equals the user's own id, which chat_id=user_id here would collide with
+
+
 def _pending_sponsor_state(storage: BaseStorage, bot_id: int, user_id: int) -> FSMContext:
     """User-scoped (not chat-scoped) FSM context — the my_chat_member event
     that resolves this fires in the sponsor's own chat, not the bonus's."""
-    return FSMContext(storage=storage, key=StorageKey(bot_id=bot_id, chat_id=user_id, user_id=user_id))
+    return FSMContext(
+        storage=storage,
+        key=StorageKey(bot_id=bot_id, chat_id=_GLOBAL_USER_STATE_CHAT_ID, user_id=user_id),
+    )
 
 
 def _origin_state(storage: BaseStorage, bot_id: int, chat_id: int, user_id: int) -> FSMContext:
@@ -276,7 +282,17 @@ async def try_link_pending_sponsor(bot: Bot, storage: BaseStorage, event: ChatMe
 
     # Only the chat this specific deep link was opened in matters — ignore
     # unrelated membership changes for the adder in other chats/channels.
+    # The marker stays armed (not cleared) so promoting the bot moments
+    # later re-fires this handler and completes the link.
     if event.new_chat_member.status != "administrator":
+        try:
+            await bot.send_message(
+                event.chat.id,
+                "⚠️ Чтобы добавить этот чат как спонсора, назначьте бота администратором "
+                "(без этого проверка подписки участников не будет работать).",
+            )
+        except Exception:
+            pass
         return True
 
     actual_is_channel = event.chat.type == "channel"
@@ -362,7 +378,7 @@ async def msg_bonus_redeem(message: Message, session: AsyncSession, bot: Bot) ->
         unsubscribed = await _unsubscribed_sponsors(bot, sponsors, message.from_user.id)
         if unsubscribed:
             await message.reply(
-                "Вы не подписаны на спонсоров.",
+                "Вы не подписаны на спонсоров.\n\n" + _sponsors_list_text(sponsors),
                 reply_markup=bonus_subscribe_kb(sponsors, bonus.id),
             )
             return
@@ -371,6 +387,18 @@ async def msg_bonus_redeem(message: Message, session: AsyncSession, bot: Bot) ->
         await message.reply(text, parse_mode="HTML")
 
     await _finalize_bonus_redeem(session, bonus, message.from_user.id, _notify)
+
+
+def _sponsors_list_text(sponsors: list) -> str:
+    """Text fallback for every sponsor — bonus_subscribe_kb only renders a
+    clickable button for sponsors with a public username, so a private
+    chat/channel without one would otherwise be completely invisible to
+    the user (no button, no name, no way to find it)."""
+    lines = []
+    for sponsor in sponsors:
+        name = sponsor.title or sponsor.username or "Спонсор"
+        lines.append(f"📢 {name}" if sponsor.username else f"📢 {name} (у владельца бонуса)")
+    return "\n".join(lines)
 
 
 async def _unsubscribed_sponsors(bot: Bot, sponsors: list, user_id: int) -> list:

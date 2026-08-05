@@ -27,7 +27,12 @@ def bonus_sponsor_deeplink_kb(bot_username: str, sponsor_type: str) -> InlineKey
     builder = InlineKeyboardBuilder()
     param = "startchannel" if sponsor_type == "channel" else "startgroup"
     text = "➕ Добавить канал" if sponsor_type == "channel" else "➕ Добавить чат"
-    builder.row(InlineKeyboardButton(text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor"))
+    # &admin= (no specific rights) forces Telegram's "add as administrator"
+    # flow instead of "add as member" — without it, ?startgroup= links add
+    # the bot as a plain member for groups, and get_chat_member is
+    # unreliable for a non-admin bot, so the subscription check would
+    # silently never work.
+    builder.row(InlineKeyboardButton(text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin="))
     return builder.as_markup()
 
 
