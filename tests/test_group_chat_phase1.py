@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -90,6 +90,42 @@ class OnboardingTests(ChatModelsTestCase):
             chat = await session.get(Chat, -102)
         self.assertEqual(chat.status, "left")
         self.assertIsNotNone(chat.left_at)
+
+
+class ChatUpsertConcurrencyTests(ChatModelsTestCase):
+    async def test_insert_conflict_falls_back_to_updating_the_real_row(self) -> None:
+        """Telegram can fire more than one my_chat_member event for the
+        same brand-new chat in quick succession (e.g. added then
+        immediately promoted to admin) — this event type has no lock
+        protecting it, so two upsert() calls can both see no existing Chat
+        row and both try to insert. Must not raise an uncaught
+        IntegrityError; must fall back to updating the row the other call
+        already created."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-200, title="Old", status="pending", member_count=5))
+            await session.commit()
+
+        async with self.sessions() as session:
+            real_get = session.get
+            call_count = {"n": 0}
+
+            async def fake_get(*args, **kwargs):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    return None
+                return await real_get(*args, **kwargs)
+
+            with patch.object(session, "get", side_effect=fake_get):
+                chat = await ChatRepository(session).upsert(
+                    -200, "New Title", 300, owner_user_id=99, min_members=250,
+                )
+
+        self.assertEqual(chat.title, "New Title")
+        self.assertEqual(chat.status, "active")
+        async with self.sessions() as session:
+            saved = await session.get(Chat, -200)
+        self.assertEqual(saved.title, "New Title")
+        self.assertEqual(saved.owner_user_id, 99)
 
 
 class MembershipSyncTests(ChatModelsTestCase):

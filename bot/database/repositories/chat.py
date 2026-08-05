@@ -56,17 +56,36 @@ class ChatRepository(BaseRepository):
             chat.status = status
             chat.left_at = None
             chat.last_admin_sync_at = now
-        else:
-            chat = Chat(
-                chat_id=chat_id,
-                title=title,
-                member_count=member_count,
-                owner_user_id=owner_user_id,
-                status=status,
-                last_admin_sync_at=now,
-            )
-            self.session.add(chat)
-        await self.session.commit()
+            await self.session.commit()
+            return chat
+
+        chat = Chat(
+            chat_id=chat_id,
+            title=title,
+            member_count=member_count,
+            owner_user_id=owner_user_id,
+            status=status,
+            last_admin_sync_at=now,
+        )
+        self.session.add(chat)
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # Telegram can fire more than one my_chat_member event for the
+            # same brand-new chat in quick succession (e.g. added then
+            # immediately promoted to admin) — no lock protects this event
+            # type, so two calls can both see no existing row and both try
+            # to insert. Fall back to updating the row the other call won.
+            await self.session.rollback()
+            chat = await self.session.get(Chat, chat_id)
+            chat.title = title
+            chat.member_count = member_count
+            if owner_user_id is not None:
+                chat.owner_user_id = owner_user_id
+            chat.status = status
+            chat.left_at = None
+            chat.last_admin_sync_at = now
+            await self.session.commit()
         return chat
 
     async def mark_left(self, chat_id: int) -> None:
