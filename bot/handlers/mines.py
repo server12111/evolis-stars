@@ -163,6 +163,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
     await state.set_state(MinesStates.playing)
     await state.update_data(
         bet=bet, mines_count=mines_count, board=board, opened=[], gems=0, in_recovery=in_recovery,
+        used_free_credit=free,
     )
 
     house_edge, max_coeff = await get_mines_params(session, punish=in_recovery)
@@ -310,9 +311,13 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
     bet = data.get("bet", 0)
     gems = data.get("gems", 0)
     if gems == 0:
-        # No gems opened — just refund and exit
-        db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
-        await session.commit()
+        # No gems opened — just refund and exit. Only if the bet actually
+        # left the real balance: a bet covered by a free-game credit never
+        # touched stars_balance, so "refunding" it here would have minted
+        # stars from nothing.
+        if not data.get("used_free_credit", False):
+            db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
+            await session.commit()
         await state.clear()
         await callback.answer("↩️ Ставка возвращена.")
     else:

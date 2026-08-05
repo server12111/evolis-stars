@@ -128,7 +128,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
     mine_count = 2 if await is_in_recovery(session, "tower") else 1
     mines = [random.sample(range(3), mine_count) for _ in range(max_levels)]
     await state.set_state(TowerStates.playing)
-    await state.update_data(bet=bet, level=0, max_levels=max_levels, mines=mines, history=[])
+    await state.update_data(bet=bet, level=0, max_levels=max_levels, mines=mines, history=[], used_free_credit=free)
 
     coeff = await _get_coeff(session, 0)
     payout = round(bet * coeff, 2)
@@ -284,9 +284,13 @@ async def cb_tower_quit(callback: CallbackQuery, state: FSMContext, session: Asy
     level = data.get("level", 0)
 
     if level == 0:
-        # No progress — refund
-        db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
-        await session.commit()
+        # No progress — refund, but only if the bet actually left the real
+        # balance in the first place. A bet covered by a free-game credit
+        # never touched stars_balance, so "refunding" it here would have
+        # minted stars from nothing.
+        if not data.get("used_free_credit", False):
+            db_user.stars_balance = round(float(db_user.stars_balance) + bet, 2)
+            await session.commit()
         await state.clear()
         await callback.answer("↩️ Ставка возвращена.")
     else:

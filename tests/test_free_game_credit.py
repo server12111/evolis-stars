@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from bot.database.engine import Base
 from bot.database.models import User
 from bot.handlers.cases import cb_cases_confirm
-from bot.handlers.mines import cb_mines_bet, cb_mines_count
+from bot.handlers.mines import cb_mines_bet, cb_mines_count, cb_mines_quit
 from bot.handlers.random_game import cb_random
-from bot.handlers.tower import cb_tower_bet
+from bot.handlers.tower import cb_tower_bet, cb_tower_quit
 from bot.handlers.wheel import cb_wheel_bet
 from bot.states.games import MinesStates, TowerStates
 
@@ -122,6 +122,35 @@ class MinesFreeCreditTests(ChatModelsTestCase):
         data = await state.get_data()
         self.assertEqual(data["bet"], 3.0)
 
+    async def test_quitting_with_no_progress_after_free_credit_does_not_mint_stars(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=31, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(MinesStates.choose_bet)
+        cb1 = _callback("mines:bet:3")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 31)
+            await cb_mines_bet(cb1, state, session, db_user)
+
+        cb2 = _callback("mines:count:3")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 31)
+            await cb_mines_count(cb2, state, session, db_user)
+
+        # Quit immediately, before opening any cell — the bet was covered
+        # by the free credit, so the balance was never actually debited,
+        # and this "refund" must not add stars that were never taken.
+        cb3 = _callback("mines:quit")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 31)
+            await cb_mines_quit(cb3, state, session, db_user)
+
+        async with self.sessions() as session:
+            user = await session.get(User, 31)
+        self.assertEqual(user.stars_balance, Decimal("0"))
+
 
 class TowerFreeCreditTests(ChatModelsTestCase):
     async def test_3_star_bet_with_credit_does_not_charge_balance(self) -> None:
@@ -142,6 +171,30 @@ class TowerFreeCreditTests(ChatModelsTestCase):
         self.assertEqual(user.stars_balance, Decimal("0"))  # never charged
         data = await state.get_data()
         self.assertEqual(data["bet"], 3.0)
+
+    async def test_quitting_with_no_progress_after_free_credit_does_not_mint_stars(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=41, first_name="U", stars_balance=Decimal("0"), free_game_credit_amount=Decimal("3.0")))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(TowerStates.choose_bet)
+        cb1 = _callback("tower:bet:3")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 41)
+            await cb_tower_bet(cb1, state, session, db_user)
+
+        # Quit immediately, before picking any tile — the bet was covered
+        # by the free credit, so the balance was never actually debited,
+        # and this "refund" must not add stars that were never taken.
+        cb2 = _callback("tower:quit")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 41)
+            await cb_tower_quit(cb2, state, session, db_user)
+
+        async with self.sessions() as session:
+            user = await session.get(User, 41)
+        self.assertEqual(user.stars_balance, Decimal("0"))
 
 
 if __name__ == "__main__":
