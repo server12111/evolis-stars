@@ -100,8 +100,29 @@ def _describe_result(result: list[dict] | BaseException | None) -> str:
     return "None"
 
 
+async def _check_membership_cached(
+    bot: Bot, chat_id: str | int, user_id: int, cache: dict,
+) -> bool | None:
+    """A single live bot.get_chat_member lookup per (chat, user) per
+    evaluation pass, shared between _drop_confirmed_subscriptions and
+    _reinstate_expired_pinned_sponsors — both independently re-verify
+    membership for their own reasons, and without this cache the same
+    sponsor chat could be queried twice (once per function) in the same
+    check. Returns None when the lookup itself failed (unknown, not
+    "unsubscribed")."""
+    if chat_id in cache:
+        return cache[chat_id]
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+    except Exception:
+        return None
+    result = is_subscribed(member)
+    cache[chat_id] = result
+    return result
+
+
 async def _drop_confirmed_subscriptions(
-    bot: Bot | None, user_id: int, provider_result: list[dict] | BaseException | None,
+    bot: Bot | None, user_id: int, provider_result: list[dict] | BaseException | None, cache: dict,
 ) -> list[dict] | BaseException | None:
     """Providers (tgrass/botohub) sometimes lag behind Telegram's own
     membership state — propagation delay, a rotated task set, etc. — and
@@ -121,16 +142,53 @@ async def _drop_confirmed_subscriptions(
         chat_id = telegram_chat_id(item.get("url") or item.get("link"))
         if chat_id is None:
             return item
-        try:
-            member = await bot.get_chat_member(chat_id, user_id)
-        except Exception:
+        subscribed = await _check_membership_cached(bot, chat_id, user_id, cache)
+        if subscribed is None:
             return item
-        return None if is_subscribed(member) else item
+        return None if subscribed else item
 
     results = await asyncio.gather(
         *(_check(item) for item in provider_result), return_exceptions=True,
     )
     return [item for item in results if isinstance(item, dict)]
+
+
+async def _reinstate_expired_pinned_sponsors(
+    bot: Bot | None, db_user: User, results: dict[str, list[dict] | BaseException | None], cache: dict,
+) -> None:
+    """Providers pin a rotating batch of offers to a user for a limited
+    window (BotoHub: ~3 minutes, per its own docs) and can legitimately
+    stop mentioning a sponsor once that window passes or the batch
+    rotates — NOT because the user subscribed, just because the provider
+    moved on. evaluate_waves() otherwise reads "this saved sponsor is
+    absent from the fresh provider batch" as "subscribed", which lets a
+    wave silently pass a user who never joined anything if they wait past
+    the pin window before pressing the check button. For every saved
+    sponsor with a t.me link that's missing from its provider's fresh
+    batch, independently confirm real membership via our own bot (same
+    don't-trust-a-rotating-batch-alone principle as
+    _drop_confirmed_subscriptions, applied in the opposite direction) and
+    put it back in that provider's unsubscribed list if the user still
+    isn't actually a member."""
+    if bot is None or db_user.sponsor_wave not in (1, 2):
+        return
+
+    from bot.services.sponsor_waves import _current_items, _decorate, _key
+
+    for item in _current_items(db_user):
+        provider = str(item.get("provider", ""))
+        provider_result = results.get(provider)
+        if not isinstance(provider_result, list):
+            continue
+        if _key(item) in {_key(decorated) for decorated in _decorate(provider_result, provider)}:
+            continue  # provider already reports it as unsubscribed — nothing to do
+
+        chat_id = telegram_chat_id(item.get("url"))
+        if chat_id is None:
+            continue  # not a t.me link — no independent way to verify a web sponsor
+        subscribed = await _check_membership_cached(bot, chat_id, db_user.user_id, cache)
+        if subscribed is False:
+            provider_result.append(item)
 
 
 async def get_pending_sponsor_items(
@@ -176,6 +234,8 @@ async def _evaluate_wave_state(
     from bot.services.sponsor_waves import _current_items, _url_key
     from bot.services.referral import get_min_sponsors_for_reward
 
+    membership_cache: dict = {}
+
     tgrass_result, botohub_result = await asyncio.gather(
         check_tgrass(
             db_user.user_id,
@@ -194,8 +254,8 @@ async def _evaluate_wave_state(
         return_exceptions=True,
     )
     tgrass_result, botohub_result = await asyncio.gather(
-        _drop_confirmed_subscriptions(bot, db_user.user_id, tgrass_result),
-        _drop_confirmed_subscriptions(bot, db_user.user_id, botohub_result),
+        _drop_confirmed_subscriptions(bot, db_user.user_id, tgrass_result, membership_cache),
+        _drop_confirmed_subscriptions(bot, db_user.user_id, botohub_result, membership_cache),
     )
 
     piarflow_needed = False
@@ -238,7 +298,7 @@ async def _evaluate_wave_state(
                 # genuinely subscribed to everything isn't stuck because of
                 # one provider-side false negative.
                 piarflow_result = await _drop_confirmed_subscriptions(
-                    bot, db_user.user_id, piarflow_result,
+                    bot, db_user.user_id, piarflow_result, membership_cache,
                 )
         else:
             # Not yet frozen — top PiarFlow up only far enough to cover the
@@ -282,6 +342,11 @@ async def _evaluate_wave_state(
         piarflow_result=piarflow_result,
     ):
         return SponsorWaveState("unavailable")
+
+    await _reinstate_expired_pinned_sponsors(
+        bot, db_user, {"tgrass": tgrass_result, "botohub": botohub_result, "piarflow": piarflow_result},
+        membership_cache,
+    )
 
     wave_size = min(
         20,

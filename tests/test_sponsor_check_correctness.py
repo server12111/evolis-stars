@@ -1,8 +1,9 @@
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from bot.middlewares.sponsor_wall import run_sponsor_wall_check, settings
+from bot.middlewares.sponsor_wall import _evaluate_wave_state, run_sponsor_wall_check, settings
 
 
 def offers(prefix: str, count: int) -> list[dict]:
@@ -120,6 +121,95 @@ class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase)
             passed = await run_sponsor_wall_check(inner(), user(), session, bot)
 
         self.assertFalse(passed)
+
+
+def frozen_user(items: list[dict], **kwargs) -> SimpleNamespace:
+    base = dict(
+        user_id=1,
+        sponsor_wave=1,
+        sponsor_wave_one=json.dumps(items),
+        sponsor_wave_two=None,
+    )
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
+    """Item: a user pressed "check subscription" without actually joining
+    anything and was told they'd subscribed to every sponsor. Root cause:
+    BotoHub/tgrass pin a sponsor batch to a user for a limited window and
+    can legitimately return an empty/rotated batch later — that emptiness
+    was being read as "subscribed" for sponsors already shown to the user,
+    instead of independently re-verified."""
+
+    async def test_expired_pin_with_no_real_subscription_stays_pending(self) -> None:
+        saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = fake_bot(member_status="left")  # user genuinely never joined
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            # Pin window expired / batch rotated — provider now reports
+            # nothing pending for this user, even though they never joined.
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "pending")
+        self.assertEqual(len(wave_state.items), 1)
+        bot.get_chat_member.assert_awaited_once()
+
+    async def test_expired_pin_with_genuine_subscription_still_completes(self) -> None:
+        saved = [{"provider": "botohub", "url": "https://t.me/joinedchan", "name": "Channel", "type": "tg"}]
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = fake_bot(member_status="member")  # user genuinely did join
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "complete")
+
+    async def test_provider_still_reporting_it_skips_the_extra_reinstate_check(self) -> None:
+        # No expiry involved here — the provider already correctly reports
+        # the sponsor as unsubscribed, so _reinstate_expired_pinned_sponsors
+        # has nothing to do (the one get_chat_member call that does happen
+        # is _drop_confirmed_subscriptions' own false-negative check).
+        saved = [{"provider": "botohub", "url": "https://t.me/stillpending", "name": "Channel", "type": "tg"}]
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = fake_bot(member_status="left")
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch(
+                "bot.services.botohub.check_botohub",
+                AsyncMock(return_value=[{"name": "Channel", "url": "https://t.me/stillpending"}]),
+            ),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "pending")
+        bot.get_chat_member.assert_awaited_once()
 
 
 if __name__ == "__main__":
