@@ -178,6 +178,22 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN invite_link VARCHAR(256)")
         )
+    if "custom_broadcast_enabled" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN custom_broadcast_enabled BOOLEAN DEFAULT 0")
+        )
+    if "custom_broadcast_interval_seconds" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN custom_broadcast_interval_seconds INTEGER")
+        )
+    if "custom_broadcast_last_sent_at" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN custom_broadcast_last_sent_at DATETIME")
+        )
+    if "custom_broadcast_next_index" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN custom_broadcast_next_index INTEGER DEFAULT 0")
+        )
     _ensure_integrity_indexes(connection)
 
 

@@ -357,6 +357,15 @@ class Chat(Base):
     left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_admin_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_click_ad_posted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Owner-authored recurring broadcast into their own chat — distinct from
+    # broadcast_opt_in above (which only ever controls the BotoHub DM-views
+    # system). The owner writes their own text(s) via the private chat
+    # panel and picks their own interval; the bot rotates through
+    # custom_broadcast_texts and pays RP⭐️ per send.
+    custom_broadcast_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    custom_broadcast_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    custom_broadcast_last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    custom_broadcast_next_index: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class ChatMembership(Base):
@@ -543,4 +552,17 @@ class RpPurchase(Base):
     # completed purchase was worth.
     rate_at_purchase: Mapped[Decimal] = mapped_column(Numeric(10, 4))
     telegram_payment_charge_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatBroadcastMessage(Base):
+    """One text in a chat owner's rotating custom-broadcast set (see
+    Chat.custom_broadcast_* fields) — the scheduler round-robins through
+    every row for a chat in id order."""
+
+    __tablename__ = "chat_broadcast_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    text: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

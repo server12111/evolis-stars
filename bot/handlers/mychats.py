@@ -2,12 +2,13 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import Chat
 from bot.database.repositories.chat import ChatRepository
+from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
 from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.database.repositories.game import GameRepository
 from bot.database.repositories.settings import SettingsRepository
@@ -23,14 +24,24 @@ from bot.handlers.group.chat_bonus import (
 from bot.handlers.group.chat_promo import msg_chat_promo_code, start_promo_creation
 from bot.handlers.group.info import render_roulette_log_text, render_top_users_text
 from bot.handlers.group.owner_menu import render_chat_panel_text
-from bot.keyboards.mychats import mychat_back_kb, mychat_back_to_list_kb, mychat_panel_kb, mychats_list_kb
-from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates
+from bot.keyboards.mychats import (
+    custom_broadcast_cancel_kb,
+    custom_broadcast_panel_kb,
+    mychat_back_kb,
+    mychat_back_to_list_kb,
+    mychat_panel_kb,
+    mychats_list_kb,
+)
+from bot.services.referral import format_stars
+from bot.states.group import ChatOwnerBonusStates, ChatOwnerBroadcastStates, ChatOwnerPromoStates
 
 router = Router()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _GAME_LABELS = {"roulette": "Рулетка", "doors": "Двери", "maze": "Лабиринт", "tower": "Башня"}
+_BROADCAST_MAX_TEXTS = 10
+_BROADCAST_MAX_TEXT_LEN = 1000
 
 
 def _parse_chat_id(callback: CallbackQuery) -> int | None:
@@ -286,6 +297,211 @@ async def cb_mychats_bonus_start(callback: CallbackQuery, session: AsyncSession,
     if await _verify_owned_chat(callback, session, chat_id) is None:
         return
     await start_bonus_creation(callback, state, chat_id)
+
+
+async def _render_broadcast_panel(callback: CallbackQuery, session: AsyncSession, chat: Chat) -> None:
+    messages = await ChatBroadcastRepository(session).list_messages(chat.chat_id)
+    settings_repo = SettingsRepository(session)
+    min_interval = await settings_repo.get_int("broadcast_min_interval_seconds", 300)
+    reward = await settings_repo.get_float("broadcast_reward_per_send", 0.5)
+
+    lines = [
+        "📢 <b>Своя рассылка</b>\n",
+        "Бот будет по очереди отправлять твои тексты прямо в этот чат — это "
+        "помогает боту оставаться активным и заметным, а тебе за каждую "
+        f"отправку начисляется <b>{format_stars(reward)} RP⭐️</b> на баланс.\n",
+        f"Минимальный интервал: <b>{min_interval} сек.</b>",
+    ]
+    if messages:
+        lines.append("\nТексты в ротации:")
+        for i, message in enumerate(messages, start=1):
+            preview = message.text if len(message.text) <= 60 else message.text[:57] + "..."
+            lines.append(f"{i}. {preview}")
+    else:
+        lines.append("\nТекстов пока нет — добавь хотя бы один, чтобы включить рассылку.")
+
+    interval = chat.custom_broadcast_interval_seconds
+    lines.append(f"\nИнтервал: <b>{interval} сек.</b>" if interval else "\nИнтервал: <b>не задан</b>")
+    lines.append(f"Статус: {'✅ включена' if chat.custom_broadcast_enabled else '❌ выключена'}")
+    text = "\n".join(lines)
+    kb = custom_broadcast_panel_kb(chat.chat_id, messages, chat.custom_broadcast_enabled)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mychats:custombc:del:"))
+async def cb_custom_broadcast_delete(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+    try:
+        chat_id, message_id = int(parts[3]), int(parts[4])
+    except (IndexError, ValueError):
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    await ChatBroadcastRepository(session).delete_message(chat_id, message_id)
+    await _render_broadcast_panel(callback, session, chat)
+    await callback.answer("✅ Удалено")
+
+
+@router.callback_query(F.data.startswith("mychats:custombc:add:"))
+async def cb_custom_broadcast_add_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    if await ChatBroadcastRepository(session).count(chat_id) >= _BROADCAST_MAX_TEXTS:
+        await callback.answer(f"❌ Максимум {_BROADCAST_MAX_TEXTS} текстов.", show_alert=True)
+        return
+
+    await state.set_state(ChatOwnerBroadcastStates.enter_text)
+    await state.update_data(chat_id=chat_id)
+    text = f"✏️ Отправь текст для рассылки (до {_BROADCAST_MAX_TEXT_LEN} символов):"
+    try:
+        await callback.message.edit_text(text, reply_markup=custom_broadcast_cancel_kb(chat_id))
+    except Exception:
+        await callback.message.answer(text, reply_markup=custom_broadcast_cancel_kb(chat_id))
+    await callback.answer()
+
+
+@router.message(ChatOwnerBroadcastStates.enter_text)
+async def msg_custom_broadcast_text(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    chat_id = data.get("chat_id")
+    chat = await ChatRepository(session).get(chat_id) if chat_id else None
+    if chat is None or chat.owner_user_id != message.from_user.id:
+        await state.clear()
+        return
+
+    body = (message.text or "").strip()
+    if not body:
+        await message.answer("❌ Отправь текстовое сообщение:", reply_markup=custom_broadcast_cancel_kb(chat_id))
+        return
+    if len(body) > _BROADCAST_MAX_TEXT_LEN:
+        await message.answer(
+            f"❌ Слишком длинно (максимум {_BROADCAST_MAX_TEXT_LEN} символов):",
+            reply_markup=custom_broadcast_cancel_kb(chat_id),
+        )
+        return
+
+    await ChatBroadcastRepository(session).add_message(chat_id, body)
+    await state.clear()
+    messages = await ChatBroadcastRepository(session).list_messages(chat_id)
+    kb = custom_broadcast_panel_kb(chat_id, messages, chat.custom_broadcast_enabled)
+    await message.answer("✅ Текст добавлен.", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mychats:custombc:interval:"))
+async def cb_custom_broadcast_interval_start(
+    callback: CallbackQuery, session: AsyncSession, state: FSMContext,
+) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+
+    min_interval = await SettingsRepository(session).get_int("broadcast_min_interval_seconds", 300)
+    await state.set_state(ChatOwnerBroadcastStates.enter_interval)
+    await state.update_data(chat_id=chat_id)
+    text = f"⏱ Введи интервал в секундах (не меньше {min_interval}):"
+    try:
+        await callback.message.edit_text(text, reply_markup=custom_broadcast_cancel_kb(chat_id))
+    except Exception:
+        await callback.message.answer(text, reply_markup=custom_broadcast_cancel_kb(chat_id))
+    await callback.answer()
+
+
+@router.message(ChatOwnerBroadcastStates.enter_interval)
+async def msg_custom_broadcast_interval(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    chat_id = data.get("chat_id")
+    chat = await ChatRepository(session).get(chat_id) if chat_id else None
+    if chat is None or chat.owner_user_id != message.from_user.id:
+        await state.clear()
+        return
+
+    min_interval = await SettingsRepository(session).get_int("broadcast_min_interval_seconds", 300)
+    try:
+        seconds = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("❌ Введи целое число секунд:", reply_markup=custom_broadcast_cancel_kb(chat_id))
+        return
+    if seconds < min_interval:
+        await message.answer(
+            f"❌ Интервал не может быть меньше {min_interval} секунд:",
+            reply_markup=custom_broadcast_cancel_kb(chat_id),
+        )
+        return
+
+    chat.custom_broadcast_interval_seconds = seconds
+    await session.commit()
+    await state.clear()
+    messages = await ChatBroadcastRepository(session).list_messages(chat_id)
+    kb = custom_broadcast_panel_kb(chat_id, messages, chat.custom_broadcast_enabled)
+    await message.answer(f"✅ Интервал установлен: {seconds} сек.", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mychats:custombc:toggle:"))
+async def cb_custom_broadcast_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+
+    if not chat.custom_broadcast_enabled:
+        count = await ChatBroadcastRepository(session).count(chat_id)
+        if count == 0:
+            await callback.answer("❌ Сначала добавь хотя бы один текст.", show_alert=True)
+            return
+        if not chat.custom_broadcast_interval_seconds:
+            await callback.answer("❌ Сначала задай интервал.", show_alert=True)
+            return
+
+    chat.custom_broadcast_enabled = not chat.custom_broadcast_enabled
+    await session.commit()
+    await _render_broadcast_panel(callback, session, chat)
+    await callback.answer("✅ Включено" if chat.custom_broadcast_enabled else "✅ Выключено")
+
+
+@router.callback_query(F.data.startswith("mychats:custombc:"))
+async def cb_custom_broadcast_panel(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    await state.clear()
+    await _render_broadcast_panel(callback, session, chat)
+    await callback.answer()
 
 
 # --- FSM-continuation steps re-registered here so the exact same handlers

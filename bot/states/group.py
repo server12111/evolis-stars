@@ -13,6 +13,11 @@ class ChatOwnerBonusStates(StatesGroup):
     choose_sponsors = State()
 
 
+class ChatOwnerBroadcastStates(StatesGroup):
+    enter_text = State()
+    enter_interval = State()
+
+
 class PendingSponsorAddStates(StatesGroup):
     """User-scoped (not chat-scoped) — set while waiting for the owner to
     finish Telegram's native "add bot as admin" flow in a channel/chat
