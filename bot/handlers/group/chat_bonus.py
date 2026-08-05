@@ -246,6 +246,15 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
         condition_note=None,
         created_by=callback.from_user.id,
     )
+    if bonus is None:
+        # A bonus with this exact code already exists in this chat (race
+        # with another submission of the same flow) — the balance was
+        # already debited above, so it must be refunded since no bonus
+        # was actually created.
+        await credit_stars(session, callback.from_user.id, total_charged)
+        await callback.message.answer("❌ Бонусный код с таким названием уже существует.")
+        await callback.answer()
+        return
 
     sponsor_repo = ChatBonusSponsorRepository(session)
     for sponsor in sponsors[:MAX_BONUS_SPONSORS]:

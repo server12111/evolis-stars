@@ -87,6 +87,9 @@ async def msg_chat_promo_code(message: Message, state: FSMContext, session: Asyn
         return
 
     promo = await repo.create(chat_id, code, created_by=message.from_user.id)
+    if promo is None:
+        await message.reply("❌ Промокод с таким названием уже существует в этом чате.")
+        return
     await message.reply(
         f"✅ Промокод <code>{promo.code}</code> создан!\n\n"
         f"Участники смогут ввести «промокод {promo.code}» в чате, чтобы получить награду "

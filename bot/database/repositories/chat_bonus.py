@@ -67,7 +67,13 @@ class ChatBonusRepository(BaseRepository):
         min_messages: int,
         condition_note: str | None,
         created_by: int,
-    ) -> ChatBonusCode:
+    ) -> ChatBonusCode | None:
+        """Returns None (instead of raising) if a bonus with this exact code
+        already exists in this chat — group chats have no per-user lock, so
+        the owner's client double-sending the same code text can reach here
+        concurrently before either commits. The caller has already debited
+        total_charged from the owner's balance and MUST refund it when this
+        returns None, since no bonus was actually created."""
         total_charged = (reward_amount * usage_limit * (1 + commission_rate)).quantize(Decimal("0.01"))
         bonus = ChatBonusCode(
             chat_id=chat_id,
@@ -83,7 +89,11 @@ class ChatBonusRepository(BaseRepository):
             created_by=created_by,
         )
         self.session.add(bonus)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            return None
         return bonus
 
     async def redeem(self, bonus: ChatBonusCode, user_id: int, awarded_by: int | None = None) -> bool:

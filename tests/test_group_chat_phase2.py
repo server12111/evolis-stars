@@ -123,6 +123,24 @@ class ChatPromoTests(ChatModelsTestCase):
             self.assertIsNotNone(await repo.get_by_code(-20, "FIRST"))
             self.assertIsNone(await repo.get_by_code(-20, "SECOND"))
 
+    async def test_concurrent_create_with_same_code_does_not_crash(self) -> None:
+        """Group chats have no per-user lock, so the owner's client
+        double-sending the exact same code text (or a duplicate update
+        delivery) can reach ChatPromoRepository.create() twice concurrently
+        for the same (chat_id, code) before either commits — this must
+        return None on the losing side, not raise an uncaught
+        IntegrityError."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-25, title="T", status="active", owner_user_id=42, member_count=300))
+            await session.commit()
+
+        async with self.sessions() as session_a, self.sessions() as session_b:
+            first = await ChatPromoRepository(session_a).create(-25, "DUPE", created_by=42)
+            second = await ChatPromoRepository(session_b).create(-25, "DUPE", created_by=42)
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+
     async def test_promo_start_callback_blocks_when_promo_already_exists(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-21, title="T", status="active", owner_user_id=42, member_count=300))
@@ -334,6 +352,41 @@ class ChatBonusTests(ChatModelsTestCase):
             bonus = await ChatBonusRepository(session).get_by_code(-11, "TOOEXPENSIVE")
         self.assertEqual(owner.stars_balance, Decimal("1"))
         self.assertIsNone(bonus)
+
+    async def test_duplicate_code_race_refunds_owner_instead_of_crashing(self) -> None:
+        """Group chats have no per-user lock, so the multi-step bonus
+        creation flow (which debits the owner's balance before creating
+        the ChatBonusCode row) can be re-entered concurrently and reach
+        ChatBonusRepository.create() twice with the same code. The second
+        attempt must refund the already-debited balance and report the
+        conflict, not raise an uncaught IntegrityError leaving the owner
+        charged with nothing created."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-13, title="T", status="active", owner_user_id=42, member_count=300))
+            session.add(User(user_id=42, first_name="Owner", stars_balance=Decimal("100")))
+            await session.commit()
+            await ChatBonusRepository(session).create(
+                chat_id=-13, code="DUPE", reward_amount=Decimal("0.5"), usage_limit=10,
+                commission_rate=Decimal("0.07"), mode="self_serve",
+                min_days_in_chat=0, min_messages=0, condition_note=None, created_by=42,
+            )
+
+        async with self.sessions() as session:
+            owner_before = await session.get(User, 42)
+        balance_before = owner_before.stars_balance
+
+        state = _fsm_state({
+            "chat_id": -13, "code": "DUPE", "reward": "0.5", "limit": 10, "mode": "self_serve", "sponsors": [],
+        })
+        cb = _callback(-13, 42, "chatbonus:sponsors:done")
+        async with self.sessions() as session:
+            await cb_bonus_sponsors_done(cb, state, session)
+
+        rendered = cb.message.answer.await_args.args[0]
+        self.assertIn("уже существует", rendered)
+        async with self.sessions() as session:
+            owner_after = await session.get(User, 42)
+        self.assertEqual(owner_after.stars_balance, balance_before)  # fully refunded, not left debited
 
     async def test_contest_winner_picked_via_reply(self) -> None:
         async with self.sessions() as session:

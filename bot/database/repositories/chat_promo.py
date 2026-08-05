@@ -26,10 +26,21 @@ class ChatPromoRepository(BaseRepository):
         )
         return result.scalars().first()
 
-    async def create(self, chat_id: int, code: str, created_by: int) -> ChatPromoCode:
+    async def create(self, chat_id: int, code: str, created_by: int) -> ChatPromoCode | None:
+        """Returns None (instead of raising) if a promo with this exact
+        code already exists in this chat — the (chat_id, code) unique
+        constraint is the real guard; the caller's prior get_by_code()/
+        get_by_chat() checks are just an optimization to skip the round
+        trip in the common case, not a race-proof guarantee on their own
+        (group chats have no per-user lock, so the same code sent twice in
+        quick succession can reach here concurrently)."""
         promo = ChatPromoCode(chat_id=chat_id, code=code.upper(), created_by=created_by)
         self.session.add(promo)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            return None
         return promo
 
     async def use(self, promo: ChatPromoCode, user_id: int, reward_amount: Decimal) -> bool:
