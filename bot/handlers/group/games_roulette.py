@@ -68,10 +68,19 @@ async def _animate_and_reveal(message: Message, result_color: str, final_text: s
         except Exception:
             pass
     await asyncio.sleep(_SPIN_DELAY)
+    final_content = f"{_result_row(result_color)}\n\n{final_text}"
     try:
-        await sent.edit_text(f"{_result_row(result_color)}\n\n{final_text}", parse_mode="HTML")
+        await sent.edit_text(final_content, parse_mode="HTML")
     except Exception:
-        pass
+        # The round is already settled in the DB by this point (bet
+        # debited/credited, GameSession recorded) — if this specific edit
+        # fails (rate limit, transient API error, etc.) the player must
+        # not be left staring at a permanently "spinning" message with no
+        # way to see the real outcome, so send it as a new message instead.
+        try:
+            await message.answer(final_content, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 @router.message(_matches_roulette_command)

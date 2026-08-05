@@ -95,6 +95,33 @@ class RouletteTests(ChatModelsTestCase):
             user = await session.get(User, 3)
         self.assertEqual(user.stars_balance, Decimal("1"))
 
+    async def test_stuck_spin_falls_back_to_a_new_message_on_edit_failure(self) -> None:
+        # The round is fully settled in the DB regardless of whether the
+        # spin animation message can be edited — if that final edit fails
+        # (rate limit, transient API error, ...), the result must still
+        # reach the player as a new message instead of leaving the chat
+        # showing "Рулетка крутится..." forever.
+        await self._add_user(5, "100")
+        sent = SimpleNamespace(edit_text=AsyncMock(side_effect=Exception("boom")))
+        message = SimpleNamespace(
+            chat=SimpleNamespace(id=-1, title="Chat"),
+            from_user=SimpleNamespace(id=5, first_name="U"),
+            text="ред 10",
+            reply=AsyncMock(return_value=sent),
+            answer=AsyncMock(),
+        )
+        with patch("bot.handlers.group.games_roulette.roulette_spin", return_value="black"), \
+                patch("bot.handlers.group.games_roulette.asyncio.sleep", new=AsyncMock()):
+            async with self.sessions() as session:
+                await msg_roulette_bet(message, session)
+
+        message.answer.assert_awaited_once()
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("Выпало", rendered)
+        async with self.sessions() as session:
+            user = await session.get(User, 5)
+        self.assertEqual(user.stars_balance, Decimal("90.00"))  # round still settled
+
     async def test_logged_result_choice_is_the_landed_color_not_the_bet(self) -> None:
         # Bet on red, but the wheel actually lands on black — the persisted
         # row must record "black" as what landed, distinct from "red" (what
