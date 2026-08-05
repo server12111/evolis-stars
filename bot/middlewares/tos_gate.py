@@ -12,7 +12,7 @@ from bot.services.tos import get_tos_urls
 
 settings = get_settings()
 
-_BYPASS_PREFIXES = ("/start", "/admin", "admin:", "tos_accept", "sponsor_check", "wall_check")
+_BYPASS_PREFIXES = ("/start", "/admin", "admin:", "tos_accept", "sponsor_check", "sponsor_skip", "wall_check")
 
 
 def _should_skip(callback_data: str | None, message_text: str | None) -> bool:
@@ -57,6 +57,9 @@ class TosGateMiddleware(BaseMiddleware):
 
         chat = inner.chat if isinstance(inner, Message) else (inner.message.chat if inner.message else None)
         if chat is not None and chat.type != "private":
+            return await handler(event, data)
+
+        if isinstance(inner, Message) and inner.successful_payment is not None:
             return await handler(event, data)
 
         callback_data = inner.data if isinstance(inner, CallbackQuery) else None

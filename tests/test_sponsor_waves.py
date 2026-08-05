@@ -65,6 +65,17 @@ class SponsorWaveTests(unittest.TestCase):
         ]
         self.assertEqual(len(url_buttons), 6)
 
+    def test_markup_includes_check_and_skip_buttons(self) -> None:
+        buttons = sponsor_wave_markup(offers("tg", 2))
+        callback_data = [
+            button.callback_data
+            for row in buttons.inline_keyboard
+            for button in row
+            if button.callback_data
+        ]
+        self.assertIn("sponsor_check", callback_data)
+        self.assertIn("sponsor_skip", callback_data)
+
     def test_single_wave_completes_without_unlocking_a_second_wave(self) -> None:
         current = user()
         evaluate_waves(

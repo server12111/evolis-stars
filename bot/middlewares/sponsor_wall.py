@@ -27,6 +27,7 @@ _BYPASS_PREFIXES = (
     "admin:",
     "wall_check",
     "sponsor_check",
+    "sponsor_skip",
     "tos_accept",
 )
 
@@ -303,6 +304,13 @@ class SponsorWallMiddleware(BaseMiddleware):
         elif isinstance(event, (Message, CallbackQuery)):
             inner = event
         if inner is None:
+            return await handler(event, data)
+
+        # A Telegram Stars payment confirmation (see the sponsor-skip flow
+        # in start.py) must always reach its handler — it's what actually
+        # marks the wave passed, so blocking it here would leave the user
+        # stuck at the wall despite having just paid to skip it.
+        if isinstance(inner, Message) and inner.successful_payment is not None:
             return await handler(event, data)
 
         callback_data = inner.data if isinstance(inner, CallbackQuery) else None

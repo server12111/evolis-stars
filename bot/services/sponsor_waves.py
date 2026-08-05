@@ -241,7 +241,31 @@ def sponsor_wave_markup(items: list[dict]) -> InlineKeyboardMarkup:
             callback_data="sponsor_check",
         )
     )
+    builder.row(
+        InlineKeyboardButton(
+            text="⏭ Скипнуть спонсоров",
+            callback_data="sponsor_skip",
+        )
+    )
     return builder.as_markup()
+
+
+def skip_current_wave(user: User) -> SponsorWaveState:
+    """Force-completes the currently active wave without checking any
+    subscription — used when the user pays real Telegram Stars to skip it
+    instead of subscribing. Mirrors evaluate_waves' own advance-or-complete
+    branch (the one taken when a genuine re-check finds nothing left
+    unsubscribed), just triggered by a successful payment instead."""
+    if user.sponsor_wave == 1 and _load(user.sponsor_wave_two):
+        user.sponsor_wave = 2
+        return SponsorWaveState(
+            "pending",
+            wave=2,
+            total_waves=_total_waves(user),
+            items=_load(user.sponsor_wave_two)[:WAVE_SIZE],
+        )
+    user.sponsor_wave = 3
+    return SponsorWaveState("complete")
 
 
 def sponsor_wave_text(wave: int, total_waves: int) -> str:

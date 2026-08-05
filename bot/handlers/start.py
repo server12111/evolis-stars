@@ -1,10 +1,18 @@
+import logging
 from datetime import datetime
 from html import escape
 
-from aiogram import Bot, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LabeledPrice,
+    Message,
+    PreCheckoutQuery,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +33,18 @@ from bot.services.referral import (
     notify_referrer_joined,
     notify_user_sponsors_verified,
     reward_returning_referral,
+    sponsors_word,
+)
+from bot.services.sponsor_waves import (
+    _current_items,
+    skip_current_wave,
+    sponsor_wave_markup,
+    sponsor_wave_text,
 )
 
 router = Router()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 
@@ -52,6 +68,18 @@ async def _send_tos_gate(message: Message, session: AsyncSession) -> None:
     user_agreement_url, privacy_policy_url = await get_tos_urls(session)
     kb = tos_accept_kb(user_agreement_url, privacy_policy_url)
     await message.answer(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+
+
+async def _mark_sponsors_verified_and_notify(db_user: User, session: AsyncSession, bot: Bot) -> None:
+    """Shared tail for every path that can complete the sponsor wall (the
+    "Я подписался" re-check and the paid skip) — only fires the one-time
+    notify/reward hooks on the genuine transition into verified."""
+    was_verified = db_user.sponsors_verified
+    db_user.sponsors_verified = True
+    await session.commit()
+    if not was_verified:
+        await notify_user_sponsors_verified(db_user, session, bot)
+        await check_referral_reward(db_user, session, bot)
 
 
 async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
@@ -209,17 +237,12 @@ async def cb_sponsor_check(
         )
         return
 
-    was_verified = db_user.sponsors_verified
     if not await run_sponsor_wall_check(callback, db_user, session, bot):
         return
 
     # All subscribed — ToS is always accepted by this point (the sponsor
     # wall only ever starts after it), so go straight to the main menu.
-    db_user.sponsors_verified = True
-    await session.commit()
-    if not was_verified:
-        await notify_user_sponsors_verified(db_user, session, bot)
-        await check_referral_reward(db_user, session, bot)
+    await _mark_sponsors_verified_and_notify(db_user, session, bot)
 
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
@@ -238,6 +261,109 @@ async def cb_sponsor_check(
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         except Exception:
             await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(lambda c: c.data == "sponsor_skip")
+async def cb_sponsor_skip(callback: CallbackQuery, db_user: User) -> None:
+    if not settings.tgrass_code and not settings.botohub_key:
+        await callback.answer(
+            "⚠️ Проверка подписок временно недоступна. Попробуйте позже.",
+            show_alert=True,
+        )
+        return
+
+    count = len(_current_items(db_user))
+    if count == 0:
+        await callback.answer(
+            "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",
+            show_alert=True,
+        )
+        return
+
+    text = (
+        f"❓ Вы уверены что хотите скипнуть {count} {sponsors_word(count)}?\n\n"
+        f"Если да — оплатите {count}⭐."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=f"✅ Оплатить {count}⭐", callback_data="sponsor_skip_confirm"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="sponsor_check"),
+    ]])
+    try:
+        await callback.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "sponsor_skip_confirm")
+async def cb_sponsor_skip_confirm(callback: CallbackQuery, db_user: User, bot: Bot) -> None:
+    count = len(_current_items(db_user))
+    if count == 0:
+        await callback.answer(
+            "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",
+            show_alert=True,
+        )
+        return
+
+    await callback.answer()
+    try:
+        await bot.send_invoice(
+            chat_id=callback.from_user.id,
+            title="Скип проверки спонсоров",
+            description=f"Пропустить проверку подписки на {count} {sponsors_word(count)}",
+            payload=f"sponsor_skip:{db_user.user_id}",
+            currency="XTR",
+            prices=[LabeledPrice(label="Скип спонсоров", amount=count)],
+        )
+    except Exception:
+        logger.warning("Failed to send sponsor-skip invoice to uid=%s", db_user.user_id, exc_info=True)
+        try:
+            await callback.message.answer("⚠️ Не удалось создать счёт на оплату. Попробуйте позже.")
+        except Exception:
+            pass
+
+
+@router.pre_checkout_query()
+async def process_sponsor_skip_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
+    if not pre_checkout_query.invoice_payload.startswith("sponsor_skip:"):
+        await pre_checkout_query.answer(ok=False, error_message="Неизвестный платёж.")
+        return
+    await pre_checkout_query.answer(ok=True)
+
+
+@router.message(F.successful_payment)
+async def msg_sponsor_skip_paid(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    payload = message.successful_payment.invoice_payload
+    if not payload.startswith("sponsor_skip:"):
+        return
+    try:
+        payload_user_id = int(payload.split(":", 1)[1])
+    except (ValueError, IndexError):
+        payload_user_id = None
+    if payload_user_id != db_user.user_id:
+        logger.warning(
+            "Sponsor-skip payment payload user mismatch: payload=%s actual_uid=%s",
+            payload, db_user.user_id,
+        )
+        return
+
+    wave_state = skip_current_wave(db_user)
+    await session.commit()
+
+    if wave_state.status == "pending":
+        # Only reachable if a second wave was ever frozen (currently never
+        # happens — MAX_WAVES caps waves at one — kept correct in case that
+        # changes) — the skip only ever covers the wave just paid for.
+        await message.answer(
+            "✅ Спонсоры пропущены!\n\n" + sponsor_wave_text(wave_state.wave, wave_state.total_waves),
+            parse_mode="HTML",
+            reply_markup=sponsor_wave_markup(wave_state.items or []),
+        )
+        return
+
+    await _mark_sponsors_verified_and_notify(db_user, session, bot)
+    await message.answer("✅ Спонсоры пропущены, спасибо за оплату!")
+    await _send_main_menu(message, db_user, session)
 
 
 @router.callback_query(lambda c: c.data == "tos_accept")
