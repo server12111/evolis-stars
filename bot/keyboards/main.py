@@ -2,7 +2,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def main_menu_kb() -> InlineKeyboardMarkup:
+def main_menu_kb(has_chats: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="💰 Заработать", callback_data="menu:earn", style="success"),
@@ -22,6 +22,12 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="🎲 Рандом", callback_data="menu:random", style="primary"),
     )
+    # Only shown to users who own at least one connected chat — everyone
+    # else has nothing to manage there.
+    if has_chats:
+        builder.row(
+            InlineKeyboardButton(text="💬 Панель чатов", callback_data="mychats:list", style="primary"),
+        )
     return builder.as_markup()
 
 

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import User
+from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.link_clicks import LinkButtonRepository
 from bot.database.repositories.user import UserRepository
@@ -37,11 +38,12 @@ async def _send_main_menu(message: Message, user: User, session: AsyncSession) -
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
     photo = await repo.get_photo("welcome")
+    has_chats = await ChatRepository(session).has_owned_chats(user.user_id)
 
     if photo:
-        await message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
+        await message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb(has_chats))
     else:
-        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb(has_chats))
 
 
 async def _send_tos_gate(message: Message, session: AsyncSession) -> None:
@@ -171,18 +173,20 @@ async def cb_main_menu(callback: CallbackQuery, db_user: User, session: AsyncSes
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
     photo = await repo.get_photo("welcome")
+    has_chats = await ChatRepository(session).has_owned_chats(db_user.user_id)
+    kb = main_menu_kb(has_chats)
 
     if photo:
         try:
             await callback.message.delete()
-            await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     else:
         try:
-            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -220,6 +224,7 @@ async def cb_sponsor_check(
     repo = ContentRepository(session)
     text = await repo.get_text("welcome")
     photo = await repo.get_photo("welcome")
+    kb = main_menu_kb(await ChatRepository(session).has_owned_chats(db_user.user_id))
 
     await callback.answer("✅ Проверка пройдена!")
     if photo:
@@ -227,12 +232,12 @@ async def cb_sponsor_check(
             await callback.message.delete()
         except Exception:
             pass
-        await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=main_menu_kb())
+        await callback.message.answer_photo(photo, caption=text, parse_mode="HTML", reply_markup=kb)
     else:
         try:
-            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            await callback.message.answer(text, parse_mode="HTML", reply_markup=main_menu_kb())
+            await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(lambda c: c.data == "tos_accept")

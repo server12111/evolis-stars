@@ -181,58 +181,47 @@ class EvolisOpenCommandTests(ChatModelsTestCase):
             answer=AsyncMock(),
         )
 
-    async def test_non_creator_gets_no_response(self) -> None:
-        message = self._message(-400, 999)
-        bot = SimpleNamespace(
-            get_chat_member_count=AsyncMock(return_value=300),
-            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
-        )
+    async def test_non_owner_gets_no_response(self) -> None:
         async with self.sessions() as session:
-            await cmd_evolis_open(message, bot, session)
+            session.add(Chat(chat_id=-400, title="T", status="active", owner_user_id=42))
+            await session.commit()
+        message = self._message(-400, 999)
+        async with self.sessions() as session:
+            await cmd_evolis_open(message, session)
 
         message.reply.assert_not_awaited()
         message.answer.assert_not_awaited()
 
-    async def test_under_threshold_shows_requirement_message(self) -> None:
+    async def test_unknown_chat_gets_no_response(self) -> None:
         message = self._message(-401, 42)
-        bot = SimpleNamespace(
-            get_chat_member_count=AsyncMock(return_value=10),
-            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="creator")),
-        )
         async with self.sessions() as session:
-            await cmd_evolis_open(message, bot, session)
+            await cmd_evolis_open(message, session)
+        message.reply.assert_not_awaited()
 
-        message.reply.assert_awaited_once()
-        rendered = message.reply.await_args.args[0]
-        self.assertIn("250", rendered)
-        message.answer.assert_not_awaited()
-
-    async def test_creator_over_threshold_sees_stats_menu(self) -> None:
-        # Two chat members, one of whom is a registered bot user.
+    async def test_owner_gets_short_redirect_to_private_panel(self) -> None:
+        # Management (settings/promo/bonus/stats/...) has moved entirely to
+        # the private chat panel — /EvolisOpen in a group is now just a
+        # pointer there, not a functional panel itself.
         async with self.sessions() as session:
-            session.add(User(user_id=1001, first_name="A", stars_balance=Decimal("5.50")))
-            session.add(ChatMembership(chat_id=-402, user_id=1001))
-            session.add(ChatMembership(chat_id=-402, user_id=1002))  # not registered
+            session.add(Chat(chat_id=-402, title="T", status="active", owner_user_id=42, member_count=300))
             await session.commit()
 
         message = self._message(-402, 42)
-        bot = SimpleNamespace(
-            get_chat_member_count=AsyncMock(return_value=300),
-            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="creator")),
-        )
         async with self.sessions() as session:
-            await cmd_evolis_open(message, bot, session)
+            await cmd_evolis_open(message, session)
 
-        message.answer.assert_awaited_once()
-        rendered = message.answer.await_args.args[0]
-        self.assertIn("300", rendered)
-        self.assertIn("<b>1</b>", rendered)  # 1 registered member
-        self.assertIn("5.50", rendered)
+        message.reply.assert_awaited_once()
+        args, kwargs = message.reply.await_args
+        self.assertIn("личном чате", args[0])
+        button = kwargs["reply_markup"].inline_keyboard[0][0]
+        self.assertTrue(button.url.startswith("https://t.me/"))
 
+        # Existing chat data/settings are untouched by this command now.
         async with self.sessions() as session:
             chat = await ChatRepository(session).get(-402)
         self.assertEqual(chat.owner_user_id, 42)
         self.assertEqual(chat.status, "active")
+        self.assertEqual(chat.member_count, 300)
 
 
 class ChatLeaderboardTests(ChatModelsTestCase):

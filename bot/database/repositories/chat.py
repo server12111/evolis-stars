@@ -97,6 +97,22 @@ class ChatRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_owned_by(self, owner_user_id: int) -> list[Chat]:
+        result = await self.session.execute(
+            select(Chat)
+            .where(Chat.owner_user_id == owner_user_id, Chat.status != "left")
+            .order_by(Chat.title)
+        )
+        return list(result.scalars().all())
+
+    async def has_owned_chats(self, owner_user_id: int) -> bool:
+        result = await self.session.execute(
+            select(Chat.chat_id)
+            .where(Chat.owner_user_id == owner_user_id, Chat.status != "left")
+            .limit(1)
+        )
+        return result.first() is not None
+
     async def all_active_chat_ids(self, opted_in_only: bool = False) -> list[int]:
         query = select(Chat.chat_id).where(Chat.status == "active")
         if opted_in_only:

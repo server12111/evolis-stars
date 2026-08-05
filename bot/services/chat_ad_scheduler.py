@@ -48,12 +48,18 @@ async def _run_pass(bot: Bot) -> None:
         chats = list(result.scalars().all())
 
         for chat in chats:
-            # Views (BotoHub DM) and clicks (in-house in-chat post) are
-            # independent mechanisms — a missing/misconfigured BotoHub key
-            # must not also block the in-house click ads from posting.
+            # Views (BotoHub DM) stays automatic — it never posts into a
+            # chat, only DMs individual users who already have an open
+            # conversation with the bot. The in-chat "click ad" post
+            # (_maybe_post_click_ad) is DISABLED here on purpose: it used
+            # to fire autonomously into connected chats every few hours
+            # with no fresh action from the owner each time, which is
+            # exactly the unsolicited posting this bot must never do. See
+            # _maybe_post_click_ad's docstring — kept in the codebase,
+            # unused, so it can be wired back in as an explicit
+            # owner-triggered action from the chat panel if ever needed.
             if settings.botohub_views_key:
                 await _send_views_for_chat(session, chat)
-            await _maybe_post_click_ad(bot, session, chat)
             await settle_chat_ad_revenue(session, chat)
 
 
@@ -79,6 +85,10 @@ async def _send_views_for_chat(session, chat: Chat) -> None:
 
 
 async def _maybe_post_click_ad(bot: Bot, session, chat: Chat) -> None:
+    """No longer called automatically from _run_pass — see the comment
+    there. Left in place, still covered by tests, in case an explicit
+    owner-triggered "post an ad now" action is ever added to the chat
+    panel; it must never run on its own again."""
     # Persisted on the Chat row (not an in-memory dict) — a process restart
     # must not forget when a chat was last posted to and immediately
     # re-post, which is exactly what an in-memory-only cooldown did before.

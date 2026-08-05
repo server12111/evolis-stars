@@ -55,6 +55,15 @@ def _origin_state(storage: BaseStorage, bot_id: int, chat_id: int, user_id: int)
     return FSMContext(storage=storage, key=StorageKey(bot_id=bot_id, chat_id=chat_id, user_id=user_id))
 
 
+async def start_bonus_creation(callback: CallbackQuery, state: FSMContext, chat_id: int) -> None:
+    """Shared by both entry points — the group owner-menu button and the
+    private chat panel. Caller must already own `chat_id`."""
+    await state.set_state(ChatOwnerBonusStates.enter_code)
+    await state.update_data(chat_id=chat_id)
+    await callback.message.answer("✏️ Напишите название бонусного кода:")
+    await callback.answer()
+
+
 @router.callback_query(F.data == "chatmenu:bonus")
 async def cb_chat_bonus_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     if callback.message is None:
@@ -64,10 +73,7 @@ async def cb_chat_bonus_start(callback: CallbackQuery, session: AsyncSession, st
     if not await _is_owner(session, chat_id, callback.from_user.id):
         await callback.answer()
         return
-    await state.set_state(ChatOwnerBonusStates.enter_code)
-    await state.update_data(chat_id=chat_id)
-    await callback.message.answer("✏️ Напишите название бонусного кода:")
-    await callback.answer()
+    await start_bonus_creation(callback, state, chat_id)
 
 
 @router.message(ChatOwnerBonusStates.enter_code)
@@ -173,10 +179,17 @@ async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext,
         await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
         return
 
-    chat_id = data.get("chat_id")
     pending = _pending_sponsor_state(state.storage, bot.id, callback.from_user.id)
     await pending.set_state(PendingSponsorAddStates.awaiting_add)
-    await pending.update_data(sponsor_type=sponsor_type, origin_chat_id=chat_id)
+    # origin_chat_id must be the chat this flow's own FSM state is keyed
+    # under (wherever this button was actually pressed — the managed
+    # group when started from /EvolisOpen, or the owner's private chat
+    # when started from the chat panel), NOT the "chat_id" data value
+    # (the target group being managed), which only coincided with it
+    # for the group-triggered flow. Getting this wrong here means
+    # try_link_pending_sponsor would write the confirmed sponsor into a
+    # different FSM slot than cb_bonus_sponsors_done later reads from.
+    await pending.update_data(sponsor_type=sponsor_type, origin_chat_id=callback.message.chat.id)
 
     label = "канал" if sponsor_type == "channel" else "чат"
     await callback.message.answer(

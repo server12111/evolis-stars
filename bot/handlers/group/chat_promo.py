@@ -27,6 +27,20 @@ def _matches_promo_redeem(message: Message) -> bool:
     return bool(message.text and _PROMO_REDEEM_PATTERN.match(message.text.strip()))
 
 
+async def start_promo_creation(callback: CallbackQuery, session: AsyncSession, state: FSMContext, chat_id: int) -> None:
+    """Shared by both entry points — the group owner-menu button
+    (chat_id implicit from the group the button was pressed in) and the
+    private chat panel (chat_id explicit from callback_data, ownership
+    re-verified by the caller). Caller must already own `chat_id`."""
+    if await ChatPromoRepository(session).get_by_chat(chat_id):
+        await callback.answer("❌ В этом чате уже был создан промокод.", show_alert=True)
+        return
+    await state.set_state(ChatOwnerPromoStates.enter_code)
+    await state.update_data(chat_id=chat_id)
+    await callback.message.answer("✏️ Напишите название промокода:")
+    await callback.answer()
+
+
 @router.callback_query(F.data == "chatmenu:promo")
 async def cb_chat_promo_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     if callback.message is None:
@@ -37,13 +51,7 @@ async def cb_chat_promo_start(callback: CallbackQuery, session: AsyncSession, st
     if not chat or callback.from_user.id != chat.owner_user_id:
         await callback.answer()
         return
-    if await ChatPromoRepository(session).get_by_chat(chat_id):
-        await callback.answer("❌ В этом чате уже был создан промокод.", show_alert=True)
-        return
-    await state.set_state(ChatOwnerPromoStates.enter_code)
-    await state.update_data(chat_id=chat_id)
-    await callback.message.answer("✏️ Напишите название промокода:")
-    await callback.answer()
+    await start_promo_creation(callback, session, state, chat_id)
 
 
 @router.message(ChatOwnerPromoStates.enter_code)

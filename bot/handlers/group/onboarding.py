@@ -5,12 +5,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import ChatMemberUpdated
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.handlers.group.chat_bonus import try_link_pending_sponsor
+from bot.keyboards.mychats import connected_instructions_kb
 
 router = Router()
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 _LEFT_STATUSES = {"left", "kicked"}
 _PRESENT_STATUSES = {"member", "administrator", "restricted"}
@@ -92,3 +95,17 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
         owner_user_id=owner_user_id,
         min_members=min_members,
     )
+
+    # Short one-time DM to the owner (item 7) — only on the genuine
+    # "just connected" transition, never on later promotions/refreshes.
+    if just_added and owner_user_id is not None:
+        try:
+            await bot.send_message(
+                owner_user_id,
+                "Чат успешно подключён. Управление доступно в разделе «Панель чатов» "
+                "главного меню бота. Там можно настроить игры, бонусы, рассылки, "
+                "спонсоров, статистику и способы заработка.",
+                reply_markup=connected_instructions_kb(settings.bot_username),
+            )
+        except Exception as exc:
+            logger.info("Cannot DM connect-instructions to owner %s: %s", owner_user_id, exc)

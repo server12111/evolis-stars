@@ -1,13 +1,13 @@
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from bot.database.engine import Base
 from bot.database.models import Chat
 from bot.database.repositories.link_clicks import LinkButtonRepository
-from bot.services.chat_ad_scheduler import _maybe_post_click_ad
+from bot.services.chat_ad_scheduler import _maybe_post_click_ad, _run_pass
 
 
 class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
@@ -70,6 +70,28 @@ class ClickAdCooldownTests(ChatModelsTestCase):
             chat = await session.get(Chat, -4)
             await _maybe_post_click_ad(bot, session, chat)
         bot.send_message.assert_awaited_once()
+
+
+class RunPassNeverAutoPostsTests(ChatModelsTestCase):
+    async def test_run_pass_never_posts_a_click_ad_into_a_chat(self) -> None:
+        """_maybe_post_click_ad must never be reached from the scheduler's
+        own loop — item 1's exact bug report (an ad button appearing in a
+        chat with no owner action). A fully eligible chat (opted in, no
+        recent post, an active link button available) is the strongest
+        case: if this doesn't send, nothing will."""
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=-99, title="T", status="active", broadcast_opt_in=True,
+                last_click_ad_posted_at=None,
+            ))
+            await LinkButtonRepository(session).create("Click me", "https://example.com", created_by=1)
+            await session.commit()
+
+        bot = AsyncMock()
+        with patch("bot.services.chat_ad_scheduler.SessionFactory", self.sessions):
+            await _run_pass(bot)
+
+        bot.send_message.assert_not_awaited()
 
 
 if __name__ == "__main__":

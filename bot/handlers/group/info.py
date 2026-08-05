@@ -88,36 +88,45 @@ async def msg_info(message: Message) -> None:
     await message.answer(_INFO_TEXT, parse_mode="HTML")
 
 
-@router.message(_matches_top)
-async def msg_top_users(message: Message, session: AsyncSession) -> None:
-    users = await ChatMembershipRepository(session).top_users_by_balance(message.chat.id, 10)
+async def render_top_users_text(session: AsyncSession, chat_id: int) -> str | None:
+    """Shared by the in-group "топ" command and the private chat panel.
+    Returns None if this chat has no members with a balance yet."""
+    users = await ChatMembershipRepository(session).top_users_by_balance(chat_id, 10)
     if not users:
-        await message.reply("Пока нет пользователей.")
-        return
+        return None
     lines = ["🏆 <b>Топ 10 пользователей чата по звёздам</b>\n"]
     for i, user in enumerate(users, 1):
         medal = _MEDALS[i - 1] if i <= 3 else f"{i}."
         name = escape(f"@{user.username}" if user.username else user.first_name)
         lines.append(f"{medal} {name} — <b>{float(user.stars_balance):.0f} ⭐</b>")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    return "\n".join(lines)
 
 
-@router.message(_matches_log)
-async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
+@router.message(_matches_top)
+async def msg_top_users(message: Message, session: AsyncSession) -> None:
+    text = await render_top_users_text(session, message.chat.id)
+    if text is None:
+        await message.reply("Пока нет пользователей.")
+        return
+    await message.answer(text, parse_mode="HTML")
+
+
+async def render_roulette_log_text(session: AsyncSession, chat_id: int) -> str | None:
+    """Shared by the in-group "лог" command and the private chat panel.
+    Returns None if this chat has no roulette history yet."""
     result = await session.execute(
         select(
             GameSession.bet, GameSession.result_choice, GameSession.result, GameSession.payout,
             User.username, User.first_name,
         )
         .join(User, User.user_id == GameSession.user_id)
-        .where(GameSession.game_type == "roulette", GameSession.chat_id == message.chat.id)
+        .where(GameSession.game_type == "roulette", GameSession.chat_id == chat_id)
         .order_by(GameSession.played_at.desc())
         .limit(10)
     )
     rows = result.all()
     if not rows:
-        await message.reply("Пока нет сыгранных партий в рулетку.")
-        return
+        return None
 
     lines = ["🎰 <b>Последние 10 игр в рулетку</b>\n"]
     for bet, result_choice, game_result, payout, username, first_name in rows:
@@ -130,4 +139,13 @@ async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
         else:
             outcome = f"❌ -{bet_str} ⭐"
         lines.append(f"<code>{name}</code>: {bet_str}⭐ — {emoji} — {outcome}")
-    await message.answer("\n".join(lines), parse_mode="HTML")
+    return "\n".join(lines)
+
+
+@router.message(_matches_log)
+async def msg_roulette_log(message: Message, session: AsyncSession) -> None:
+    text = await render_roulette_log_text(session, message.chat.id)
+    if text is None:
+        await message.reply("Пока нет сыгранных партий в рулетку.")
+        return
+    await message.answer(text, parse_mode="HTML")

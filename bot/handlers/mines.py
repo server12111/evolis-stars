@@ -324,16 +324,18 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
         await callback.answer("⚠️ Сначала заберите выигрыш или откройте мину!", show_alert=True)
         return
 
+    from bot.database.repositories.chat import ChatRepository
     from bot.keyboards.main import main_menu_kb
+    kb = main_menu_kb(await ChatRepository(session).has_owned_chats(db_user.user_id))
     try:
         await callback.message.edit_text(
             f"🏠 <b>Главное меню</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>",
-            parse_mode="HTML", reply_markup=main_menu_kb(),
+            parse_mode="HTML", reply_markup=kb,
         )
     except Exception:
         await callback.message.answer(
             "🏠 <b>Главное меню</b>",
-            parse_mode="HTML", reply_markup=main_menu_kb(),
+            parse_mode="HTML", reply_markup=kb,
         )
 
 

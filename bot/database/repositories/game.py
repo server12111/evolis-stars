@@ -52,6 +52,15 @@ class GameRepository(BaseRepository):
         )
         return result.scalar() or 0
 
+    async def chat_stats(self, chat_id: int) -> dict[str, int]:
+        """Games played per game_type, for every member of this chat combined."""
+        result = await self.session.execute(
+            select(GameSession.game_type, func.count(GameSession.id))
+            .where(GameSession.chat_id == chat_id)
+            .group_by(GameSession.game_type)
+        )
+        return {game_type: count for game_type, count in result.all()}
+
     async def total_games(self) -> int:
         result = await self.session.execute(select(func.count(GameSession.id)))
         return result.scalar() or 0

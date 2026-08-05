@@ -11,7 +11,7 @@ from bot.database.models import Chat, ChatLinkClick, User
 from bot.database.repositories.chat_ads import ChatAdRepository
 from bot.database.repositories.link_clicks import LinkButtonRepository, LinkClickRepository
 from bot.handlers.link_click import cb_link_click
-from bot.handlers.group.owner_menu import cb_chat_broadcast_toggle
+from bot.handlers.mychats import cb_mychats_broadcast_toggle
 from bot.services.chat_revenue import settle_chat_ad_revenue
 
 
@@ -156,22 +156,24 @@ class BroadcastToggleTests(ChatModelsTestCase):
             session.add(Chat(chat_id=-7, title="T", owner_user_id=42, status="active", broadcast_opt_in=False))
             await session.commit()
 
-        message = SimpleNamespace(chat=SimpleNamespace(id=-7, title="T"), edit_text=AsyncMock(), answer=AsyncMock())
-        cb = SimpleNamespace(message=message, from_user=SimpleNamespace(id=42), answer=AsyncMock())
+        message = SimpleNamespace(chat=SimpleNamespace(id=1, title="Private"), edit_text=AsyncMock(), answer=AsyncMock())
+        cb = SimpleNamespace(message=message, from_user=SimpleNamespace(id=42), data="mychats:broadcast:-7", answer=AsyncMock())
         async with self.sessions() as session:
-            await cb_chat_broadcast_toggle(cb, session)
+            await cb_mychats_broadcast_toggle(cb, session)
         cb.answer.assert_awaited_with("✅ Включено")
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -7)
         self.assertTrue(chat.broadcast_opt_in)
 
-        # A non-owner's tap does nothing.
-        message2 = SimpleNamespace(chat=SimpleNamespace(id=-7, title="T"), edit_text=AsyncMock(), answer=AsyncMock())
-        cb2 = SimpleNamespace(message=message2, from_user=SimpleNamespace(id=999), answer=AsyncMock())
+        # A non-owner's tap (or a forged callback_data pointing at someone
+        # else's chat) does nothing.
+        message2 = SimpleNamespace(chat=SimpleNamespace(id=999, title="Private"), edit_text=AsyncMock(), answer=AsyncMock())
+        cb2 = SimpleNamespace(message=message2, from_user=SimpleNamespace(id=999), data="mychats:broadcast:-7", answer=AsyncMock())
         async with self.sessions() as session:
-            await cb_chat_broadcast_toggle(cb2, session)
-        cb2.answer.assert_awaited_once_with()
+            await cb_mychats_broadcast_toggle(cb2, session)
+        cb2.answer.assert_awaited_once()
+        self.assertTrue(cb2.answer.await_args.kwargs.get("show_alert"))
         async with self.sessions() as session:
             chat = await session.get(Chat, -7)
         self.assertTrue(chat.broadcast_opt_in)  # unchanged
