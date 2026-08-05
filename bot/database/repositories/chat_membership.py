@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import ChatMembership, User
 from bot.database.repositories.base import BaseRepository
@@ -48,6 +49,24 @@ class ChatMembershipRepository(BaseRepository):
                     last_message_at=now,
                 )
             )
+            try:
+                await self.session.flush()
+            except IntegrityError:
+                # A concurrent first message from the same brand-new member
+                # (no per-user lock protects group chats) already inserted
+                # this row — fall back to the atomic increment now that it
+                # exists, instead of letting the conflict propagate out of
+                # GroupActivityMiddleware and abort this update entirely.
+                await self.session.rollback()
+                await self.session.execute(
+                    update(ChatMembership)
+                    .where(ChatMembership.chat_id == chat_id, ChatMembership.user_id == user_id)
+                    .values(
+                        message_count=ChatMembership.message_count + 1,
+                        last_message_at=now,
+                        left_at=None,
+                    )
+                )
         await self.session.commit()
 
     async def mark_joined(self, chat_id: int, user_id: int) -> None:

@@ -144,12 +144,19 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         if winner_id:
             u_repo = UserRepository(session)
             winner = await u_repo.get(winner_id)
-            if winner:
-                await session.execute(
-                    update(User).where(User.user_id == winner_id).values(
-                        stars_balance=User.stars_balance + lottery.prize_pool
-                    )
+            if not winner:
+                # Don't close out the lottery over a phantom winner — the
+                # prize would otherwise be marked paid without ever being
+                # credited to anyone (mirrors admin/games.py's manual draw).
+                await callback.message.answer(
+                    "⚠️ Победитель не найден в базе. Розыгрыш будет повторён позже."
                 )
+                return
+            await session.execute(
+                update(User).where(User.user_id == winner_id).values(
+                    stars_balance=User.stars_balance + lottery.prize_pool
+                )
+            )
             if not await repo.finish(lottery, winner_id):
                 await callback.message.answer(
                     "⏳ Розыгрыш уже выполняется. Обновите лотерею."

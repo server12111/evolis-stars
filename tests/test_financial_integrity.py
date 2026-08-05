@@ -33,6 +33,7 @@ from bot.handlers.duel import (
     cb_duel_confirm_join,
     cb_duel_decline_join,
 )
+from bot.handlers.lottery import cb_lottery_buy
 from bot.services.duel_scheduler import _settle_expired_duel
 
 
@@ -264,6 +265,52 @@ class FinancialIntegrityTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(float(saved.total_collected), 5.0)
             self.assertEqual(float(saved.prize_pool), 3.5)
             self.assertEqual(tickets, 1)
+
+    async def test_auto_draw_with_missing_winner_leaves_lottery_active(self) -> None:
+        """If the drawn winner's User row is somehow gone by draw time, the
+        auto-draw path (triggered from a ticket purchase) must not finish
+        the lottery over a phantom winner — that would mark the prize paid
+        without ever crediting anyone, permanently losing it. Mirrors the
+        guard already present in the admin-triggered manual draw."""
+        async with self.sessions() as session:
+            session.add(User(user_id=60, first_name="Buyer", stars_balance=Decimal("100")))
+            session.add(BotSettings(key="lottery_min_refs", value="0"))
+            lottery = Lottery(
+                ticket_price=Decimal(5),
+                prize_pool=Decimal(10),
+                end_type="tickets",
+                end_value=1,
+                ref_required=0,
+                ticket_limit=0,
+            )
+            session.add(lottery)
+            await session.commit()
+            lottery_id = lottery.id
+
+        message = SimpleNamespace(answer=AsyncMock(), edit_text=AsyncMock())
+        callback = SimpleNamespace(
+            data="game:lottery_buy",
+            message=message,
+            from_user=SimpleNamespace(id=60),
+            answer=AsyncMock(),
+        )
+        bot = AsyncMock()
+
+        async with self.sessions() as session:
+            db_user = await session.get(User, 60)
+            with patch(
+                "bot.handlers.lottery.LotteryRepository.draw_random",
+                AsyncMock(return_value=999999),  # no User row for this id
+            ):
+                await cb_lottery_buy(callback, session, db_user, bot)
+
+        async with self.sessions() as session:
+            saved = await session.get(Lottery, lottery_id)
+        self.assertEqual(saved.status, "active")
+        self.assertIsNone(saved.winner_id)
+        message.answer.assert_awaited_once()
+        self.assertIn("Победитель не найден", message.answer.await_args.args[0])
+        bot.send_message.assert_not_awaited()
 
     async def test_stale_lottery_cancel_cannot_burn_sold_ticket(self) -> None:
         async with self.sessions() as session:
