@@ -207,6 +207,17 @@ async def run_sponsor_wall_check(
                     item for item in saved_items
                     if str(item.get("provider", "")) == "piarflow"
                 ]
+                # check_sponsors only returns one aggregate bool for the whole
+                # batch, so a single stale/lagging PiarFlow verdict marks
+                # EVERY piarflow sponsor in the wave as unsubscribed — with
+                # no per-link signal to tell which one actually failed.
+                # Independently re-check each via our own bot the same way
+                # tgrass/botohub results already are, so a user who is
+                # genuinely subscribed to everything isn't stuck because of
+                # one provider-side false negative.
+                piarflow_result = await _drop_confirmed_subscriptions(
+                    bot, db_user.user_id, piarflow_result,
+                )
         else:
             # Not yet frozen — top PiarFlow up only far enough to cover the
             # reward-eligibility minimum that tgrass+botohub didn't reach.

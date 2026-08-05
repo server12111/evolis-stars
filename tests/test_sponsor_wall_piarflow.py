@@ -141,6 +141,38 @@ class PiarFlowTopUpTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result)
         get_sponsors.assert_not_awaited()
 
+    async def test_stale_piarflow_false_negative_is_overridden_by_our_own_check(self) -> None:
+        """check_sponsors is a single aggregate bool for the whole batch —
+        if it wrongly says False (stale cache, provider lag) while the user
+        is genuinely subscribed, our own bot.get_chat_member must be able
+        to override it, the same way tgrass/botohub results already can."""
+        session = SimpleNamespace(commit=AsyncMock())
+        frozen_with_piarflow = user(
+            sponsor_wave=1,
+            sponsor_wave_one=json.dumps(
+                [{"provider": "piarflow", "url": "https://t.me/pf0", "name": "PF"}]
+            ),
+        )
+        bot = SimpleNamespace(
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member"))
+        )
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", "cfg"),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=6),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.piarflow.check_sponsors", AsyncMock(return_value=False)),
+        ):
+            result = await run_sponsor_wall_check(inner(), frozen_with_piarflow, session, bot)
+
+        self.assertTrue(result)
+        bot.get_chat_member.assert_awaited_once()
+
     async def test_frozen_wave_without_piarflow_sponsor_skips_piarflow_entirely(self) -> None:
         session = SimpleNamespace(commit=AsyncMock())
         frozen_tg_only = user(
