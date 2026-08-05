@@ -126,7 +126,6 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "chat_bonus_commission": "0.07",
     "chat_promo_reward": "0.3",
     "chat_promo_reward_vip": "0.5",
-    "chat_promo_min_days": "2",
     "chat_promo_min_messages": "500",
     # Chat games
     "roulette_enabled": "1",

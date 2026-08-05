@@ -205,6 +205,23 @@ class ChatPromoTests(ChatModelsTestCase):
             user = await session.get(User, 502)
         self.assertEqual(user.stars_balance, Decimal("0"))
 
+    async def test_joined_today_still_eligible_no_min_days_check(self) -> None:
+        # min_days check was removed entirely for promo redemption — only
+        # message count still gates eligibility.
+        await self._setup_chat_and_member(-6, owner_id=42, member_id=503, joined_days_ago=0, message_count=600)
+        async with self.sessions() as session:
+            promo = await ChatPromoRepository(session).create(-6, "FRESH", created_by=42)
+
+        message = _message(-6, 503, f"промокод {promo.code}")
+        async with self.sessions() as session:
+            await msg_chat_promo_redeem(message, session)
+
+        rendered = message.reply.await_args.args[0]
+        self.assertIn("0.3", rendered)
+        async with self.sessions() as session:
+            user = await session.get(User, 503)
+        self.assertEqual(user.stars_balance, Decimal("0.30"))
+
     async def test_unregistered_user_rejected(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-5, title="T", status="active", owner_user_id=42, member_count=300))

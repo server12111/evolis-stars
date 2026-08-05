@@ -101,10 +101,9 @@ async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None
         return
 
     settings_repo = SettingsRepository(session)
-    min_days = await settings_repo.get_int("chat_promo_min_days", 2)
     min_messages = await settings_repo.get_int("chat_promo_min_messages", 500)
 
-    reason = await eligibility_reason(session, chat_id, message.from_user.id, min_days, min_messages)
+    reason = await eligibility_reason(session, chat_id, message.from_user.id, min_days=0, min_messages=min_messages)
     if reason:
         await message.reply(f"❌ Промокод недоступен: {reason}.")
         return
