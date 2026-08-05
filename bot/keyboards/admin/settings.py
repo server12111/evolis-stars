@@ -4,7 +4,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 # Числовые настройки — по одной в ряд
 NUMERIC_SETTINGS = [
     ("referral_reward", "🎁 Награда (3-5 спонсоров)"),
-    ("referral_reward_above_5", "🎁 Награда (6+ спонсоров)"),
+    ("referral_reward_above_5", "🎁 Награда (6-8 спонсоров)"),
+    ("referral_reward_top", "🎁 Награда (9+ спонсоров)"),
     ("referral_reward_premium", "💎 Premium-награда (фикс.)"),
     ("min_sponsors_for_reward", "📢 Мин. спонсоров для награды"),
     ("referral_bonus_10", "🏅 Бонус за 10 рефералов"),

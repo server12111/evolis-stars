@@ -295,6 +295,45 @@ class MethodChoiceTests(ChatModelsTestCase):
         self.assertIn("Способ вывода", admin_text)
         self.assertIn("Подарок", admin_text)
 
+    async def test_below_threshold_admin_message_omits_method_and_rp_debited_line(self) -> None:
+        """A 15-star withdrawal never asks for a method — the admin channel
+        message must not claim one was chosen (it was silently defaulted),
+        and must not expose the internal RP⭐️ debit at all."""
+        async with self.sessions() as session:
+            session.add(User(user_id=33, username="u33", first_name="U", stars_balance=Decimal("100")))
+            await session.commit()
+
+        state = _state()
+        db_user = SimpleNamespace(user_id=33, username="u33", stars_balance=Decimal("100"), is_vip=False, first_name="U")
+
+        cb2 = _callback("withdraw:recipient:self")
+        await state.update_data(amount=15)
+        await cb_withdraw_recipient_self(cb2, db_user, state)
+        self.assertEqual(await state.get_state(), WithdrawStates.confirm)
+
+        cb3 = _callback("withdraw:confirm")
+        with patch("bot.handlers.withdraw.generate_captcha", return_value=("2 + 2", 4)):
+            await cb_withdraw_confirm(cb3, state)
+
+        message = _message("4")
+        bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=1)))
+        with _SETTINGS_PATCHES[0], _SETTINGS_PATCHES[1], _SETTINGS_PATCHES[2], \
+                patch("bot.handlers.withdraw.settings.admin_channel_id", "123"), \
+                patch("bot.handlers.withdraw.settings.payments_channel_id", ""), \
+                patch("bot.handlers.withdraw.settings.payments_channel_link", ""):
+            async with self.sessions() as session:
+                real_user = await session.get(User, 33)
+                await msg_captcha(message, real_user, session, state, bot)
+
+        admin_text = bot.send_message.await_args_list[0].args[1]
+        self.assertNotIn("Способ вывода", admin_text)
+        self.assertNotIn("Списано", admin_text)
+        self.assertNotIn("RP⭐️", admin_text)
+
+        success_text = message.answer.await_args.args[0]
+        self.assertNotIn("Списано", success_text)
+        self.assertNotIn("RP⭐️", success_text)
+
     async def test_unknown_method_value_is_rejected(self) -> None:
         state = _state()
         await state.set_state(WithdrawStates.choose_method)

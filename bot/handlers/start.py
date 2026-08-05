@@ -25,7 +25,7 @@ from bot.database.repositories.user import UserRepository
 from bot.keyboards.main import main_menu_kb
 from bot.keyboards.tos import tos_accept_kb
 from bot.services.tos import get_tos_urls
-from bot.middlewares.sponsor_wall import run_sponsor_wall_check
+from bot.middlewares.sponsor_wall import get_pending_sponsor_items, run_sponsor_wall_check
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
 from bot.services.referral import (
@@ -36,7 +36,6 @@ from bot.services.referral import (
     sponsors_word,
 )
 from bot.services.sponsor_waves import (
-    _current_items,
     skip_current_wave,
     sponsor_wave_markup,
     sponsor_wave_text,
@@ -264,7 +263,7 @@ async def cb_sponsor_check(
 
 
 @router.callback_query(lambda c: c.data == "sponsor_skip")
-async def cb_sponsor_skip(callback: CallbackQuery, db_user: User) -> None:
+async def cb_sponsor_skip(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
     if not settings.tgrass_code and not settings.botohub_key:
         await callback.answer(
             "⚠️ Проверка подписок временно недоступна. Попробуйте позже.",
@@ -272,7 +271,11 @@ async def cb_sponsor_skip(callback: CallbackQuery, db_user: User) -> None:
         )
         return
 
-    count = len(_current_items(db_user))
+    # A fresh check, not the raw frozen wave — the frozen wave can be
+    # larger than what's actually still unsubscribed (e.g. the user has
+    # since subscribed to some of it), and the price must match what's
+    # genuinely left, not the original wave size.
+    count = len(await get_pending_sponsor_items(callback, db_user, session, bot))
     if count == 0:
         await callback.answer(
             "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",
@@ -296,8 +299,11 @@ async def cb_sponsor_skip(callback: CallbackQuery, db_user: User) -> None:
 
 
 @router.callback_query(lambda c: c.data == "sponsor_skip_confirm")
-async def cb_sponsor_skip_confirm(callback: CallbackQuery, db_user: User, bot: Bot) -> None:
-    count = len(_current_items(db_user))
+async def cb_sponsor_skip_confirm(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    # Re-derive fresh again at confirm time (not trusting the count shown a
+    # moment ago on the previous screen) — the user could have subscribed
+    # to more in between, and the invoice amount must reflect reality.
+    count = len(await get_pending_sponsor_items(callback, db_user, session, bot))
     if count == 0:
         await callback.answer(
             "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",

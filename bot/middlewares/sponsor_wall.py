@@ -12,6 +12,7 @@ from bot.database.repositories.settings import SettingsRepository
 from bot.services.referral import check_referral_reward, notify_user_sponsors_verified
 from bot.services.sponsor_results import all_configured_integrations_failed
 from bot.services.sponsor_waves import (
+    SponsorWaveState,
     evaluate_waves,
     sponsor_wave_markup,
     sponsor_wave_text,
@@ -132,22 +133,43 @@ async def _drop_confirmed_subscriptions(
     return [item for item in results if isinstance(item, dict)]
 
 
-async def run_sponsor_wall_check(
+async def get_pending_sponsor_items(
     inner: Message | CallbackQuery,
     db_user: User,
     session: AsyncSession,
     bot: Bot | None = None,
-) -> bool:
-    """Check all configured sponsor providers and show the current wave.
+) -> list[dict]:
+    """The sponsors the user is genuinely still unsubscribed to right now —
+    a fresh provider check, same as what a wave render would show. Used by
+    the "skip sponsors" flow so the price always matches what's actually on
+    screen (the frozen wave's full size is NOT the right count once the
+    user has already subscribed to some of it)."""
+    wave_state = await _evaluate_wave_state(inner, db_user, session, bot)
+    if wave_state.status != "pending":
+        return []
+    return wave_state.items or []
 
-    Assumes the caller already verified at least one provider is configured.
-    PiarFlow is only pulled in when tgrass+botohub alone don't cover the
-    configured reward minimum (or when a wave already frozen a PiarFlow
-    sponsor that still needs a subscription re-check) — it tops up the free
-    exchange providers rather than always being shown.
-    Returns True when every wave is complete and the caller should proceed;
-    False when a wave or a retry message was already sent to the user.
-    """
+
+async def _evaluate_wave_state(
+    inner: Message | CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+    bot: Bot | None = None,
+) -> SponsorWaveState:
+    """Checks every configured sponsor provider fresh and evaluates the
+    current wave against it — the shared core behind both
+    run_sponsor_wall_check (which also renders/commits) and
+    get_pending_sponsor_items (which only needs the resulting item list)."""
+    if db_user.sponsor_wave == 3:
+        # Already fully complete — must not re-initialize a fresh wave from
+        # scratch (initialize_waves() only skips that for wave 1/2). This
+        # path is reachable here specifically because "sponsor_skip" is
+        # exempt from SponsorWallMiddleware's own sponsors_verified check
+        # (see _BYPASS_PREFIXES), so a stale skip button pressed after the
+        # user already finished normally must report nothing left to skip
+        # instead of hitting every provider again.
+        return SponsorWaveState("complete")
+
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
     from bot.services.piarflow import get_sponsors, check_sponsors
@@ -259,8 +281,7 @@ async def run_sponsor_wall_check(
         piarflow_configured=piarflow_needed,
         piarflow_result=piarflow_result,
     ):
-        await _show_retry(inner)
-        return False
+        return SponsorWaveState("unavailable")
 
     wave_size = min(
         20,
@@ -278,6 +299,22 @@ async def run_sponsor_wall_check(
         wave_size=wave_size,
     )
     await session.commit()
+    return wave_state
+
+
+async def run_sponsor_wall_check(
+    inner: Message | CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+    bot: Bot | None = None,
+) -> bool:
+    """Check all configured sponsor providers and show the current wave.
+
+    Assumes the caller already verified at least one provider is configured.
+    Returns True when every wave is complete and the caller should proceed;
+    False when a wave or a retry message was already sent to the user.
+    """
+    wave_state = await _evaluate_wave_state(inner, db_user, session, bot)
 
     if wave_state.status == "unavailable":
         await _show_retry(inner)

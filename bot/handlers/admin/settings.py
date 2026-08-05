@@ -17,7 +17,8 @@ router = Router()
 
 SETTING_LABELS = {
     "referral_reward": ("🎁 Награда за реферала (3-5 спонсоров)", "число RP⭐️"),
-    "referral_reward_above_5": ("🎁 Награда за реферала (6+ спонсоров)", "число RP⭐️"),
+    "referral_reward_above_5": ("🎁 Награда за реферала (6-8 спонсоров)", "число RP⭐️"),
+    "referral_reward_top": ("🎁 Награда за реферала (9+ спонсоров)", "число RP⭐️"),
     "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число RP⭐️"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
     "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число RP⭐️"),

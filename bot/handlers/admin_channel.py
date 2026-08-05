@@ -16,6 +16,9 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 _METHOD_LABELS_ADMIN = {"fragment": "Fragment", "gift": "Подарок"}
+# Must match withdraw.py's _METHOD_CHOICE_THRESHOLD — method is only ever
+# genuinely chosen for amount >= this, so it's only shown here in that case.
+_METHOD_CHOICE_THRESHOLD = 50
 
 
 def _is_admin(user_id: int) -> bool:
@@ -50,14 +53,15 @@ async def _update_public_withdrawal_status(
         else html.escape(user.first_name if user else str(withdrawal.user_id))
     )
     vip_badge = " 💎 VIP" if user and user.is_vip else ""
-    method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
-    rp_debited = withdrawal.rp_debited if withdrawal.rp_debited is not None else withdrawal.amount * 3
+    method_line = ""
+    if float(withdrawal.amount) >= _METHOD_CHOICE_THRESHOLD:
+        method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
+        method_line = f"🔧 Способ вывода: <b>{method_label}</b>\n"
     text = (
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
-        f"🔄 Списано: <b>{float(rp_debited):.0f} RP⭐️</b>\n"
         f"💫 Получит: <b>{float(withdrawal.amount):.0f} Telegram ⭐</b>\n"
-        f"🔧 Способ вывода: <b>{method_label}</b>\n"
+        f"{method_line}"
         f"{status_icon} Статус: <b>{status}</b>"
     )
     try:

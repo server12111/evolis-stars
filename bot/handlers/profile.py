@@ -31,9 +31,14 @@ def profile_kb() -> InlineKeyboardBuilder:
                 # Per https://core.telegram.org/api/links, admin= rights
                 # are joined with "+", not commas — commas only partially
                 # worked (confirmed live), which is why this used to be
-                # comma-separated.
-                "&admin=change_info+delete_messages+invite_users+restrict_members+"
-                "pin_messages+manage_topics+promote_members+manage_video_chats+anonymous+manage_chat"
+                # comma-separated. Minimal set the bot actually needs:
+                # delete spam, manage restricted/banned members, share the
+                # invite link, pin announcements, and moderate member tags —
+                # everything else (change_info, story rights, video chats,
+                # anonymous posting, promoting other admins) is left off by
+                # default so the owner isn't pre-consenting to more than
+                # the bot uses.
+                "&admin=delete_messages+restrict_members+invite_users+pin_messages+manage_tags"
             ),
         )
     )

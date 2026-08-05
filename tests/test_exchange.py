@@ -11,9 +11,12 @@ from bot.database.models import RpPurchase, User
 from bot.handlers.exchange import (
     cb_exchange_amount,
     cb_exchange_confirm,
+    cb_exchange_custom,
+    msg_exchange_custom_amount,
     msg_rp_purchase_paid,
     process_rp_purchase_pre_checkout,
 )
+from bot.states.exchange import ExchangeStates
 
 
 def _callback(data: str, user_id: int = 1):
@@ -66,6 +69,53 @@ class AmountAndInvoiceTests(ChatModelsTestCase):
             await cb_exchange_amount(cb, session)
         cb.answer.assert_awaited_once_with("❌ Неверная сумма.", show_alert=True)
         cb.message.edit_text.assert_not_awaited()
+
+
+class CustomAmountTests(ChatModelsTestCase):
+    async def test_custom_button_asks_for_amount(self) -> None:
+        cb = _callback("exchange:custom")
+        state = SimpleNamespace(set_state=AsyncMock())
+        await cb_exchange_custom(cb, state)
+        state.set_state.assert_awaited_once_with(ExchangeStates.enter_amount)
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("Stars", rendered)
+
+    async def test_typed_amount_shows_confirm_screen_not_limited_to_presets(self) -> None:
+        message = SimpleNamespace(text="777", answer=AsyncMock())
+        state = SimpleNamespace(clear=AsyncMock())
+        async with self.sessions() as session:
+            with patch("bot.handlers.exchange.SettingsRepository.get_float", AsyncMock(return_value=1.0)):
+                await msg_exchange_custom_amount(message, session, state)
+        state.clear.assert_awaited_once()
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("777 ⭐", rendered)
+        self.assertIn("777.00 RP⭐️", rendered)
+
+    async def test_non_numeric_input_rejected_with_retry_prompt(self) -> None:
+        message = SimpleNamespace(text="abc", answer=AsyncMock())
+        state = SimpleNamespace(clear=AsyncMock())
+        async with self.sessions() as session:
+            await msg_exchange_custom_amount(message, session, state)
+        state.clear.assert_not_awaited()
+        message.answer.assert_awaited_once()
+
+    async def test_out_of_range_amount_rejected(self) -> None:
+        message = SimpleNamespace(text="999999999", answer=AsyncMock())
+        state = SimpleNamespace(clear=AsyncMock())
+        async with self.sessions() as session:
+            await msg_exchange_custom_amount(message, session, state)
+        state.clear.assert_not_awaited()
+        rendered = message.answer.await_args.args[0]
+        self.assertIn("от", rendered)
+
+    async def test_typed_amount_can_actually_be_purchased_via_confirm(self) -> None:
+        cb = _callback("exchange:confirm:777", user_id=5)
+        bot = AsyncMock()
+        async with self.sessions() as session:
+            with patch("bot.handlers.exchange.SettingsRepository.get_float", AsyncMock(return_value=1.0)):
+                await cb_exchange_confirm(cb, session, bot)
+        bot.send_invoice.assert_awaited_once()
+        self.assertEqual(bot.send_invoice.await_args.kwargs["prices"][0].amount, 777)
 
 
 class PreCheckoutTests(unittest.IsolatedAsyncioTestCase):

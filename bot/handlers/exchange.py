@@ -2,6 +2,7 @@ import logging
 from decimal import Decimal
 
 from aiogram import Bot, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -17,12 +18,16 @@ from bot.database.repositories.rp_purchase import RpPurchaseRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.main import back_to_menu_kb
 from bot.services.chat_eligibility import credit_stars
+from bot.states.exchange import ExchangeStates
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Preset Telegram-Stars amounts offered on the exchange screen.
+# Preset Telegram-Stars amounts offered on the exchange screen — a manual
+# "✏️ Своя сумма" option is also always available.
 _AMOUNTS = [10, 25, 50, 100, 250, 500]
+_MIN_AMOUNT = 1
+_MAX_AMOUNT = 100_000
 
 _PAYLOAD_PREFIX = "rp_buy:"
 
@@ -34,6 +39,7 @@ def _exchange_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=f"{a} ⭐", callback_data=f"exchange:amount:{a}")
             for a in amounts[i:i + 3]
         ])
+    rows.append([InlineKeyboardButton(text="✏️ Своя сумма", callback_data="exchange:custom")])
     rows.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -45,11 +51,32 @@ def _exchange_confirm_kb(amount: int) -> InlineKeyboardMarkup:
     ]])
 
 
+def _custom_amount_cancel_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:exchange"),
+    ]])
+
+
+def _valid_amount(amount: int) -> bool:
+    return _MIN_AMOUNT <= amount <= _MAX_AMOUNT
+
+
+async def _render_confirm(session: AsyncSession, amount: int) -> str:
+    rate = await SettingsRepository(session).get_float("rp_exchange_rate", 1.0)
+    rp_amount = (Decimal(str(amount)) * Decimal(str(rate))).quantize(Decimal("0.01"))
+    return (
+        f"💫 Стоимость: <b>{amount} ⭐</b>\n"
+        f"🔄 Будет начислено: <b>{rp_amount} RP⭐️</b>\n\n"
+        "Подтверди покупку:"
+    )
+
+
 @router.callback_query(lambda c: c.data == "menu:exchange")
-async def cb_exchange_menu(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_exchange_menu(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
     rate = await SettingsRepository(session).get_float("rp_exchange_rate", 1.0)
     text = (
-        "🔄 <b>Обмен</b>\n\n"
+        "🪙 <b>Донат</b>\n\n"
         f"Курс: 1 Telegram ⭐ = {rate:g} RP⭐️\n\n"
         "Выбери сумму пополнения в Telegram Stars:"
     )
@@ -59,6 +86,36 @@ async def cb_exchange_menu(callback: CallbackQuery, session: AsyncSession) -> No
     except Exception:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "exchange:custom")
+async def cb_exchange_custom(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(ExchangeStates.enter_amount)
+    text = f"✏️ Введи количество Telegram Stars (от {_MIN_AMOUNT} до {_MAX_AMOUNT}):"
+    try:
+        await callback.message.edit_text(text, reply_markup=_custom_amount_cancel_kb())
+    except Exception:
+        await callback.message.answer(text, reply_markup=_custom_amount_cancel_kb())
+    await callback.answer()
+
+
+@router.message(ExchangeStates.enter_amount)
+async def msg_exchange_custom_amount(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    try:
+        amount = int((message.text or "").strip())
+    except ValueError:
+        await message.answer("❌ Введи целое число:", reply_markup=_custom_amount_cancel_kb())
+        return
+    if not _valid_amount(amount):
+        await message.answer(
+            f"❌ Сумма должна быть от {_MIN_AMOUNT} до {_MAX_AMOUNT}:",
+            reply_markup=_custom_amount_cancel_kb(),
+        )
+        return
+
+    await state.clear()
+    text = await _render_confirm(session, amount)
+    await message.answer(text, parse_mode="HTML", reply_markup=_exchange_confirm_kb(amount))
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("exchange:amount:"))
@@ -72,13 +129,7 @@ async def cb_exchange_amount(callback: CallbackQuery, session: AsyncSession) -> 
         await callback.answer("❌ Неверная сумма.", show_alert=True)
         return
 
-    rate = await SettingsRepository(session).get_float("rp_exchange_rate", 1.0)
-    rp_amount = (Decimal(str(amount)) * Decimal(str(rate))).quantize(Decimal("0.01"))
-    text = (
-        f"💫 Стоимость: <b>{amount} ⭐</b>\n"
-        f"🔄 Будет начислено: <b>{rp_amount} RP⭐️</b>\n\n"
-        "Подтверди покупку:"
-    )
+    text = await _render_confirm(session, amount)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=_exchange_confirm_kb(amount))
     except Exception:
@@ -93,7 +144,7 @@ async def cb_exchange_confirm(callback: CallbackQuery, session: AsyncSession, bo
     except (IndexError, ValueError):
         await callback.answer()
         return
-    if amount not in _AMOUNTS:
+    if not _valid_amount(amount):
         await callback.answer("❌ Неверная сумма.", show_alert=True)
         return
 

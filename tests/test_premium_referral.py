@@ -46,7 +46,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
     async def test_get_referral_reward_premium_falls_back_to_default(self) -> None:
         async with self.sessions() as session:
             premium = await get_referral_reward(session, 3, is_premium=True)
-        self.assertEqual(premium, Decimal("4.5"))
+        self.assertEqual(premium, Decimal("13.5"))
 
     async def test_premium_reward_ignores_sponsor_count(self) -> None:
         async with self.sessions() as session:
@@ -57,16 +57,18 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
         self.assertEqual(low, high)
         self.assertEqual(low, Decimal("9"))
 
-    async def test_reward_is_flat_within_3_to_5_then_a_separate_flat_rate_above(self) -> None:
+    async def test_reward_has_three_flat_tiers(self) -> None:
         async with self.sessions() as session:
             r3 = await get_referral_reward(session, 3)
             r4 = await get_referral_reward(session, 4)
             r5 = await get_referral_reward(session, 5)
             r6 = await get_referral_reward(session, 6)
+            r8 = await get_referral_reward(session, 8)
+            r9 = await get_referral_reward(session, 9)
             r_high = await get_referral_reward(session, 20)
-        self.assertEqual((r3, r4, r5), (Decimal("3"), Decimal("3"), Decimal("3")))
-        self.assertEqual(r6, Decimal("3.5"))
-        self.assertEqual(r_high, Decimal("3.5"))
+        self.assertEqual((r3, r4, r5), (Decimal("9"), Decimal("9"), Decimal("9")))
+        self.assertEqual((r6, r8), (Decimal("10.5"), Decimal("10.5")))
+        self.assertEqual((r9, r_high), (Decimal("13.5"), Decimal("13.5")))
 
     async def test_premium_referred_user_pays_the_premium_rate(self) -> None:
         async with self.sessions() as session:

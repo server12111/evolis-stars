@@ -88,19 +88,23 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
 
 
 REFERRAL_REWARD_UPPER_TIER_THRESHOLD = 5
+REFERRAL_REWARD_TOP_TIER_THRESHOLD = 8
 
 
 async def get_referral_reward(session: AsyncSession, sponsor_count: int, is_premium: bool = False) -> Decimal:
     """Premium referrals pay one flat, separately configurable amount
     regardless of sponsor count. Regular referrals pay a flat base reward
-    for 3-5 sponsors, and a separate (higher) flat reward for 6+. The
-    min-sponsors-for-reward gate (see get_min_sponsors_for_reward) still
-    applies to both before either path is even reached."""
+    for 3-5 sponsors, a higher flat reward for 6-8, and a top flat reward
+    for 9+. The min-sponsors-for-reward gate (see
+    get_min_sponsors_for_reward) still applies to all three before any of
+    them is even reached."""
     if is_premium:
-        return await _get_decimal_setting(session, "referral_reward_premium", "4.5")
+        return await _get_decimal_setting(session, "referral_reward_premium", "13.5")
+    if sponsor_count > REFERRAL_REWARD_TOP_TIER_THRESHOLD:
+        return await _get_decimal_setting(session, "referral_reward_top", "13.5")
     if sponsor_count > REFERRAL_REWARD_UPPER_TIER_THRESHOLD:
-        return await _get_decimal_setting(session, "referral_reward_above_5", "3.5")
-    return await _get_decimal_setting(session, "referral_reward", "3")
+        return await _get_decimal_setting(session, "referral_reward_above_5", "10.5")
+    return await _get_decimal_setting(session, "referral_reward", "9")
 
 
 async def get_min_sponsors_for_reward(session: AsyncSession) -> int:

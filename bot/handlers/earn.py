@@ -42,6 +42,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     )
     reward_base = await get_referral_reward(session, 3)
     reward_above_5 = await get_referral_reward(session, 6)
+    reward_top = await get_referral_reward(session, 9)
     reward_premium = await get_referral_reward(session, 0, is_premium=True)
     min_sponsors = await get_min_sponsors_for_reward(session)
     top_tier = RECURRING_MILESTONE
@@ -56,6 +57,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         link=ref_link,
         balance=float(db_user.stars_balance),
         min_sponsors=min_sponsors,
+        min_sponsors_minus_1=max(0, min_sponsors - 1),
         min_sponsors_word=sponsors_word(min_sponsors),
         vip_threshold=VIP_THRESHOLD,
         top_tier=top_tier,
@@ -63,6 +65,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         reward=format_stars(reward_base),  # fallback for old templates
         referral_reward=format_stars(reward_base),
         referral_reward_above_5=format_stars(reward_above_5),
+        referral_reward_top=format_stars(reward_top),
         referral_reward_premium=format_stars(reward_premium),
         return_reward=format_stars(reward_base / Decimal("2")),
         returnable=returnable_count,

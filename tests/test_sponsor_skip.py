@@ -23,7 +23,8 @@ def _wave_items(prefix: str, count: int) -> list[dict]:
 
 def _callback(data: str, user_id: int = 1):
     message = SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock())
-    return SimpleNamespace(message=message, data=data, from_user=SimpleNamespace(id=user_id), answer=AsyncMock())
+    from_user = SimpleNamespace(id=user_id, is_premium=False, username="u", language_code="ru")
+    return SimpleNamespace(message=message, data=data, from_user=from_user, answer=AsyncMock())
 
 
 class SkipCurrentWaveUnitTests(unittest.TestCase):
@@ -61,28 +62,76 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
 
+def _fake_bot() -> SimpleNamespace:
+    # get_chat_member raising means _drop_confirmed_subscriptions can't
+    # independently verify anything, so it trusts whatever the (mocked)
+    # provider check reported — exactly what these tests want to control.
+    return SimpleNamespace(
+        get_chat_member=AsyncMock(side_effect=Exception("no live check in this test")),
+        send_invoice=AsyncMock(),
+    )
+
+
 class SponsorSkipButtonTests(ChatModelsTestCase):
     async def test_shows_confirmation_with_price(self) -> None:
+        items = _wave_items("a", 3)
         await self._add_user(
-            10, sponsor_wave=1, sponsor_wave_one=json.dumps(_wave_items("a", 3)), sponsor_wave_two=None,
+            10, sponsor_wave=1, sponsor_wave_one=json.dumps(items), sponsor_wave_two=None,
         )
         cb = _callback("sponsor_skip", user_id=10)
+        bot = _fake_bot()
         async with self.sessions() as session:
             db_user = await session.get(User, 10)
-            with patch("bot.handlers.start.settings.tgrass_code", "cfg"):
-                await cb_sponsor_skip(cb, db_user)
+            with (
+                patch("bot.handlers.start.settings.tgrass_code", "cfg"),
+                patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=items)),
+                patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            ):
+                await cb_sponsor_skip(cb, db_user, session, bot)
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("3", rendered)
         self.assertIn("3⭐", rendered)
 
+    async def test_price_reflects_only_still_unsubscribed_not_the_full_frozen_wave(self) -> None:
+        """Regression: the frozen wave can be larger than what's still
+        actually unsubscribed (e.g. the user already subscribed to some of
+        it since the wave was shown) — the skip price must match reality,
+        not the original wave size."""
+        items = _wave_items("a", 5)
+        await self._add_user(
+            13, sponsor_wave=1, sponsor_wave_one=json.dumps(items), sponsor_wave_two=None,
+        )
+        cb = _callback("sponsor_skip", user_id=13)
+        bot = _fake_bot()
+        # The user has since subscribed to all but 2 — check_tgrass only
+        # reports those 2 as still unsubscribed.
+        still_pending = items[:2]
+        async with self.sessions() as session:
+            db_user = await session.get(User, 13)
+            with (
+                patch("bot.handlers.start.settings.tgrass_code", "cfg"),
+                patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=still_pending)),
+                patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            ):
+                await cb_sponsor_skip(cb, db_user, session, bot)
+
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("2 спонсор", rendered)
+        self.assertNotIn("5 спонсор", rendered)
+
     async def test_nothing_to_skip_shows_alert_not_confirmation(self) -> None:
         await self._add_user(11, sponsor_wave=3, sponsor_wave_one=None, sponsor_wave_two=None)
         cb = _callback("sponsor_skip", user_id=11)
+        bot = _fake_bot()
         async with self.sessions() as session:
             db_user = await session.get(User, 11)
-            with patch("bot.handlers.start.settings.tgrass_code", "cfg"):
-                await cb_sponsor_skip(cb, db_user)
+            with (
+                patch("bot.handlers.start.settings.tgrass_code", "cfg"),
+                patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+                patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            ):
+                await cb_sponsor_skip(cb, db_user, session, bot)
 
         cb.answer.assert_awaited_once()
         self.assertIn("нечего", cb.answer.await_args.args[0])
@@ -91,14 +140,20 @@ class SponsorSkipButtonTests(ChatModelsTestCase):
 
 class SponsorSkipConfirmTests(ChatModelsTestCase):
     async def test_sends_a_real_stars_invoice_for_the_right_amount(self) -> None:
+        items = _wave_items("a", 4)
         await self._add_user(
-            12, sponsor_wave=1, sponsor_wave_one=json.dumps(_wave_items("a", 4)), sponsor_wave_two=None,
+            12, sponsor_wave=1, sponsor_wave_one=json.dumps(items), sponsor_wave_two=None,
         )
         cb = _callback("sponsor_skip_confirm", user_id=12)
-        bot = AsyncMock()
+        bot = _fake_bot()
         async with self.sessions() as session:
             db_user = await session.get(User, 12)
-            await cb_sponsor_skip_confirm(cb, db_user, bot)
+            with (
+                patch("bot.handlers.start.settings.tgrass_code", "cfg"),
+                patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=items)),
+                patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            ):
+                await cb_sponsor_skip_confirm(cb, db_user, session, bot)
 
         bot.send_invoice.assert_awaited_once()
         kwargs = bot.send_invoice.await_args.kwargs

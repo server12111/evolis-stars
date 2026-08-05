@@ -80,8 +80,10 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
 
         async def reward_side_effect(_session, sponsor_count, is_premium=False):
             if is_premium:
-                return Decimal("4.5")
-            return Decimal("3.5") if sponsor_count > 5 else Decimal("3")
+                return Decimal("13.5")
+            if sponsor_count > 8:
+                return Decimal("13.5")
+            return Decimal("10.5") if sponsor_count > 5 else Decimal("9")
 
         with (
             patch("bot.handlers.earn.ContentRepository.get_text", AsyncMock(
@@ -99,9 +101,11 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             await cb_earn(callback, db_user, session)
 
         rendered = callback.message.edit_text.await_args.args[0]
-        self.assertIn("3-5 спонсоров: <b>3 RP⭐️</b>", rendered)
-        self.assertIn("6+ спонсоров: <b>3.5 RP⭐️</b>", rendered)
-        self.assertIn("<b>4.5 RP⭐️</b>", rendered)
+        self.assertIn("3-5 спонсоров: <b>9 RP⭐️</b>", rendered)
+        self.assertIn("6-8 спонсоров: <b>10.5 RP⭐️</b>", rendered)
+        self.assertIn("9+ спонсоров: <b>13.5 RP⭐️</b>", rendered)
+        self.assertIn("<b>13.5 RP⭐️</b>", rendered)  # premium line
+        self.assertIn("1 Telegram ⭐ = 3 RP⭐️", rendered)
 
 
 if __name__ == "__main__":

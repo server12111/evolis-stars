@@ -374,13 +374,19 @@ async def msg_captcha(
     )
 
     vip_badge = " 💎 VIP" if db_user.is_vip else ""
+    # Method is only ever genuinely chosen for amount >= _METHOD_CHOICE_THRESHOLD
+    # (see _advance_after_recipient) — showing it for a smaller withdrawal
+    # would misleadingly imply the user picked something they were never asked.
+    method_line = (
+        f"🔧 Способ вывода: <b>{_METHOD_LABELS_ADMIN[withdrawal_method]}</b>\n"
+        if amount >= _METHOD_CHOICE_THRESHOLD else ""
+    )
     request_text = (
         f"📌 <b>Новая заявка на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Пользователь: @{escape(db_user.username) if db_user.username else db_user.user_id} | ID: <code>{db_user.user_id}</code>\n"
         f"🎁 Получатель: {username_display}{gift_note}\n"
-        f"🔄 Списано: <b>{rp_needed} RP⭐️</b>\n"
         f"💫 Получит: <b>{amount} Telegram ⭐</b>\n"
-        f"🔧 Способ вывода: <b>{_METHOD_LABELS_ADMIN[withdrawal_method]}</b>\n"
+        f"{method_line}"
         f"⏳ Статус: На рассмотрении"
     )
 
@@ -432,7 +438,6 @@ async def msg_captcha(
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await message.answer(
         f"✅ <b>Заявка #{withdrawal.id} создана!</b>\n\n"
-        f"Списано: <b>{rp_needed} RP⭐️</b>\n"
         f"Получите: <b>{amount} Telegram ⭐</b>\n"
         f"Ожидайте рассмотрения администратором.",
         parse_mode="HTML",

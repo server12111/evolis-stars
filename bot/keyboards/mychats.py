@@ -3,20 +3,23 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.database.models import Chat
 
+# Per https://core.telegram.org/api/links, admin= rights are joined with
+# "+". Minimal set the bot actually needs: delete spam, manage restricted/
+# banned members, share the invite link, pin announcements, and moderate
+# member tags — matches profile.py's "Добавить в группу" link exactly.
+_ADD_GROUP_ADMIN_RIGHTS = "delete_messages+restrict_members+invite_users+pin_messages+manage_tags"
+
+
+def _add_group_url(bot_username: str) -> str:
+    return f"https://t.me/{bot_username}?startgroup=owner&admin={_ADD_GROUP_ADMIN_RIGHTS}"
+
 
 def mychats_list_kb(chats: list[Chat], bot_username: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for chat in chats:
         label = chat.title or f"Чат {chat.chat_id}"
         builder.row(InlineKeyboardButton(text=f"💬 {label}", callback_data=f"mychats:open:{chat.chat_id}"))
-    builder.row(InlineKeyboardButton(
-        text="➕ Подключить ещё чат",
-        url=(
-            f"https://t.me/{bot_username}?startgroup=owner"
-            "&admin=change_info+delete_messages+invite_users+restrict_members+"
-            "pin_messages+manage_topics+promote_members+manage_video_chats+anonymous+manage_chat"
-        ),
-    ))
+    builder.row(InlineKeyboardButton(text="➕ Подключить ещё чат", url=_add_group_url(bot_username)))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     return builder.as_markup()
 
@@ -60,13 +63,6 @@ def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
 def connected_instructions_kb(bot_username: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💬 Открыть панель чатов", callback_data="mychats:list"))
-    builder.row(InlineKeyboardButton(
-        text="➕ Подключить ещё чат",
-        url=(
-            f"https://t.me/{bot_username}?startgroup=owner"
-            "&admin=change_info+delete_messages+invite_users+restrict_members+"
-            "pin_messages+manage_topics+promote_members+manage_video_chats+anonymous+manage_chat"
-        ),
-    ))
+    builder.row(InlineKeyboardButton(text="➕ Подключить ещё чат", url=_add_group_url(bot_username)))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     return builder.as_markup()
