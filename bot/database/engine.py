@@ -108,6 +108,18 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE withdrawals ADD COLUMN recipient_username VARCHAR(64)")
         )
+    if "withdrawal_method" not in withdrawal_columns:
+        connection.execute(
+            text("ALTER TABLE withdrawals ADD COLUMN withdrawal_method VARCHAR(16)")
+        )
+    if "username" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN username VARCHAR(64)")
+        )
+    if "invite_link" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN invite_link VARCHAR(256)")
+        )
     _ensure_integrity_indexes(connection)
 
 

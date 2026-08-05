@@ -19,7 +19,7 @@ from bot.middlewares.group_activity import GroupActivityMiddleware
 
 def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left", is_bot: bool = False):
     return SimpleNamespace(
-        chat=SimpleNamespace(id=chat_id, title="Test Chat"),
+        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None),
         new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id, is_bot=is_bot)),
         old_chat_member=SimpleNamespace(status=old_status),
     )

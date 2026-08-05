@@ -7,8 +7,13 @@ from bot.database.repositories.base import BaseRepository
 
 
 class WithdrawalRepository(BaseRepository):
-    async def create(self, user_id: int, amount: float, recipient_username: str) -> Withdrawal:
-        w = Withdrawal(user_id=user_id, amount=amount, recipient_username=recipient_username)
+    async def create(
+        self, user_id: int, amount: float, recipient_username: str, withdrawal_method: str = "fragment",
+    ) -> Withdrawal:
+        w = Withdrawal(
+            user_id=user_id, amount=amount, recipient_username=recipient_username,
+            withdrawal_method=withdrawal_method,
+        )
         self.session.add(w)
         await self.session.flush()
         return w

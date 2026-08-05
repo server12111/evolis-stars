@@ -34,6 +34,14 @@ def withdraw_recipient_cancel_kb() -> InlineKeyboardMarkup:
     ]])
 
 
+def withdraw_method_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="💎 Через Fragment", callback_data="withdraw:method:fragment"))
+    builder.row(InlineKeyboardButton(text="🎁 Подарком", callback_data="withdraw:method:gift"))
+    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"))
+    return builder.as_markup()
+
+
 def withdraw_confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Подтвердить", callback_data="withdraw:confirm", style="success"),

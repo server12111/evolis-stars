@@ -88,13 +88,26 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
 
     min_members = await SettingsRepository(session).get_int("chat_min_members", 250)
 
-    await ChatRepository(session).upsert(
+    chat_repo = ChatRepository(session)
+    await chat_repo.upsert(
         chat_id=chat_id,
         title=event.chat.title or "",
         member_count=member_count,
         owner_user_id=owner_user_id,
         min_members=min_members,
+        username=event.chat.username,
     )
+
+    if just_added:
+        # Read-only (getChat) — never generates/revokes an invite link, and
+        # only ever stored once (set_invite_link_if_missing), so opening the
+        # admin chat-list later never mints a fresh link.
+        try:
+            full_chat = await bot.get_chat(chat_id)
+            if full_chat.invite_link:
+                await chat_repo.set_invite_link_if_missing(chat_id, full_chat.invite_link)
+        except Exception as exc:
+            logger.info("Cannot read invite link for chat %s: %s", chat_id, exc)
 
     # Short one-time DM to the owner (item 7) — only on the genuine
     # "just connected" transition, never on later promotions/refreshes.

@@ -15,6 +15,8 @@ router = Router()
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+_METHOD_LABELS_ADMIN = {"fragment": "Fragment", "gift": "Подарок"}
+
 
 def _is_admin(user_id: int) -> bool:
     return user_id in settings.admin_id_list
@@ -48,10 +50,12 @@ async def _update_public_withdrawal_status(
         else html.escape(user.first_name if user else str(withdrawal.user_id))
     )
     vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
     text = (
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
         f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
+        f"🔧 Способ вывода: <b>{method_label}</b>\n"
         f"{status_icon} Статус: <b>{status}</b>"
     )
     try:

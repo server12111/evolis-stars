@@ -36,7 +36,7 @@ def _callback(user_id: int, data: str):
 
 def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left"):
     return SimpleNamespace(
-        chat=SimpleNamespace(id=chat_id, title="Test Chat"),
+        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None),
         new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id)),
         old_chat_member=SimpleNamespace(status=old_status),
         from_user=None,

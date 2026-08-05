@@ -19,6 +19,7 @@ from bot.keyboards.withdraw import (
     withdraw_amounts_kb,
     withdraw_captcha_kb,
     withdraw_confirm_kb,
+    withdraw_method_kb,
     withdraw_recipient_cancel_kb,
     withdraw_recipient_choice_kb,
 )
@@ -31,6 +32,25 @@ settings = get_settings()
 # Telegram username rules: letters/digits/underscores, 5-32 characters
 # total, must start with a letter.
 _USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
+
+# Amounts >= this ask how the user wants to receive Stars; smaller amounts
+# keep the original single-screen flow with a default method.
+_METHOD_CHOICE_THRESHOLD = 50
+_DEFAULT_METHOD = "fragment"
+_METHOD_LABELS_USER = {"fragment": "Через Fragment", "gift": "Подарком"}
+_METHOD_LABELS_ADMIN = {"fragment": "Fragment", "gift": "Подарок"}
+
+
+async def _advance_after_recipient(state: FSMContext, amount: int) -> bool:
+    """Returns True if the method-choice screen should be shown (caller
+    renders it); False if the caller should render its own confirm screen
+    (state is already `confirm`, method already defaulted)."""
+    if amount >= _METHOD_CHOICE_THRESHOLD:
+        await state.set_state(WithdrawStates.choose_method)
+        return True
+    await state.set_state(WithdrawStates.confirm)
+    await state.update_data(withdrawal_method=_DEFAULT_METHOD)
+    return False
 
 
 def _normalize_username(raw: str) -> str | None:
@@ -182,13 +202,17 @@ async def cb_withdraw_recipient_self(callback: CallbackQuery, db_user: User, sta
         await callback.answer()
         return
 
-    await state.set_state(WithdrawStates.confirm)
     await state.update_data(recipient_username=db_user.username)
-    text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n👤 Получатель: @{escape(db_user.username)}"
+    if await _advance_after_recipient(state, amount):
+        text = "Выберите способ получения Stars:"
+        kb = withdraw_method_kb()
+    else:
+        text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n👤 Получатель: @{escape(db_user.username)}"
+        kb = withdraw_confirm_kb()
     try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
 
@@ -227,10 +251,43 @@ async def msg_recipient_username(message: Message, db_user: User, state: FSMCont
         )
         return
 
-    await state.set_state(WithdrawStates.confirm)
     await state.update_data(recipient_username=username)
-    text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n🎁 Получатель: @{escape(username)}"
-    await message.answer(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+    if await _advance_after_recipient(state, amount):
+        text = "Выберите способ получения Stars:"
+        kb = withdraw_method_kb()
+    else:
+        text = f"💫 Сумма вывода: <b>{amount} ⭐</b>\n🎁 Получатель: @{escape(username)}"
+        kb = withdraw_confirm_kb()
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(WithdrawStates.choose_method, lambda c: c.data and c.data.startswith("withdraw:method:"))
+async def cb_withdraw_method(callback: CallbackQuery, state: FSMContext) -> None:
+    method = callback.data.split(":", 2)[2]
+    if method not in _METHOD_LABELS_USER:
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    amount = data.get("amount")
+    recipient_username = data.get("recipient_username")
+    if amount is None or not recipient_username:
+        await callback.answer()
+        return
+
+    await state.set_state(WithdrawStates.confirm)
+    await state.update_data(withdrawal_method=method)
+
+    text = (
+        f"💫 Сумма: <b>{amount} ⭐</b>\n"
+        f"👤 Получатель: @{escape(recipient_username)}\n"
+        f"Способ: {_METHOD_LABELS_USER[method]}"
+    )
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_confirm_kb())
+    await callback.answer()
 
 
 @router.callback_query(WithdrawStates.confirm, lambda c: c.data == "withdraw:confirm")
@@ -271,6 +328,9 @@ async def msg_captcha(
     correct = data.get("captcha_answer")
     amount = data.get("amount", 0)
     recipient_username = data.get("recipient_username")
+    withdrawal_method = data.get("withdrawal_method") or _DEFAULT_METHOD
+    if withdrawal_method not in _METHOD_LABELS_ADMIN:
+        withdrawal_method = _DEFAULT_METHOD
 
     try:
         user_answer = int(message.text.strip())
@@ -329,7 +389,7 @@ async def msg_captcha(
     # Deduct stars and create withdrawal in the same transaction.
     db_user.stars_balance = round(float(db_user.stars_balance) - amount, 2)
     w_repo = WithdrawalRepository(session)
-    withdrawal = await w_repo.create(db_user.user_id, float(amount), recipient_username)
+    withdrawal = await w_repo.create(db_user.user_id, float(amount), recipient_username, withdrawal_method)
 
     username_display = f"@{escape(recipient_username)}"
     gift_note = (
@@ -343,6 +403,7 @@ async def msg_captcha(
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display}{gift_note} | ID: <code>{db_user.user_id}</code>\n"
         f"💫 Сумма: <b>{amount} ⭐</b>\n"
+        f"🔧 Способ вывода: <b>{_METHOD_LABELS_ADMIN[withdrawal_method]}</b>\n"
         f"⏳ Статус: На рассмотрении"
     )
 

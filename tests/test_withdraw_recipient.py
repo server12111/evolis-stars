@@ -15,6 +15,7 @@ from bot.handlers.withdraw import (
     cb_withdraw_amount,
     cb_withdraw_confirm,
     cb_withdraw_menu,
+    cb_withdraw_method,
     cb_withdraw_recipient_other,
     cb_withdraw_recipient_self,
     msg_captcha,
@@ -228,6 +229,82 @@ class OtherUserWithdrawalTests(ChatModelsTestCase):
         self.assertEqual(await state.get_state(), WithdrawStates.enter_recipient_username)
         rendered = msg.answer.await_args.args[0]
         self.assertIn("собственный", rendered)
+
+
+class MethodChoiceTests(ChatModelsTestCase):
+    async def test_below_threshold_skips_method_choice_and_defaults_to_fragment(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=30, username="u30", first_name="U", stars_balance=Decimal("100")))
+            await session.commit()
+
+        state = _state()
+        db_user = SimpleNamespace(user_id=30, username="u30", stars_balance=Decimal("100"), is_vip=False, first_name="U")
+
+        cb2 = _callback("withdraw:recipient:self")
+        await state.update_data(amount=25)
+        await cb_withdraw_recipient_self(cb2, db_user, state)
+
+        self.assertEqual(await state.get_state(), WithdrawStates.confirm)
+        rendered = cb2.message.edit_text.await_args.args[0]
+        self.assertNotIn("Способ", rendered)
+        data = await state.get_data()
+        self.assertEqual(data["withdrawal_method"], "fragment")
+
+    async def test_50_or_more_asks_for_method_and_stores_it(self) -> None:
+        async with self.sessions() as session:
+            session.add(User(user_id=31, username="u31", first_name="U", stars_balance=Decimal("200")))
+            await session.commit()
+
+        state = _state()
+        db_user = SimpleNamespace(user_id=31, username="u31", stars_balance=Decimal("200"), is_vip=False, first_name="U")
+
+        cb2 = _callback("withdraw:recipient:self")
+        await state.update_data(amount=50)
+        await cb_withdraw_recipient_self(cb2, db_user, state)
+        self.assertEqual(await state.get_state(), WithdrawStates.choose_method)
+        self.assertIn("способ", cb2.message.edit_text.await_args.args[0].lower())
+
+        cb3 = _callback("withdraw:method:gift")
+        await cb_withdraw_method(cb3, state)
+        self.assertEqual(await state.get_state(), WithdrawStates.confirm)
+        rendered = cb3.message.edit_text.await_args.args[0]
+        self.assertIn("Подарком", rendered)
+        data = await state.get_data()
+        self.assertEqual(data["withdrawal_method"], "gift")
+
+        cb4 = _callback("withdraw:confirm")
+        with patch("bot.handlers.withdraw.generate_captcha", return_value=("2 + 2", 4)):
+            await cb_withdraw_confirm(cb4, state)
+
+        message = _message("4")
+        bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=1)))
+        with _SETTINGS_PATCHES[0], _SETTINGS_PATCHES[1], _SETTINGS_PATCHES[2], \
+                patch("bot.handlers.withdraw.settings.admin_channel_id", "123"), \
+                patch("bot.handlers.withdraw.settings.payments_channel_id", ""), \
+                patch("bot.handlers.withdraw.settings.payments_channel_link", ""):
+            async with self.sessions() as session:
+                real_user = await session.get(User, 31)
+                await msg_captcha(message, real_user, session, state, bot)
+
+        async with self.sessions() as session:
+            result = await session.execute(select(Withdrawal))
+            withdrawal = result.scalars().one()
+        self.assertEqual(withdrawal.withdrawal_method, "gift")
+
+        admin_text = bot.send_message.await_args_list[0].args[1]
+        self.assertIn("Способ вывода", admin_text)
+        self.assertIn("Подарок", admin_text)
+
+    async def test_unknown_method_value_is_rejected(self) -> None:
+        state = _state()
+        await state.set_state(WithdrawStates.choose_method)
+        await state.update_data(amount=50, recipient_username="u32")
+
+        cb = _callback("withdraw:method:bogus")
+        await cb_withdraw_method(cb, state)
+
+        self.assertEqual(await state.get_state(), WithdrawStates.choose_method)
+        cb.message.edit_text.assert_not_awaited()
 
 
 if __name__ == "__main__":

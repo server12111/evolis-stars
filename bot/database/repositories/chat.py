@@ -44,12 +44,15 @@ class ChatRepository(BaseRepository):
         member_count: int,
         owner_user_id: int | None,
         min_members: int,
+        username: str | None = None,
     ) -> Chat:
         chat = await self.session.get(Chat, chat_id)
         status = "active" if member_count >= min_members else "pending"
         now = datetime.utcnow()
         if chat:
             chat.title = title
+            if username is not None:
+                chat.username = username
             chat.member_count = member_count
             if owner_user_id is not None:
                 chat.owner_user_id = owner_user_id
@@ -62,6 +65,7 @@ class ChatRepository(BaseRepository):
         chat = Chat(
             chat_id=chat_id,
             title=title,
+            username=username,
             member_count=member_count,
             owner_user_id=owner_user_id,
             status=status,
@@ -79,6 +83,8 @@ class ChatRepository(BaseRepository):
             await self.session.rollback()
             chat = await self.session.get(Chat, chat_id)
             chat.title = title
+            if username is not None:
+                chat.username = username
             chat.member_count = member_count
             if owner_user_id is not None:
                 chat.owner_user_id = owner_user_id
@@ -87,6 +93,16 @@ class ChatRepository(BaseRepository):
             chat.last_admin_sync_at = now
             await self.session.commit()
         return chat
+
+    async def set_invite_link_if_missing(self, chat_id: int, invite_link: str) -> None:
+        """Only ever writes an invite link we read from Telegram (getChat) —
+        never generates or revokes one — and only if the chat doesn't
+        already have one saved, so it's never overwritten on every
+        reconnect/refresh."""
+        chat = await self.session.get(Chat, chat_id)
+        if chat is not None and not chat.invite_link:
+            chat.invite_link = invite_link
+            await self.session.commit()
 
     async def mark_left(self, chat_id: int) -> None:
         chat = await self.session.get(Chat, chat_id)
@@ -112,6 +128,24 @@ class ChatRepository(BaseRepository):
             select(Chat)
             .where(Chat.status == "active")
             .order_by(Chat.member_count.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def connected_count(self) -> int:
+        result = await self.session.execute(
+            select(func.count(Chat.chat_id)).where(Chat.status != "left")
+        )
+        return int(result.scalar() or 0)
+
+    async def paginated_by_member_count(self, offset: int, limit: int) -> list[Chat]:
+        """All connected (never-left) chats, most members first — the admin
+        chat-list panel's ranking + pagination source."""
+        result = await self.session.execute(
+            select(Chat)
+            .where(Chat.status != "left")
+            .order_by(Chat.member_count.desc(), Chat.chat_id)
+            .offset(offset)
             .limit(limit)
         )
         return list(result.scalars().all())

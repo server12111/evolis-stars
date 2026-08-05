@@ -184,6 +184,10 @@ class Withdrawal(Base):
     # withdraw as a gift to someone else. Nullable for rows created
     # before this existed (those always meant "the requester's own").
     recipient_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # "fragment" or "gift" — only asked for amount >= 50; smaller withdrawals
+    # default to "fragment" without asking. Nullable for rows created before
+    # this existed.
+    withdrawal_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 # ─── PromoCode ────────────────────────────────────────────────────────────────
@@ -325,6 +329,10 @@ class Chat(Base):
 
     chat_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     title: Mapped[str] = mapped_column(String(256), default="")
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The chat's existing primary invite link, read (never generated/revoked)
+    # via getChat — only populated when Telegram already exposes one to us.
+    invite_link: Mapped[str | None] = mapped_column(String(256), nullable=True)
     owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     member_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / active / left
