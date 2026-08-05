@@ -25,9 +25,12 @@ def bonus_sponsors_kb(sponsor_count: int) -> InlineKeyboardMarkup:
 
 _CHANNEL_ADMIN_RIGHTS = (
     "change_info,post_messages,edit_messages,delete_messages,invite_users,"
-    "promote_members,manage_video_chats,manage_chat,anonymous,"
-    "post_stories,edit_stories,delete_stories"
+    "promote_members,manage_video_chats,manage_chat,anonymous"
 )
+# post_stories/edit_stories/delete_stories were tried and confirmed (live)
+# to break the whole &admin= list for channels — Telegram's deep-link
+# parser apparently doesn't recognize those names and silently drops
+# every right instead of just the unrecognized ones. Left out entirely.
 _CHAT_ADMIN_RIGHTS = (
     "change_info,delete_messages,invite_users,restrict_members,pin_messages,"
     "promote_members,manage_video_chats,manage_chat,anonymous"
