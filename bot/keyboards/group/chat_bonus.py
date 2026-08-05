@@ -23,19 +23,24 @@ def bonus_sponsors_kb(sponsor_count: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+_CHANNEL_ADMIN_RIGHTS = (
+    "change_info,post_messages,edit_messages,delete_messages,invite_users,"
+    "promote_members,manage_video_chats,manage_chat,anonymous,"
+    "post_stories,edit_stories,delete_stories"
+)
+_CHAT_ADMIN_RIGHTS = (
+    "change_info,delete_messages,invite_users,restrict_members,pin_messages,"
+    "promote_members,manage_video_chats,manage_chat,anonymous"
+)
+
+
 def bonus_sponsor_deeplink_kb(bot_username: str, sponsor_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     param = "startchannel" if sponsor_type == "channel" else "startgroup"
     text = "➕ Добавить канал" if sponsor_type == "channel" else "➕ Добавить чат"
-    # &admin=manage_chat forces Telegram's "add as administrator" flow
-    # (an empty admin= value is unreliable across client versions) with
-    # the single right that actually matters here — everything else the
-    # subscription check needs (get_chat_member) just requires the bot to
-    # be *some* kind of admin, not any specific named permission. Mirrors
-    # the comma-separated &admin= syntax already used in profile.py's
-    # "add to group" button.
+    rights = _CHANNEL_ADMIN_RIGHTS if sponsor_type == "channel" else _CHAT_ADMIN_RIGHTS
     builder.row(InlineKeyboardButton(
-        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin=manage_chat",
+        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin={rights}",
     ))
     return builder.as_markup()
 
