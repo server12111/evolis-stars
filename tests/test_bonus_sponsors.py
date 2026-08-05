@@ -188,6 +188,25 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["sponsors"][0]["chat_id"], -900)
         pending = _pending_sponsor_state(storage, 1, 42)
         self.assertIsNone(await pending.get_state())
+        # Channels don't get a confirmation post inside them (too
+        # intrusive/public) — only the bonus-creation chat is notified.
+        bot.send_message.assert_awaited_once()
+        self.assertEqual(bot.send_message.await_args.args[0], -50)
+
+    async def test_valid_chat_gets_linked_and_notified_in_place(self) -> None:
+        storage = MemoryStorage()
+        bot = SimpleNamespace(id=1, send_message=AsyncMock())
+        await self._seed_pending(storage, 1, 42, "chat", -50)
+
+        event = _my_chat_member(-901, "supergroup", 42, "administrator", title="Sponsor Group", username=None)
+        handled = await try_link_pending_sponsor(bot, storage, event)
+
+        self.assertTrue(handled)
+        # A regular chat/group DOES get a confirmation posted inside it,
+        # plus the bonus-creation chat is notified — two messages total.
+        self.assertEqual(bot.send_message.await_count, 2)
+        notified_chat_ids = {call.args[0] for call in bot.send_message.await_args_list}
+        self.assertEqual(notified_chat_ids, {-901, -50})
 
     async def test_type_mismatch_rejected(self) -> None:
         storage = MemoryStorage()

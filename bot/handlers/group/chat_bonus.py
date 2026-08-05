@@ -332,10 +332,14 @@ async def try_link_pending_sponsor(bot: Bot, storage: BaseStorage, event: ChatMe
     await origin.update_data(sponsors=sponsors)
     await pending.clear()
 
-    try:
-        await bot.send_message(event.chat.id, "✅ Этот чат добавлен как спонсор бонуса.")
-    except Exception:
-        pass
+    if sponsor_type == "chat":
+        # Only for a regular chat/group — posting into a channel is more
+        # intrusive/public, so that one stays silent and only the owner
+        # gets notified back in the bonus-creation chat below.
+        try:
+            await bot.send_message(event.chat.id, "✅ Этот чат добавлен как спонсор бонуса.")
+        except Exception:
+            pass
     try:
         await bot.send_message(
             origin_chat_id,
