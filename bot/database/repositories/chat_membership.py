@@ -70,13 +70,27 @@ class ChatMembershipRepository(BaseRepository):
         await self.session.commit()
 
     async def mark_joined(self, chat_id: int, user_id: int) -> None:
+        """Telegram can fire more than one ChatMemberUpdated event for the
+        same user in quick succession (e.g. joined then immediately
+        promoted) with no per-user lock protecting group-chat updates, so
+        two calls for a brand-new member can both see no existing row and
+        both try to insert — handled the same way as touch_message's
+        insert-or-ignore."""
         existing = await self.get(chat_id, user_id)
         now = datetime.utcnow()
         if existing:
             existing.left_at = None
-        else:
-            self.session.add(ChatMembership(chat_id=chat_id, user_id=user_id, joined_at=now))
-        await self.session.commit()
+            await self.session.commit()
+            return
+        self.session.add(ChatMembership(chat_id=chat_id, user_id=user_id, joined_at=now))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            existing = await self.get(chat_id, user_id)
+            if existing:
+                existing.left_at = None
+                await self.session.commit()
 
     async def mark_left(self, chat_id: int, user_id: int) -> None:
         existing = await self.get(chat_id, user_id)
