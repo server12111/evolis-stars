@@ -53,7 +53,7 @@ SETTING_LABELS = {
 
 TOGGLE_SETTINGS = {
     "bonus_enabled": "🎁 Бонус",
-    "withdraw_enabled": "RP⭐️ Вывод",
+    "withdraw_enabled": "🌟 Вывод",
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
 }
@@ -84,7 +84,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} RP⭐️</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} RP⭐️</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
-        f"RP⭐️ Вывод: {'✅' if withdraw_on else '❌'}\n"
+        f"🌟 Вывод: {'✅' if withdraw_on else '❌'}\n"
         f"🎮 Игры: {'✅' if games_on else '❌'} | "
         f"📋 Задания: {'✅' if tasks_on else '❌'}"
     )

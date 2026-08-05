@@ -5,7 +5,7 @@ KEY_LABELS = {
     "welcome": "👋 Приветствие",
     "main_menu": "🏠 Главное меню",
     "earn": "💸 Заработать",
-    "withdraw": "RP⭐️ Вывод",
+    "withdraw": "🌟 Вывод",
     "bonus": "🎁 Бонус",
     "tasks": "📋 Задания",
     "games": "🎮 Игры",

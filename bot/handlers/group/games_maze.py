@@ -133,7 +133,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
         state["bonus"] = round(state["bonus"] + MAZE_JACKPOT_BONUS, 4)
         note = "💎 Джекпот!"
     else:
-        note = "RP⭐️ Пустая клетка."
+        note = "⬜ Пустая клетка."
 
     new_step = round_.level + 1
     house_edge, max_coeff = await get_maze_params(session)

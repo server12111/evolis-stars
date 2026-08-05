@@ -55,7 +55,7 @@ class User(Base):
     last_bonus_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_random_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     free_game_credits: Mapped[int] = mapped_column(Integer, default=0)  # unused, kept for backward compat — superseded by free_game_credit_amount
-    # Amount (1/2/3 ⭐) of the single outstanding free-game credit from the
+    # Amount (1/2/3 RP⭐️) of the single outstanding free-game credit from the
     # Random button, or NULL if none is pending. A fresh Random press
     # overwrites this (a stale unused credit is simply replaced).
     free_game_credit_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
