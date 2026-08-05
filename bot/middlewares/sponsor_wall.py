@@ -320,6 +320,14 @@ async def _evaluate_wave_state(
                     db_user.user_id,
                     max_sponsors=min(20, gap),
                 )
+                # Same false-negative correction tgrass/botohub already get
+                # above — without it, a sponsor PiarFlow wrongly claims is
+                # unsubscribed could get frozen into a brand-new wave even
+                # though the user is already a member, forcing them to
+                # "subscribe" to something they're already in.
+                piarflow_result = await _drop_confirmed_subscriptions(
+                    bot, db_user.user_id, piarflow_result, membership_cache,
+                )
 
     if not piarflow_needed:
         piarflow_result = []

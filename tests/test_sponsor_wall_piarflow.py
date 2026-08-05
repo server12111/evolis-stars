@@ -81,6 +81,36 @@ class PiarFlowTopUpTests(unittest.IsolatedAsyncioTestCase):
         get_sponsors.assert_awaited_once()
         self.assertEqual(get_sponsors.await_args.kwargs.get("max_sponsors"), 4)
 
+    async def test_fresh_wave_drops_piarflow_sponsor_already_subscribed_to(self) -> None:
+        """A sponsor PiarFlow claims is unsubscribed on the very first
+        check, but our own bot confirms the user already joined, must
+        never get frozen into a brand-new wave — the user shouldn't be
+        asked to "subscribe" to something they're already a member of."""
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", "cfg"),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch(
+                "bot.services.piarflow.get_sponsors",
+                AsyncMock(return_value=offers("pf", 1)),
+            ),
+        ):
+            passed_user = user()
+            result = await run_sponsor_wall_check(inner(), passed_user, session, bot)
+
+        self.assertTrue(result)
+        bot.get_chat_member.assert_awaited_once()
+        # Nothing left to freeze once the only candidate was dropped.
+        self.assertEqual(passed_user.sponsor_wave, 3)
+
     async def test_frozen_wave_rechecks_piarflow_only_if_it_supplied_a_sponsor(self) -> None:
         session = SimpleNamespace(commit=AsyncMock())
         frozen_with_piarflow = user(
