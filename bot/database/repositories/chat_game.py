@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -58,9 +59,16 @@ class ChatGameRoundRepository(BaseRepository):
             round_.level = level
         await self.session.commit()
 
-    async def delete(self, round_: ChatGameRound) -> None:
-        await self.session.delete(round_)
+    async def delete(self, round_: ChatGameRound) -> bool:
+        """Atomically claims and removes this round. Returns False if it was
+        already deleted by a concurrent request for the same round (e.g. a
+        double-tap on cash-out) — callers MUST check this and skip crediting
+        any payout when it's False, since the other request already did."""
+        result = await self.session.execute(
+            sa_delete(ChatGameRound).where(ChatGameRound.id == round_.id)
+        )
         await self.session.commit()
+        return result.rowcount == 1
 
     @staticmethod
     def load_state(round_: ChatGameRound) -> dict:

@@ -110,7 +110,9 @@ async def cb_doors_pick(callback: CallbackQuery, session: AsyncSession) -> None:
 
     if picked not in safe_positions:
         bet = float(round_.bet)
-        await round_repo.delete(round_)
+        if not await round_repo.delete(round_):
+            await callback.answer("⚠️ Раунд не найден или уже завершён.", show_alert=True)
+            return
         await record_result(
             session, callback.from_user.id, callback.message.chat.id, "doors",
             bet, 0.0, "doors_total_bet", "doors_total_payout",
@@ -178,7 +180,9 @@ async def cb_doors_cashout(callback: CallbackQuery, session: AsyncSession) -> No
     bet = float(round_.bet)
     payout = round(bet * coeff, 2)
 
-    await round_repo.delete(round_)
+    if not await round_repo.delete(round_):
+        await callback.answer("⚠️ Раунд не найден или уже завершён.", show_alert=True)
+        return
     await credit_stars(session, callback.from_user.id, Decimal(str(payout)))
     await record_result(
         session, callback.from_user.id, callback.message.chat.id, "doors",

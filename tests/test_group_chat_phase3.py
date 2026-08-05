@@ -180,6 +180,30 @@ class TowerTests(ChatModelsTestCase):
         self.assertEqual(user.stars_balance, Decimal("90"))
         self.assertIsNone(round_)
 
+    async def test_concurrent_cashout_double_tap_only_pays_once(self) -> None:
+        """Two near-simultaneous cash-out taps (or a client retry) must not
+        both credit the payout — the round delete has to be an atomic claim,
+        not a plain read-then-delete."""
+        await self._add_user(13, "100")
+        with patch("bot.handlers.group.games_tower.random.sample", return_value=[2]):
+            message = _message(-5, 13, "башня 10")
+            async with self.sessions() as session:
+                await msg_tower_start(message, session)
+            cb = _callback(-5, 13, "chattower:pick:0")
+            async with self.sessions() as session:
+                await cb_tower_pick(cb, session)
+
+        # Simulate two concurrent requests both reading the still-active
+        # round before either has deleted it.
+        async with self.sessions() as session_a, self.sessions() as session_b:
+            round_a = await ChatGameRoundRepository(session_a).get_active(-5, 13, "tower")
+            round_b = await ChatGameRoundRepository(session_b).get_active(-5, 13, "tower")
+            first_claim = await ChatGameRoundRepository(session_a).delete(round_a)
+            second_claim = await ChatGameRoundRepository(session_b).delete(round_b)
+
+        self.assertTrue(first_claim)
+        self.assertFalse(second_claim)
+
     async def test_cannot_start_second_round_while_one_active(self) -> None:
         await self._add_user(12, "100")
         message = _message(-4, 12, "башня 5")

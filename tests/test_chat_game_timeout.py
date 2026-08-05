@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from bot.database.engine import Base
 from bot.database.models import ChatGameRound, User
 from bot.database.repositories.chat_game import ChatGameRoundRepository
-from bot.services.chat_game_timeout import sweep_stale_rounds
+from bot.services.chat_game_timeout import _settle_timeout, sweep_stale_rounds
 
 
 class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
@@ -102,6 +102,30 @@ class TimeoutSweepTests(ChatModelsTestCase):
             user = await session.get(User, 4)
         # level-1=0 -> chat_tower_coeff_0 default 1.05
         self.assertEqual(user.stars_balance, Decimal("40.00") + Decimal("10.50"))
+
+    async def test_round_claimed_by_live_cashout_during_sweep_is_not_double_paid(self) -> None:
+        """If the player cashes out themselves in the gap between the sweep
+        reading a stale round and settling it, the sweep must not also pay
+        it out — the round it's holding is already gone."""
+        await self._add_user(6, "40")
+        await self._add_stale_round(-6, 6, "doors", 10, 1, {"safe_positions": [0, 1]})
+
+        async with self.sessions() as sweep_session, self.sessions() as live_session:
+            round_ = await ChatGameRoundRepository(sweep_session).get_active(-6, 6, "doors")
+            # Simulate the player's own cash-out claiming the round first.
+            live_round = await ChatGameRoundRepository(live_session).get_active(-6, 6, "doors")
+            claimed = await ChatGameRoundRepository(live_session).delete(live_round)
+            self.assertTrue(claimed)
+
+            bot = SimpleNamespace(send_message=AsyncMock())
+            await _settle_timeout(bot, sweep_session, round_)
+            bot.send_message.assert_not_awaited()
+
+        async with self.sessions() as session:
+            user = await session.get(User, 6)
+        # Only the player's own (unrelated, not modeled here) cashout path
+        # would credit anything — the sweep must not have added a second payout.
+        self.assertEqual(user.stars_balance, Decimal("40"))
 
     async def test_fresh_round_is_not_swept(self) -> None:
         await self._add_user(5, "50")

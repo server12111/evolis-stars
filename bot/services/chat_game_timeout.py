@@ -73,7 +73,12 @@ async def _settle_timeout(bot: Bot, session, round_: ChatGameRound) -> None:
         payout = round(bet * coeff, 2)
         note = f"Выигрыш на достигнутом уровне забран автоматически (×{coeff:.2f})."
 
-    await round_repo.delete(round_)
+    if not await round_repo.delete(round_):
+        # The player cashed out (or busted) themselves in the moment between
+        # this sweep reading the round and settling it — that live action
+        # already claimed and paid it, so settling it again here would
+        # double the payout.
+        return
     if payout > 0:
         await credit_stars(session, round_.user_id, Decimal(str(payout)))
     prefix = _SETTINGS_PREFIX.get(game_type, game_type)

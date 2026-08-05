@@ -109,7 +109,9 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
             note = "🛡 Ловушка! Щит поглотил удар."
         else:
             bet = float(round_.bet)
-            await round_repo.delete(round_)
+            if not await round_repo.delete(round_):
+                await callback.answer("⚠️ Раунд не найден или уже завершён.", show_alert=True)
+                return
             await record_result(
                 session, callback.from_user.id, callback.message.chat.id, "maze",
                 bet, 0.0, "maze_total_bet", "maze_total_payout",
@@ -163,7 +165,9 @@ async def cb_maze_cashout(callback: CallbackQuery, session: AsyncSession) -> Non
     bet = float(round_.bet)
     payout = round(bet * multiplier, 2)
 
-    await round_repo.delete(round_)
+    if not await round_repo.delete(round_):
+        await callback.answer("⚠️ Раунд не найден или уже завершён.", show_alert=True)
+        return
     await credit_stars(session, callback.from_user.id, Decimal(str(payout)))
     await record_result(
         session, callback.from_user.id, callback.message.chat.id, "maze",
