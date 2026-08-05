@@ -29,6 +29,28 @@ def _format_timedelta(seconds: float) -> str:
     return f"{s}с"
 
 
+async def _notify_outbid(bot, prev_bidder_id: int, extra: float, round_, now: datetime) -> None:
+    """DMs exactly the person who just lost the lead, showing the size of
+    the bid that overtook them (not the cumulative prize pool, which is a
+    different number shown separately) plus the true, correct way back:
+    any next bid of at least 1 RP⭐️ reclaims the lead — the game never
+    requires matching or exceeding the accumulated total."""
+    remaining = (round_.end_at - now).total_seconds()
+    time_str = _format_timedelta(remaining)
+    try:
+        await bot.send_message(
+            prev_bidder_id,
+            f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
+            f"Новая ставка: <b>{extra:.2f} RP⭐️</b>\n"
+            f"🏆 Призовой фонд: <b>{float(round_.prize_pool):.2f} RP⭐️</b>\n"
+            f"👉 Чтобы вернуть лидерство — сделайте новую ставку (от 1 RP⭐️)\n"
+            f"⏱ До конца аукциона: <b>{time_str}</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+
 async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool]:
     repo = AuctionRepository(session)
     s_repo = SettingsRepository(session)
@@ -148,21 +170,11 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         )
         return
 
-    # Notify previous leader
+    # Notify previous leader — only ever the immediately-preceding leader,
+    # never anyone further back in the chain, since prev_bidder_id was read
+    # right before this exact successful bid.
     if prev_bidder_id and prev_bidder_id != db_user.user_id:
-        try:
-            remaining = (round_.end_at - now).total_seconds()
-            time_str = _format_timedelta(remaining)
-            await callback.bot.send_message(
-                prev_bidder_id,
-                f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
-                f"Новая ставка: <b>{total_bid:.2f} RP⭐️</b>\n"
-                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} RP⭐️</b>\n"
-                f"До конца аукциона: <b>{time_str}</b>",
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
+        await _notify_outbid(callback.bot, prev_bidder_id, extra, round_, now)
 
     text, has_active = await _auction_text(session, db_user)
     try:
@@ -247,19 +259,7 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
     await state.clear()
 
     if prev_bidder_id and prev_bidder_id != db_user.user_id:
-        try:
-            remaining = (round_.end_at - now).total_seconds()
-            time_str = _format_timedelta(remaining)
-            await message.bot.send_message(
-                prev_bidder_id,
-                f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
-                f"Новая ставка: <b>{total_bid:.2f} RP⭐️</b>\n"
-                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} RP⭐️</b>\n"
-                f"До конца аукциона: <b>{time_str}</b>",
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
+        await _notify_outbid(message.bot, prev_bidder_id, extra, round_, now)
 
     text, has_active = await _auction_text(session, db_user)
     await message.answer(text, parse_mode="HTML", reply_markup=auction_kb(has_active))
