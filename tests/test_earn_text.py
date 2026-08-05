@@ -105,7 +105,7 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("6-8 спонсоров: <b>10.5 RP⭐️</b>", rendered)
         self.assertIn("9+ спонсоров: <b>13.5 RP⭐️</b>", rendered)
         self.assertIn("<b>13.5 RP⭐️</b>", rendered)  # premium line
-        self.assertIn("1 Telegram ⭐ = 3 RP⭐️", rendered)
+        self.assertIn("1 Star⭐ = 3 RP⭐️", rendered)
 
 
 if __name__ == "__main__":

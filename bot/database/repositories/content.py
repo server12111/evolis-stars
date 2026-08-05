@@ -37,7 +37,7 @@ DEFAULT_TEXTS: dict[str, str] = {
         "</blockquote>\n"
         "💎 Реферал с Telegram Premium: всегда <b>{referral_reward_premium} RP⭐️</b>, "
         "независимо от числа спонсоров\n\n"
-        "⭐️ 1 Telegram ⭐ = 3 RP⭐️\n\n"
+        "⭐️ 1 Star⭐ = 3 RP⭐️\n\n"
         "⚠️ <i>Реферал будет засчитан и принесёт награду только в том "
         "случае, если подпишется минимум на {min_sponsors} {min_sponsors_word}.</i>\n\n"
         "👑 <b>Бонусы за рефералов</b>\n"
