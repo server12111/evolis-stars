@@ -23,27 +23,27 @@ def bonus_sponsors_kb(sponsor_count: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-_CHANNEL_ADMIN_RIGHTS = (
-    "change_info,post_messages,edit_messages,delete_messages,invite_users,"
-    "promote_members,manage_video_chats,manage_chat,anonymous"
-)
-# post_stories/edit_stories/delete_stories were tried and confirmed (live)
-# to break the whole &admin= list for channels — Telegram's deep-link
-# parser apparently doesn't recognize those names and silently drops
-# every right instead of just the unrecognized ones. Left out entirely.
-_CHAT_ADMIN_RIGHTS = (
-    "change_info,delete_messages,invite_users,restrict_members,pin_messages,"
-    "promote_members,manage_video_chats,manage_chat,anonymous"
-)
+# Per https://core.telegram.org/api/links — the admin= deep-link parameter
+# takes a single identifier set (no separate list for groups vs channels;
+# Telegram's own UI only shows the toggles relevant to the actual chat
+# type) joined with "+", NOT commas. Commas were silently accepted for
+# some rights but not others, which is why earlier attempts only
+# partially pre-checked the dialog.
+_ALL_ADMIN_RIGHTS = "+".join([
+    "change_info", "post_messages", "edit_messages", "delete_messages",
+    "restrict_members", "invite_users", "pin_messages", "manage_topics",
+    "promote_members", "manage_video_chats", "anonymous", "manage_chat",
+    "post_stories", "edit_stories", "delete_stories",
+    "manage_direct_messages", "manage_tags",
+])
 
 
 def bonus_sponsor_deeplink_kb(bot_username: str, sponsor_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     param = "startchannel" if sponsor_type == "channel" else "startgroup"
     text = "➕ Добавить канал" if sponsor_type == "channel" else "➕ Добавить чат"
-    rights = _CHANNEL_ADMIN_RIGHTS if sponsor_type == "channel" else _CHAT_ADMIN_RIGHTS
     builder.row(InlineKeyboardButton(
-        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin={rights}",
+        text=text, url=f"https://t.me/{bot_username}?{param}=addsponsor&admin={_ALL_ADMIN_RIGHTS}",
     ))
     return builder.as_markup()
 

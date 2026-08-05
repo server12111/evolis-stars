@@ -28,13 +28,12 @@ def profile_kb() -> InlineKeyboardBuilder:
             text="➕ Добавить в группу",
             url=(
                 f"https://t.me/{settings.bot_username}?startgroup=owner"
-                # post_messages/edit_messages are channel-only rights and
-                # don't apply to a group's admin dialog — dropped after
-                # confirming live that the group sponsor-add link (same
-                # right set minus these two) pre-checks every toggle
-                # correctly, matching Telegram's actual group-admin fields.
-                "&admin=change_info,delete_messages,invite_users,"
-                "restrict_members,pin_messages,promote_members,manage_video_chats,manage_chat,anonymous"
+                # Per https://core.telegram.org/api/links, admin= rights
+                # are joined with "+", not commas — commas only partially
+                # worked (confirmed live), which is why this used to be
+                # comma-separated.
+                "&admin=change_info+delete_messages+invite_users+restrict_members+"
+                "pin_messages+manage_topics+promote_members+manage_video_chats+anonymous+manage_chat"
             ),
         )
     )
