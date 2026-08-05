@@ -143,6 +143,30 @@ class SuccessfulPaymentTests(ChatModelsTestCase):
         self.assertEqual(saved.sponsor_wave, 3)
         message.answer.assert_any_call("✅ Спонсоры пропущены, спасибо за оплату!")
 
+    async def test_stale_invoice_paid_after_already_complete_is_refunded(self) -> None:
+        """The user already passed (e.g. subscribed for real, or a first
+        duplicate payment already completed this) by the time a second/
+        stale invoice gets paid — must refund instead of silently keeping
+        the Stars for nothing."""
+        await self._add_user(
+            16, sponsor_wave=3, sponsor_wave_one=json.dumps(_wave_items("a", 2)), sponsor_wave_two=None,
+            sponsors_verified=True, referrer_id=None,
+        )
+        message = SimpleNamespace(
+            successful_payment=SimpleNamespace(
+                invoice_payload="sponsor_skip:16", telegram_payment_charge_id="charge123",
+            ),
+            answer=AsyncMock(),
+        )
+        bot = AsyncMock()
+        async with self.sessions() as session:
+            db_user = await session.get(User, 16)
+            await msg_sponsor_skip_paid(message, db_user, session, bot)
+
+        bot.refund_star_payment.assert_awaited_once_with(16, "charge123")
+        message.answer.assert_awaited_once()
+        self.assertIn("возвращена", message.answer.await_args.args[0])
+
     async def test_payload_for_a_different_user_is_ignored(self) -> None:
         await self._add_user(
             14, sponsor_wave=1, sponsor_wave_one=json.dumps(_wave_items("a", 2)), sponsor_wave_two=None,

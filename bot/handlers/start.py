@@ -347,6 +347,23 @@ async def msg_sponsor_skip_paid(message: Message, db_user: User, session: AsyncS
         )
         return
 
+    if db_user.sponsor_wave == 3:
+        # Nothing left to skip — e.g. they subscribed for real via "Я
+        # подписался" (or an earlier duplicate payment already completed
+        # this) before paying a still-open invoice. Refund instead of
+        # silently keeping Stars for something already delivered for free.
+        try:
+            await bot.refund_star_payment(
+                db_user.user_id, message.successful_payment.telegram_payment_charge_id,
+            )
+            await message.answer("↩️ Ты уже прошёл проверку спонсоров — оплата возвращена.")
+        except Exception:
+            logger.warning(
+                "Could not refund stale sponsor-skip payment for uid=%s", db_user.user_id, exc_info=True,
+            )
+            await message.answer("✅ Оплата получена, но проверка спонсоров уже была пройдена ранее.")
+        return
+
     wave_state = skip_current_wave(db_user)
     await session.commit()
 
