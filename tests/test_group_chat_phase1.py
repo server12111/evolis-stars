@@ -301,7 +301,9 @@ class ChatLeaderboardTests(ChatModelsTestCase):
     async def test_top_10_ordered_by_member_count(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-1, title="Small", status="active", member_count=250))
-            session.add(Chat(chat_id=-2, title="Big", status="active", member_count=9000))
+            session.add(
+                Chat(chat_id=-2, title="Big", status="active", member_count=9000, username="bigchat"),
+            )
             session.add(Chat(chat_id=-3, title="Left one", status="left", member_count=99999))
             await session.commit()
 
@@ -319,6 +321,8 @@ class ChatLeaderboardTests(ChatModelsTestCase):
         small_pos = rendered.index("Small")
         self.assertLess(big_pos, small_pos)
         self.assertNotIn("Left one", rendered)
+        # Chats with a saved username must render as a clickable t.me link.
+        self.assertIn('<a href="https://t.me/bigchat">Big</a>', rendered)
 
 
 class BalanceCommandTests(ChatModelsTestCase):

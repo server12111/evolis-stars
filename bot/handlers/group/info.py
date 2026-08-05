@@ -98,7 +98,7 @@ async def render_top_users_text(session: AsyncSession, chat_id: int) -> str | No
     for i, user in enumerate(users, 1):
         medal = _MEDALS[i - 1] if i <= 3 else f"{i}."
         name = escape(f"@{user.username}" if user.username else user.first_name)
-        lines.append(f"{medal} {name} — <b>{float(user.stars_balance):.0f} RP⭐️</b>")
+        lines.append(f"{medal} <code>{name}</code> — <b>{float(user.stars_balance):.0f} RP⭐️</b>")
     return "\n".join(lines)
 
 

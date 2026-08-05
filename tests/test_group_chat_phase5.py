@@ -45,7 +45,7 @@ class InfoCommandTests(ChatModelsTestCase):
     async def test_top_shows_users_ordered_by_balance(self) -> None:
         async with self.sessions() as session:
             session.add(User(user_id=1, first_name="A", stars_balance=Decimal("50")))
-            session.add(User(user_id=2, first_name="B", stars_balance=Decimal("200")))
+            session.add(User(user_id=2, first_name="B", username="realuser", stars_balance=Decimal("200")))
             session.add(ChatMembership(chat_id=-1, user_id=1))
             session.add(ChatMembership(chat_id=-1, user_id=2))
             await session.commit()
@@ -54,7 +54,9 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_top_users(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertLess(rendered.index("B"), rendered.index("A"))
+        self.assertLess(rendered.index("realuser"), rendered.index("A"))
+        # @username must be wrapped in <code> so it never pings the member.
+        self.assertIn("<code>@realuser</code>", rendered)
 
     async def test_top_is_scoped_to_the_current_chat(self) -> None:
         async with self.sessions() as session:
