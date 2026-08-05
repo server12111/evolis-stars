@@ -66,7 +66,7 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
             f"Имя: <b>{first_name}</b>\n"
             f"ID: <code>{db_user.user_id}</code>\n"
             f"Username: {username_display}\n\n"
-            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n"
+            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
             f"👥 Рефералов: <b>{db_user.referrals_count}</b>"
         )
 
@@ -79,6 +79,24 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+_INFO_TEXT = (
+    "ℹ️ <b>Информация</b>\n\n"
+    "RP⭐️ — внутренняя валюта бота. Она используется во всех играх, "
+    "бонусах и функциях. RP⭐️ можно купить за Telegram Stars через раздел "
+    "«Обмен». Вывод осуществляется в реальные Telegram Stars по доступным "
+    "вариантам вывода."
+)
+
+
+@router.callback_query(lambda c: c.data == "menu:info")
+async def cb_info(callback: CallbackQuery) -> None:
+    try:
+        await callback.message.edit_text(_INFO_TEXT, parse_mode="HTML", reply_markup=back_to_menu_kb())
+    except Exception:
+        await callback.message.answer(_INFO_TEXT, parse_mode="HTML", reply_markup=back_to_menu_kb())
     await callback.answer()
 
 
@@ -150,8 +168,8 @@ async def msg_promo_code(message: Message, db_user: User, session: AsyncSession,
         await session.commit()
         await message.answer(
             f"✅ <b>Промокод активирован!</b>\n\n"
-            f"Вам начислено: <b>+{float(promo.reward_amount):.2f} ⭐</b>\n"
-            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>",
+            f"Вам начислено: <b>+{float(promo.reward_amount):.2f} RP⭐️</b>\n"
+            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>",
             parse_mode="HTML",
             reply_markup=back_to_menu_kb(),
         )

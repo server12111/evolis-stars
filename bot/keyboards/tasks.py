@@ -12,7 +12,7 @@ def tasks_list_kb(
     builder = InlineKeyboardBuilder()
     for task in tasks:
         done = task.id in completed_ids
-        label = f"✅ {task.title}" if done else f"⚡ {task.title} (+{float(task.reward):.1f} ⭐)"
+        label = f"✅ {task.title}" if done else f"⚡ {task.title} (+{float(task.reward):.1f} RP⭐️)"
         builder.row(InlineKeyboardButton(
             text=label,
             callback_data=f"task:view:{task.id}" if not done else "task:already_done",

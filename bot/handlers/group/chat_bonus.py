@@ -96,7 +96,7 @@ async def msg_bonus_code(message: Message, state: FSMContext, session: AsyncSess
 
     await state.update_data(code=code)
     await state.set_state(ChatOwnerBonusStates.enter_reward)
-    await message.reply(f"Код: <b>{code}</b>\n\nВведите награду за одну активацию (число ⭐):", parse_mode="HTML")
+    await message.reply(f"Код: <b>{code}</b>\n\nВведите награду за одну активацию (число RP⭐️):", parse_mode="HTML")
 
 
 @router.message(ChatOwnerBonusStates.enter_reward)
@@ -111,7 +111,7 @@ async def msg_bonus_reward(message: Message, state: FSMContext) -> None:
     await state.update_data(reward=str(reward))
     await state.set_state(ChatOwnerBonusStates.enter_limit)
     await message.reply(
-        f"Награда: <b>{reward} ⭐</b>\n\nВведите количество активаций (сколько раз можно использовать код):",
+        f"Награда: <b>{reward} RP⭐️</b>\n\nВведите количество активаций (сколько раз можно использовать код):",
         parse_mode="HTML",
     )
 
@@ -227,8 +227,8 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
     debited = await debit_stars_if_enough(session, callback.from_user.id, total_charged)
     if not debited:
         await callback.message.answer(
-            f"❌ Недостаточно звёзд на балансе. Нужно <b>{total_charged} ⭐</b> "
-            f"({reward} ⭐ × {limit} активаций + {int(commission_rate * 100)}% комиссии).",
+            f"❌ Недостаточно звёзд на балансе. Нужно <b>{total_charged} RP⭐️</b> "
+            f"({reward} RP⭐️ × {limit} активаций + {int(commission_rate * 100)}% комиссии).",
             parse_mode="HTML",
         )
         await callback.answer()
@@ -275,8 +275,8 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
     await callback.message.answer(
         f"✅ <b>{mode_label} создан!</b>\n\n"
         f"Код: <code>{bonus.code}</code>\n"
-        f"Награда: <b>{reward} ⭐</b> × {limit} активаций\n"
-        f"Списано с баланса: <b>{total_charged} ⭐</b>{sponsors_line}\n\n"
+        f"Награда: <b>{reward} RP⭐️</b> × {limit} активаций\n"
+        f"Списано с баланса: <b>{total_charged} RP⭐️</b>{sponsors_line}\n\n"
         f"{how_to}",
         parse_mode="HTML",
     )
@@ -444,7 +444,7 @@ async def _finalize_bonus_redeem(session: AsyncSession, bonus, user_id: int, not
     repo = ChatBonusRepository(session)
     ok = await repo.redeem(bonus, user_id)
     text = (
-        f"✅ Бонус получен! Начислено <b>{bonus.reward_amount} ⭐</b>."
+        f"✅ Бонус получен! Начислено <b>{bonus.reward_amount} RP⭐️</b>."
         if ok
         else "❌ Бонус уже получен тобой или лимит активаций исчерпан."
     )
@@ -521,6 +521,6 @@ async def msg_bonus_pick_winner(message: Message, session: AsyncSession) -> None
     await credit_stars(session, winner.id, bonus.reward_amount)
     winner_name = winner.first_name or "участник"
     await message.reply(
-        f"🏆 Победитель выбран! {winner_name} получает <b>{bonus.reward_amount} ⭐</b>.",
+        f"🏆 Победитель выбран! {winner_name} получает <b>{bonus.reward_amount} RP⭐️</b>.",
         parse_mode="HTML",
     )

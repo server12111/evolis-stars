@@ -42,9 +42,9 @@ def _status_text(bet: float, step: int, shields: int, multiplier: float, extra: 
     payout = round(bet * multiplier, 2)
     return (
         f"🌀 <b>Лабиринт</b>\n\n"
-        f"Ставка: <b>{bet:.2f} ⭐</b> | Шаг: <b>{step}</b>\n"
+        f"Ставка: <b>{bet:.2f} RP⭐️</b> | Шаг: <b>{step}</b>\n"
         f"🛡 Щитов: <b>{shields}</b>\n"
-        f"Множитель: <b>×{multiplier:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} ⭐</b>"
+        f"Множитель: <b>×{multiplier:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>"
         f"{extra}"
     )
 
@@ -116,7 +116,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
                 session, callback.from_user.id, callback.message.chat.id, "maze",
                 bet, 0.0, "maze_total_bet", "maze_total_payout",
             )
-            text = f"💣 <b>Ловушка!</b> Без щита. Лабиринт разрушен.\n\nСтавка сгорела: -{bet:.2f} ⭐"
+            text = f"💣 <b>Ловушка!</b> Без щита. Лабиринт разрушен.\n\nСтавка сгорела: -{bet:.2f} RP⭐️"
             try:
                 await callback.message.edit_text(text, parse_mode="HTML")
             except Exception:
@@ -133,7 +133,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
         state["bonus"] = round(state["bonus"] + MAZE_JACKPOT_BONUS, 4)
         note = "💎 Джекпот!"
     else:
-        note = "⭐️ Пустая клетка."
+        note = "RP⭐️ Пустая клетка."
 
     new_step = round_.level + 1
     house_edge, max_coeff = await get_maze_params(session)
@@ -176,7 +176,7 @@ async def cb_maze_cashout(callback: CallbackQuery, session: AsyncSession) -> Non
 
     text = (
         f"💰 <b>Выигрыш забран!</b>\n\nШагов пройдено: <b>{round_.level}</b>\n"
-        f"Множитель: <b>×{multiplier:.2f}</b>\nВыплата: <b>+{payout:.2f} ⭐</b>"
+        f"Множитель: <b>×{multiplier:.2f}</b>\nВыплата: <b>+{payout:.2f} RP⭐️</b>"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML")

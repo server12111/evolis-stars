@@ -43,8 +43,8 @@ async def cb_mines_menu(callback: CallbackQuery, db_user: User, state: FSMContex
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     text = (
         f"💣 <b>Мины</b>\n\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n"
-        f"Мин. ставка: <b>{min_bet:.0f} ⭐</b>\n\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
+        f"Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>\n\n"
         "Выбери ставку:"
     )
     await state.set_state(MinesStates.choose_bet)
@@ -89,12 +89,12 @@ async def msg_mines_bet_custom(message: Message, state: FSMContext, session: Asy
     s_repo = SettingsRepository(session)
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     if bet < min_bet:
-        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
+        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
     max_bet = await s_repo.get_float("mines_max_bet", 500.0)
     if bet > max_bet:
-        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
+        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
     if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
@@ -104,7 +104,7 @@ async def msg_mines_bet_custom(message: Message, state: FSMContext, session: Asy
     await state.set_state(MinesStates.choose_mines)
     await state.update_data(bet=bet)
     await message.answer(
-        f"💣 Ставка: <b>{bet:.2f} ⭐</b>\nВыбери количество мин:",
+        f"💣 Ставка: <b>{bet:.2f} RP⭐️</b>\nВыбери количество мин:",
         parse_mode="HTML",
         reply_markup=mines_count_kb(),
     )
@@ -114,11 +114,11 @@ async def _ask_mines_count(callback: CallbackQuery, state: FSMContext, session: 
     s_repo = SettingsRepository(session)
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     if bet < min_bet:
-        await callback.answer(f"❌ Мин. ставка: {min_bet:.0f} ⭐", show_alert=True)
+        await callback.answer(f"❌ Мин. ставка: {min_bet:.0f} RP⭐️", show_alert=True)
         return
     max_bet = await s_repo.get_float("mines_max_bet", 500.0)
     if bet > max_bet:
-        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} ⭐", show_alert=True)
+        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} RP⭐️", show_alert=True)
         return
     if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
         await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
@@ -126,7 +126,7 @@ async def _ask_mines_count(callback: CallbackQuery, state: FSMContext, session: 
 
     await state.set_state(MinesStates.choose_mines)
     await state.update_data(bet=bet)
-    text = f"💣 Ставка: <b>{bet:.2f} ⭐</b>\nВыбери количество мин:"
+    text = f"💣 Ставка: <b>{bet:.2f} RP⭐️</b>\nВыбери количество мин:"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=mines_count_kb())
     except Exception:
@@ -172,7 +172,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
 
     text = (
         f"💣 <b>Мины</b> — {mines_count} мин на поле 5×5\n\n"
-        f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+        f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
         f"Текущий коэф: <b>×{coeff:.2f}</b>\n"
         f"Нажми ⬜ чтобы открыть клетку. Избегай 💣!"
     )
@@ -226,9 +226,9 @@ async def cb_mines_open(callback: CallbackQuery, state: FSMContext, session: Asy
 
         text = (
             f"💥 <b>Мина! Игра окончена.</b>\n\n"
-            f"Ставка: <b>{bet:.2f} ⭐</b>\n"
-            f"Потеря: <b>-{bet:.2f} ⭐</b>\n"
-            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+            f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
+            f"Потеря: <b>-{bet:.2f} RP⭐️</b>\n"
+            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
         )
         try:
             await callback.message.edit_text(
@@ -247,9 +247,9 @@ async def cb_mines_open(callback: CallbackQuery, state: FSMContext, session: Asy
 
         text = (
             f"💣 <b>Мины</b> — {mines_count} мин\n\n"
-            f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+            f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
             f"Открыто: <b>{gems}</b> 💎 | Коэф: <b>×{coeff:.2f}</b>\n"
-            f"Потенциальный выигрыш: <b>{payout:.2f} ⭐</b>"
+            f"Потенциальный выигрыш: <b>{payout:.2f} RP⭐️</b>"
         )
         try:
             await callback.message.edit_text(
@@ -293,10 +293,10 @@ async def cb_mines_cashout(callback: CallbackQuery, state: FSMContext, session: 
     net = round(payout - bet, 2)
     text = (
         f"💰 <b>Выигрыш забран!</b>\n\n"
-        f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+        f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
         f"Открыто: <b>{gems}</b> 💎 | Коэф: <b>×{coeff:.2f}</b>\n"
-        f"Выигрыш: <b>+{payout:.2f} ⭐</b> (прибыль: +{net:.2f} ⭐)\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+        f"Выигрыш: <b>+{payout:.2f} RP⭐️</b> (прибыль: +{net:.2f} RP⭐️)\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=mines_over_kb(board, opened))
@@ -329,7 +329,7 @@ async def cb_mines_quit(callback: CallbackQuery, state: FSMContext, session: Asy
     kb = main_menu_kb(await ChatRepository(session).has_owned_chats(db_user.user_id))
     try:
         await callback.message.edit_text(
-            f"🏠 <b>Главное меню</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>",
+            f"🏠 <b>Главное меню</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>",
             parse_mode="HTML", reply_markup=kb,
         )
     except Exception:

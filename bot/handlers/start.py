@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from html import escape
 
-from aiogram import Bot, F, Router
+from aiogram import Bot, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -323,19 +323,24 @@ async def cb_sponsor_skip_confirm(callback: CallbackQuery, db_user: User, bot: B
             pass
 
 
-@router.pre_checkout_query()
+@router.pre_checkout_query(lambda q: q.invoice_payload.startswith("sponsor_skip:"))
 async def process_sponsor_skip_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
-    if not pre_checkout_query.invoice_payload.startswith("sponsor_skip:"):
-        await pre_checkout_query.answer(ok=False, error_message="Неизвестный платёж.")
-        return
+    # Filtered to this payload prefix only — other payment flows (e.g. the
+    # RP⭐️ exchange) register their own pre_checkout_query handler with
+    # their own prefix; this one must never answer ok=False for a payload
+    # it doesn't own, or it would kill an unrelated payment.
     await pre_checkout_query.answer(ok=True)
 
 
-@router.message(F.successful_payment)
+@router.message(lambda m: m.successful_payment and m.successful_payment.invoice_payload.startswith("sponsor_skip:"))
 async def msg_sponsor_skip_paid(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    # Filtered to this payload prefix — other payment flows (e.g. the RP⭐️
+    # exchange) register their own successful_payment handler with their
+    # own prefix filter. A plain @router.message(F.successful_payment) with
+    # an internal "return if wrong prefix" would swallow the update: aiogram
+    # treats a handler that runs to completion as "handled" and never tries
+    # the next one, so an unrelated payment would silently vanish here.
     payload = message.successful_payment.invoice_payload
-    if not payload.startswith("sponsor_skip:"):
-        return
     try:
         payload_user_id = int(payload.split(":", 1)[1])
     except (ValueError, IndexError):

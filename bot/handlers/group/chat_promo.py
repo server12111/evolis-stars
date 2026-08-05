@@ -138,4 +138,4 @@ async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None
         return
 
     await credit_stars(session, message.from_user.id, reward_dec)
-    await message.reply(f"✅ Промокод активирован! Начислено <b>{reward_dec} ⭐</b>.", parse_mode="HTML")
+    await message.reply(f"✅ Промокод активирован! Начислено <b>{reward_dec} RP⭐️</b>.", parse_mode="HTML")

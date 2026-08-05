@@ -24,16 +24,16 @@ def _lottery_text(lottery, user_tickets: int, balance: float) -> str:
         end_line = f"🗓 Дата: <b>{dt.strftime('%d.%m.%Y %H:%M')} UTC</b>"
     else:
         pool = round(float(lottery.end_value) * (1 - COMMISSION), 2)
-        end_line = f"🎯 Розыгрыш при сборе <b>{float(lottery.end_value):.0f} ⭐</b> | Приз ~<b>{pool:.0f} ⭐</b>"
+        end_line = f"🎯 Розыгрыш при сборе <b>{float(lottery.end_value):.0f} RP⭐️</b> | Приз ~<b>{pool:.0f} RP⭐️</b>"
 
     return (
         f"🎟 <b>Лотерея</b>\n\n"
-        f"💰 <b>Призовой пул: {float(lottery.prize_pool):.2f} ⭐</b>\n"
+        f"💰 <b>Призовой пул: {float(lottery.prize_pool):.2f} RP⭐️</b>\n"
         f"🎫 Продано билетов: <b>{lottery.tickets_sold}</b>\n\n"
         f"{end_line}\n\n"
-        f"📋 Цена билета: <b>{float(lottery.ticket_price):.0f} ⭐</b>\n\n"
+        f"📋 Цена билета: <b>{float(lottery.ticket_price):.0f} RP⭐️</b>\n\n"
         f"🎫 Твоих билетов: <b>{user_tickets}</b>\n"
-        f"💳 Баланс: <b>{balance:.2f} ⭐</b>"
+        f"💳 Баланс: <b>{balance:.2f} RP⭐️</b>"
     )
 
 
@@ -101,7 +101,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         )
         return
     if db_user.stars_balance < lottery.ticket_price:
-        await callback.answer(f"❌ Нужно {float(lottery.ticket_price):.0f} ⭐", show_alert=True)
+        await callback.answer(f"❌ Нужно {float(lottery.ticket_price):.0f} RP⭐️", show_alert=True)
         return
 
     user_tickets = await repo.user_ticket_count(lottery.id, db_user.user_id)
@@ -137,7 +137,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         )
         return
 
-    await callback.answer(f"✅ Билет куплен! (-{float(lottery.ticket_price):.0f} ⭐)")
+    await callback.answer(f"✅ Билет куплен! (-{float(lottery.ticket_price):.0f} RP⭐️)")
 
     if await repo.check_auto_draw(lottery) and lottery.tickets_sold > 0:
         winner_id = await repo.draw_random(lottery)
@@ -163,7 +163,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
                 )
                 return
             try:
-                await bot.send_message(winner_id, f"🎉 <b>Вы выиграли лотерею!</b>\n🏆 Приз: <b>{float(lottery.prize_pool):.2f} ⭐</b>", parse_mode="HTML")
+                await bot.send_message(winner_id, f"🎉 <b>Вы выиграли лотерею!</b>\n🏆 Приз: <b>{float(lottery.prize_pool):.2f} RP⭐️</b>", parse_mode="HTML")
             except Exception:
                 pass
             try:

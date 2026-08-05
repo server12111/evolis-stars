@@ -113,7 +113,7 @@ async def cb_linkni_check(callback: CallbackQuery, db_user: User, session: Async
         db_user.tasks_completed_count += 1
         await session.commit()
         await check_referral_reward(db_user, session, bot)
-        await callback.answer(f"✅ Задание выполнено! +{tasks_reward:.1f} ⭐", show_alert=True)
+        await callback.answer(f"✅ Задание выполнено! +{tasks_reward:.1f} RP⭐️", show_alert=True)
         await _show_tasks_exhausted_screen(callback, db_user)
     elif status == "no_sponsors":
         await s_repo.set(key, "1")
@@ -226,7 +226,7 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
     text = (
         f"📌 <b>{task.title}</b>\n\n"
         f"{task.description}\n\n"
-        f"💰 Награда: <b>{float(task.reward):.1f} ⭐</b>"
+        f"💰 Награда: <b>{float(task.reward):.1f} RP⭐️</b>"
     )
     kb = task_detail_kb(task.id, task.url)
     if task.photo_file_id:
@@ -275,7 +275,7 @@ async def cb_task_view(callback: CallbackQuery, db_user: User, session: AsyncSes
     text = (
         f"📌 <b>{task.title}</b>\n\n"
         f"{task.description}\n\n"
-        f"💰 Награда: <b>{float(task.reward):.1f} ⭐</b>\n"
+        f"💰 Награда: <b>{float(task.reward):.1f} RP⭐️</b>\n"
         f"Статус: {status}"
     )
     kb = task_detail_kb(task_id, task.url)
@@ -355,7 +355,7 @@ async def cb_task_check(callback: CallbackQuery, db_user: User, session: AsyncSe
         db_user.stars_balance = round(float(db_user.stars_balance) + reward, 2)
         db_user.tasks_completed_count += 1
         await session.commit()
-        await callback.answer(f"✅ Задание выполнено! +{reward:.1f} ⭐", show_alert=True)
+        await callback.answer(f"✅ Задание выполнено! +{reward:.1f} RP⭐️", show_alert=True)
         await check_referral_reward(db_user, session, bot)
         await _show_next_task(callback, db_user, session, current_task_id=task_id)
     else:
@@ -453,7 +453,7 @@ async def _show_pf_task(
     text = (
         f"✨ <b>Новое задание!</b> ✨\n\n"
         f"• Подпишись на канал <b>{name}</b>\n\n"
-        f"Награда: <b>{tasks_reward:.1f} ⭐</b>\n\n"
+        f"Награда: <b>{tasks_reward:.1f} RP⭐️</b>\n\n"
         f"После выполнения жми «✅ Проверить выполнение»"
     )
     try:
@@ -675,7 +675,7 @@ async def cb_fh_webapp_check(callback: CallbackQuery, db_user: User, session: As
         await session.commit()
         await check_referral_reward(db_user, session, bot)
         await callback.answer(
-            f"✅ Засчитано новых заданий: {len(new_signatures)} (+{reward:.2f} ⭐)",
+            f"✅ Засчитано новых заданий: {len(new_signatures)} (+{reward:.2f} RP⭐️)",
             show_alert=True,
         )
     else:
@@ -758,7 +758,7 @@ async def _show_fh_task(
     text = (
         f"✨ <b>Новое задание!</b> ✨\n\n"
         f"• Выполни задание: <b>{name}</b>\n\n"
-        f"Награда: <b>{tasks_reward:.1f} ⭐</b>\n\n"
+        f"Награда: <b>{tasks_reward:.1f} RP⭐️</b>\n\n"
         f"После выполнения жми «✅ Проверить выполнение»"
     )
     try:

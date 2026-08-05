@@ -124,9 +124,9 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     if won:
         final_text = (
             f"{emoji} Выпало: <b>{outcome_name}</b>!\n\n"
-            f"🎉 Угадал! Выигрыш: <b>+{payout:.2f} ⭐</b> (×{coeff:.2f})"
+            f"🎉 Угадал! Выигрыш: <b>+{payout:.2f} RP⭐️</b> (×{coeff:.2f})"
         )
     else:
-        final_text = f"{emoji} Выпало: <b>{outcome_name}</b>.\n\n❌ Ставка сгорела: -{bet:.2f} ⭐"
+        final_text = f"{emoji} Выпало: <b>{outcome_name}</b>.\n\n❌ Ставка сгорела: -{bet:.2f} RP⭐️"
 
     await _animate_and_reveal(message, result_color, final_text)

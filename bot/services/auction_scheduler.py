@@ -58,8 +58,8 @@ async def auction_loop(bot: Bot) -> None:
                         await bot.send_message(
                             winner_id,
                             f"🏆 <b>Вы выиграли аукцион!</b>\n\n"
-                            f"Призовой фонд: <b>{float(round_.prize_pool):.2f} ⭐</b>\n"
-                            f"Ваш выигрыш (80%): <b>+{winner_share:.2f} ⭐</b>\n"
+                            f"Призовой фонд: <b>{float(round_.prize_pool):.2f} RP⭐️</b>\n"
+                            f"Ваш выигрыш (80%): <b>+{winner_share:.2f} RP⭐️</b>\n"
                             f"Звёзды зачислены на баланс!",
                             parse_mode="HTML",
                         )

@@ -79,11 +79,11 @@ async def cb_random(callback: CallbackQuery, db_user: User, session: AsyncSessio
 
     text = (
         f"🎲 <b>Рандом!</b>\n\n"
-        f"Тебе повезло — бесплатная игра на <b>{stake:.2f} ⭐</b>! "
+        f"Тебе повезло — бесплатная игра на <b>{stake:.2f} RP⭐️</b>! "
         f"Она не зачисляется на баланс, а хранится отдельно — сделай ставку ровно "
-        f"<b>{stake:.2f} ⭐</b> в любой игре, и эта ставка спишется с бонуса, а не с баланса.\n"
+        f"<b>{stake:.2f} RP⭐️</b> в любой игре, и эта ставка спишется с бонуса, а не с баланса.\n"
         f"Попробуй здесь: {game_label}\n\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
     await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()

@@ -25,7 +25,15 @@ class User(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     first_name: Mapped[str] = mapped_column(String(128), default="")
+    # Semantically the user's RP⭐️ balance since the RP⭐️ migration — the
+    # column itself was never renamed (avoids touching every ORM reference
+    # in the codebase); only its unit changed, via a one-time x3 backfill
+    # gated by rp_migrated below.
     stars_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"))
+    # True for every user created after the RP⭐️ migration shipped (they
+    # never held old-era Stars, so there's nothing to convert) and for any
+    # pre-existing user once the one-time x3 backfill has run for them.
+    rp_migrated: Mapped[bool] = mapped_column(Boolean, default=True)
     referrals_count: Mapped[int] = mapped_column(Integer, default=0)
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     referral_reward_given: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -188,6 +196,12 @@ class Withdrawal(Base):
     # default to "fragment" without asking. Nullable for rows created before
     # this existed.
     withdrawal_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # RP⭐️ actually debited for this request (fixed 3 RP⭐️ per Telegram ⭐ at
+    # request time) — stored explicitly rather than recomputed from `amount`
+    # so a historical request's cost never silently changes even if this
+    # rate is ever revisited. Nullable for rows created before this existed
+    # (pre-RP⭐️ withdrawals, where amount was itself the balance debited).
+    rp_debited: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
 
 # ─── PromoCode ────────────────────────────────────────────────────────────────
@@ -507,3 +521,26 @@ class ChatGameRound(Base):
     state_json: Mapped[str] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class RpPurchase(Base):
+    """One completed RP⭐️ purchase (real Telegram Stars -> RP⭐️). The unique
+    constraint on telegram_payment_charge_id is the guard against crediting
+    the same payment twice if Telegram redelivers the successful_payment
+    update."""
+
+    __tablename__ = "rp_purchases"
+    __table_args__ = (
+        UniqueConstraint("telegram_payment_charge_id", name="uq_rp_purchase_charge_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    stars_paid: Mapped[int] = mapped_column(Integer)
+    rp_credited: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # The exchange rate in effect at purchase time — snapshotted so a later
+    # admin rate change can never retroactively change what an already-
+    # completed purchase was worth.
+    rate_at_purchase: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+    telegram_payment_charge_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

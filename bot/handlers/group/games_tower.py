@@ -64,7 +64,7 @@ async def msg_tower_start(message: Message, session: AsyncSession) -> None:
         return
 
     text = (
-        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} ⭐</b> | Уровень: <b>1/{max_levels}</b>\n\n"
+        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>1/{max_levels}</b>\n\n"
         "3 плитки, 1 мина. Выбери плитку без мины:"
     )
     kb = tower_playing_kb(max_levels, mines, [], active_level=0, coeff=0.0, payout=0.0)
@@ -108,7 +108,7 @@ async def cb_tower_pick(callback: CallbackQuery, session: AsyncSession) -> None:
         text = (
             f"💣 <b>Мина! Башня рухнула.</b>\n\n"
             f"Уровень: <b>{level + 1}/{max_levels}</b>\n"
-            f"Ставка сгорела: -{bet:.2f} ⭐"
+            f"Ставка сгорела: -{bet:.2f} RP⭐️"
         )
         kb = tower_playing_kb(max_levels, mines, history, active_level=None, coeff=0.0, payout=0.0)
         try:
@@ -135,7 +135,7 @@ async def cb_tower_pick(callback: CallbackQuery, session: AsyncSession) -> None:
             f"🎉 <b>Башня покорена!</b>\n\n"
             f"Уровень: <b>{max_levels}/{max_levels}</b>\n"
             f"Множитель: <b>×{coeff:.2f}</b>\n"
-            f"Выигрыш: <b>+{payout:.2f} ⭐</b>"
+            f"Выигрыш: <b>+{payout:.2f} RP⭐️</b>"
         )
         kb = tower_playing_kb(max_levels, mines, history, active_level=None, coeff=0.0, payout=0.0)
         try:
@@ -149,8 +149,8 @@ async def cb_tower_pick(callback: CallbackQuery, session: AsyncSession) -> None:
     await round_repo.save_state(round_, state, level=new_level)
 
     text = (
-        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} ⭐</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
-        f"Множитель: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} ⭐</b>\n\n"
+        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
+        f"Множитель: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
         "Выбери плитку без мины:"
     )
     kb = tower_playing_kb(max_levels, mines, history, active_level=new_level, coeff=coeff, payout=payout)
@@ -191,7 +191,7 @@ async def cb_tower_cashout(callback: CallbackQuery, session: AsyncSession) -> No
 
     text = (
         f"💰 <b>Выигрыш забран!</b>\n\nПройдено уровней: <b>{round_.level}/{max_levels}</b>\n"
-        f"Множитель: <b>×{coeff:.2f}</b>\nВыплата: <b>+{payout:.2f} ⭐</b>"
+        f"Множитель: <b>×{coeff:.2f}</b>\nВыплата: <b>+{payout:.2f} RP⭐️</b>"
     )
     kb = tower_playing_kb(max_levels, mines, history, active_level=None, coeff=0.0, payout=0.0)
     try:

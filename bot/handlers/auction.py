@@ -61,7 +61,7 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
         is_me = round_.current_bidder_id == db_user.user_id
         leader_line = f"👑 Лидер: <b>{leader_name}</b>" + (" (вы)" if is_me else "")
         bid_label = "💵 Моя ставка" if is_me else "💵 Тек. ставка"
-        bid_line = f"{bid_label}: <b>{float(round_.current_bid):.2f} ⭐</b>"
+        bid_line = f"{bid_label}: <b>{float(round_.current_bid):.2f} RP⭐️</b>"
     else:
         leader_line = "👑 Лидер: —"
         bid_line = "💵 Ставок пока нет"
@@ -73,13 +73,13 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
         f"Каждая ставка пополняет общий призовой фонд — побеждает тот, "
         f"кто останется лидером к концу отсчёта. Перебитые ставки в фонде "
         f"и не возвращаются, поэтому побеждает только последний лидер.\n\n"
-        f"🏆 Призовой фонд: <b>{float(round_.prize_pool):.2f} ⭐</b>\n"
-        f"💰 Выигрыш победителя ({winner_percent}%): <b>{winner_share:.2f} ⭐</b>\n"
+        f"🏆 Призовой фонд: <b>{float(round_.prize_pool):.2f} RP⭐️</b>\n"
+        f"💰 Выигрыш победителя ({winner_percent}%): <b>{winner_share:.2f} RP⭐️</b>\n"
         f"{bid_line}\n"
         f"{leader_line}\n"
         f"⏱ До конца: <b>{time_str}</b>\n\n"
-        f"Мин. ставка: <b>{min_next:.2f} ⭐</b>\n"
-        f"💰 Ваш баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+        f"Мин. ставка: <b>{min_next:.2f} RP⭐️</b>\n"
+        f"💰 Ваш баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
     return text, True
 
@@ -104,7 +104,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         if not math.isfinite(extra) or extra < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Минимальное повышение ставки: 1 ⭐.", show_alert=True)
+        await callback.answer("❌ Минимальное повышение ставки: 1 RP⭐️.", show_alert=True)
         return
 
     repo = AuctionRepository(session)
@@ -156,8 +156,8 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
             await callback.bot.send_message(
                 prev_bidder_id,
                 f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
-                f"Новая ставка: <b>{total_bid:.2f} ⭐</b>\n"
-                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} ⭐</b>\n"
+                f"Новая ставка: <b>{total_bid:.2f} RP⭐️</b>\n"
+                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} RP⭐️</b>\n"
                 f"До конца аукциона: <b>{time_str}</b>",
                 parse_mode="HTML",
             )
@@ -169,7 +169,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=auction_kb(has_active))
     except Exception:
         pass
-    await callback.answer(f"✅ Ставка {total_bid:.2f} ⭐ принята!")
+    await callback.answer(f"✅ Ставка {total_bid:.2f} RP⭐️ принята!")
 
 
 @router.callback_query(lambda c: c.data == "auction:bid:custom")
@@ -198,7 +198,7 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
         if extra < 1:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Минимальное повышение — 1 ⭐:", reply_markup=auction_cancel_kb())
+        await message.answer("❌ Минимальное повышение — 1 RP⭐️:", reply_markup=auction_cancel_kb())
         return
 
     repo = AuctionRepository(session)
@@ -253,8 +253,8 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
             await message.bot.send_message(
                 prev_bidder_id,
                 f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
-                f"Новая ставка: <b>{total_bid:.2f} ⭐</b>\n"
-                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} ⭐</b>\n"
+                f"Новая ставка: <b>{total_bid:.2f} RP⭐️</b>\n"
+                f"Минимальная ставка для лидерства: <b>{total_bid + 1:.2f} RP⭐️</b>\n"
                 f"До конца аукциона: <b>{time_str}</b>",
                 parse_mode="HTML",
             )

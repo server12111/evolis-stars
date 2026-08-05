@@ -145,38 +145,38 @@ def _result_text(game_type, won, bet, payout, value, balance, side=None) -> str:
 
     if game_type == "football":
         outcome = "⚽ Гол!" if value in (4, 5) else "🥅 Промах."
-        result_line = (f"🎉 <b>Угадал! +{payout:.2f} ⭐</b> (прибыль: {sign}{net:.2f} ⭐)" if won
-                       else f"😞 <b>Не угадал. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
+                       else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
     elif game_type == "basketball":
         outcomes = {5: "🏀 Чистый гол!", 4: "🏀 Гол!", 3: "😬 Застрял мяч...", 1: "🏀 Промах.", 2: "🏀 Промах."}
         outcome = outcomes.get(value, "")
-        result_line = (f"🎉 <b>Угадал! +{payout:.2f} ⭐</b> (прибыль: {sign}{net:.2f} ⭐)" if won
-                       else f"😞 <b>Не угадал. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
+                       else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
     elif game_type == "bowling":
         if value == 6: outcome = "🎳 Страйк!"
         elif value in (2,3,4,5): outcome = "🎳 Попал — несколько кеглей."
         else: outcome = "🎳 Промах."
-        result_line = (f"🎉 <b>Угадал! +{payout:.2f} ⭐</b> (прибыль: {sign}{net:.2f} ⭐)" if won
-                       else f"😞 <b>Не угадал. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
+                       else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
     elif game_type == "dice":
         outcome = f"🎲 Выпало: <b>{value}</b>"
-        result_line = (f"🎉 <b>Выигрыш! +{payout:.2f} ⭐</b> (прибыль: {sign}{net:.2f} ⭐)" if won
-                       else f"😞 <b>Проигрыш. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Выигрыш! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
+                       else f"😞 <b>Проигрыш. -{bet:.2f} RP⭐️</b>")
     elif game_type == "slots":
         if value == 64: outcome = "🎰 <b>777 — Джекпот! 🏆</b>"
         elif value in (1,22,43): outcome = "🎰 <b>3 одинаковых! 🍀</b>"
         else: outcome = "🎰 Нет совпадений"
-        result_line = (f"🎉 <b>Выигрыш! +{payout:.2f} ⭐</b>" if won else f"😞 <b>Проигрыш. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Выигрыш! +{payout:.2f} RP⭐️</b>" if won else f"😞 <b>Проигрыш. -{bet:.2f} RP⭐️</b>")
     elif game_type == "darts":
         if value == 6: outcome = "🎯 Прямо в центр!"
         elif value == 1: outcome = "🎯 Отскок!"
         else: outcome = "🎯 Мимо!"
-        result_line = (f"🎉 <b>Угадал! +{payout:.2f} ⭐</b> (прибыль: {sign}{net:.2f} ⭐)" if won
-                       else f"😞 <b>Не угадал. -{bet:.2f} ⭐</b>")
+        result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
+                       else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
     else:
-        outcome, result_line = "", f"{'🎉 +' if won else '😞 -'}{(payout if won else bet):.2f} ⭐"
+        outcome, result_line = "", f"{'🎉 +' if won else '😞 -'}{(payout if won else bet):.2f} RP⭐️"
 
-    return f"<b>{label}</b>\n\n{outcome}\n{result_line}\n\n💰 Баланс: <b>{float(balance):.2f} ⭐</b>"
+    return f"<b>{label}</b>\n\n{outcome}\n{result_line}\n\n💰 Баланс: <b>{float(balance):.2f} RP⭐️</b>"
 
 
 @router.callback_query(lambda c: c.data == "menu:games")
@@ -275,7 +275,7 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     bet_step = await repo.get_float(f"game_{game_type}_bet_step", 1.0)
 
     if db_user.stars_balance < min_bet:
-        await callback.answer(f"❌ Минимальная ставка: {min_bet:.0f} ⭐", show_alert=True)
+        await callback.answer(f"❌ Минимальная ставка: {min_bet:.0f} RP⭐️", show_alert=True)
         return
 
     await state.set_state(GameStates.enter_bet)
@@ -284,8 +284,8 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     try:
         await callback.message.edit_text(
             f"<b>{GAME_LABELS[game_type]}</b>\n\n"
-            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n"
-            f"Минимум: <b>{min_bet:.0f} ⭐</b>\n\nВведи ставку:",
+            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
+            f"Минимум: <b>{min_bet:.0f} RP⭐️</b>\n\nВведи ставку:",
             parse_mode="HTML",
             reply_markup=game_cancel_kb(),
         )
@@ -313,20 +313,20 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
     repo = SettingsRepository(session)
     min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
     if bet < min_bet:
-        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     max_bet = await repo.get_float(f"game_{game_type}_max_bet", 500.0)
     if bet > max_bet:
-        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     if bet_step > 1.0 and abs(bet % bet_step) > 0.001:
-        await message.answer(f"❌ Ставка кратна <b>{bet_step:.4g} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌ Ставка кратна <b>{bet_step:.4g} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     if db_user.stars_balance < bet:
-        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
@@ -361,7 +361,7 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
         else:
             kb = side_kbs[game_type]()
         await message.answer(
-            f"<b>{GAME_LABELS[game_type]}</b>\n\nСтавка: <b>{bet:.0f} ⭐</b>\n\n{side_prompts[game_type]}",
+            f"<b>{GAME_LABELS[game_type]}</b>\n\nСтавка: <b>{bet:.0f} RP⭐️</b>\n\n{side_prompts[game_type]}",
             parse_mode="HTML", reply_markup=kb,
         )
         return

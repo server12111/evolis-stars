@@ -21,9 +21,9 @@ async def cb_cases_menu(callback: CallbackQuery, db_user: User, session: AsyncSe
     text = (
         "🎁 <b>Кейсы</b>\n\n"
         "Открой кейс и получи приз!\n\n"
-        "🥉 <b>Бронза (1 ⭐)</b> — призы до 3.5 ⭐\n"
-        "🥈 <b>Серебро (3 ⭐)</b> — призы до 5 ⭐\n"
-        "🥇 <b>Золото (5 ⭐)</b> — призы до 9 ⭐"
+        "🥉 <b>Бронза (1 RP⭐️)</b> — призы до 3.5 RP⭐️\n"
+        "🥈 <b>Серебро (3 RP⭐️)</b> — призы до 5 RP⭐️\n"
+        "🥇 <b>Золото (5 RP⭐️)</b> — призы до 9 RP⭐️"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=cases_menu_kb())
@@ -43,11 +43,11 @@ async def cb_cases_open(callback: CallbackQuery) -> None:
         return
 
     name = _TIER_NAMES[tier]
-    top_prizes = " / ".join(f"{p}⭐" for p in CASE_PRIZES[tier][-3:])
+    top_prizes = " / ".join(f"{p}RP⭐️" for p in CASE_PRIZES[tier][-3:])
     text = (
         f"🎁 <b>Кейс {name}</b>\n\n"
-        f"Цена: <b>{tier} ⭐</b>\n"
-        f"Макс. приз: <b>{CASE_PRIZES[tier][-1]} ⭐</b>\n"
+        f"Цена: <b>{tier} RP⭐️</b>\n"
+        f"Макс. приз: <b>{CASE_PRIZES[tier][-1]} RP⭐️</b>\n"
         f"Примеры: {top_prizes}...\n\nОткрыть?"
     )
     try:
@@ -104,9 +104,9 @@ async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: 
 
     result_text = (
         f"{header}\n\n"
-        f"Цена: {tier} ⭐\n"
-        f"Приз: <b>{payout} ⭐</b> ({sign}{net} ⭐)\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+        f"Цена: {tier} RP⭐️\n"
+        f"Приз: <b>{payout} RP⭐️</b> ({sign}{net} RP⭐️)\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
 
     if video_file_id:

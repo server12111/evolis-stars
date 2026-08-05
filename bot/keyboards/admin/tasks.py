@@ -7,7 +7,7 @@ def tasks_list_kb(tasks: list) -> InlineKeyboardMarkup:
     for t in tasks:
         status = "✅" if t.is_active else "❌"
         builder.row(InlineKeyboardButton(
-            text=f"{status} {t.title[:30]} | {float(t.reward):.1f}⭐",
+            text=f"{status} {t.title[:30]} | {float(t.reward):.1f}RP⭐️",
             callback_data=f"admin:task_view:{t.id}",
         ))
     builder.row(InlineKeyboardButton(text="➕ Создать задание", callback_data="admin:task_new"))

@@ -21,7 +21,7 @@ async def render_chat_panel_text(chat_repo: ChatRepository, chat_id: int, member
         f"🆔 ID чата: <code>{chat_id}</code>\n"
         f"👥 Участников: <b>{member_count}</b>\n"
         f"📋 Зарегистрировано в Evolis: <b>{count}</b>\n"
-        f"💰 Баланс всех зарегистрированных участников: <b>{total_balance:.2f} ⭐</b>"
+        f"💰 Баланс всех зарегистрированных участников: <b>{total_balance:.2f} RP⭐️</b>"
     )
 
 

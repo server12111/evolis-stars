@@ -27,7 +27,6 @@ NUMERIC_SETTINGS = [
     ("bonus_min", "💰 Мин. бонус"),
     ("bonus_max", "💰 Макс. бонус"),
     ("tasks_reward", "📋 Награда за задание"),
-    ("withdraw_min", "⭐ Мин. сумма вывода"),
     ("duel_commission", "⚔️ Комиссия дуэлей"),
     ("duel_min_refs", "⚔️ Мин. рефералов для дуэлей"),
     ("lottery_min_refs", "🎟 Мин. рефералов для лотереи"),
@@ -36,6 +35,7 @@ NUMERIC_SETTINGS = [
     ("mines_min_bet", "💣 Мин. ставка в Минах"),
     ("mines_house_edge", "💣 Комиссия казино в Минах"),
     ("mines_max_coeff", "💣 Макс. множитель в Минах"),
+    ("rp_exchange_rate", "🔄 Курс покупки RP⭐️"),
 ]
 
 # Переключатели — по два в ряд

@@ -48,7 +48,7 @@ async def lottery_time_check_loop(bot: Bot) -> None:
                     await bot.send_message(
                         winner_id,
                         f"🎉 <b>Поздравляем! Вы выиграли лотерею!</b>\n\n"
-                        f"🏆 Ваш выигрыш: <b>{lottery.prize_pool:.2f} ⭐</b>\n"
+                        f"🏆 Ваш выигрыш: <b>{lottery.prize_pool:.2f} RP⭐️</b>\n"
                         f"💰 Звёзды начислены на ваш баланс!",
                         parse_mode="HTML",
                     )

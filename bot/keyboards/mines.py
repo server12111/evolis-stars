@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def mines_bet_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     bets = [1, 3, 5, 10, 25]
-    btns = [InlineKeyboardButton(text=f"{b} ⭐", callback_data=f"mines:bet:{b}") for b in bets]
+    btns = [InlineKeyboardButton(text=f"{b} RP⭐️", callback_data=f"mines:bet:{b}") for b in bets]
     for i in range(0, len(btns), 3):
         builder.row(*btns[i:i+3])
     builder.row(InlineKeyboardButton(text="✏️ Своя сумма", callback_data="mines:bet:custom"))
@@ -48,7 +48,7 @@ def mines_playing_kb(board: list[int], opened: list[int], coeff: float, payout: 
     builder = mines_board_kb(board, opened)
     builder.row(
         InlineKeyboardButton(
-            text=f"💰 Забрать {payout:.2f} ⭐ (×{coeff:.2f})",
+            text=f"💰 Забрать {payout:.2f} RP⭐️ (×{coeff:.2f})",
             callback_data="mines:cashout",
         ),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="mines:quit"),

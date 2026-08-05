@@ -97,7 +97,7 @@ async def cb_game_edit(callback: CallbackQuery, db_user: User, session: AsyncSes
             value = await repo.get_float(f"game_{game_type}_{suffix}", 0.0)
             lines.append(f"{label}: <b>{value:.2f}x</b>")
         min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
-        lines.append(f"Мин. ставка: <b>{min_bet:.1f} ⭐</b>")
+        lines.append(f"Мин. ставка: <b>{min_bet:.1f} RP⭐️</b>")
     text = "\n".join(lines)
     try:
         await callback.message.edit_text(
@@ -196,9 +196,9 @@ async def cb_lottery(callback: CallbackQuery, db_user: User, session: AsyncSessi
         text = (
             f"🎟 <b>Активная лотерея #{active.id}</b>\n\n"
             f"Билетов продано: <b>{active.tickets_sold}</b>\n"
-            f"Призовой фонд: <b>{float(active.prize_pool):.2f} ⭐</b>\n"
+            f"Призовой фонд: <b>{float(active.prize_pool):.2f} RP⭐️</b>\n"
             f"Лимит билетов: <b>{active.ticket_limit or '∞'}</b>\n"
-            f"Цена билета: <b>{float(active.ticket_price):.1f} ⭐</b>"
+            f"Цена билета: <b>{float(active.ticket_price):.1f} RP⭐️</b>"
         )
     else:
         text = "🎟 <b>Лотерея</b>\n\nАктивной лотереи нет."
@@ -213,7 +213,7 @@ async def cb_lottery(callback: CallbackQuery, db_user: User, session: AsyncSessi
 async def cb_lottery_new(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     await state.set_state(AdminLotteryStates.enter_ticket_price)
-    await callback.message.answer("💰 Введи цену одного билета (⭐):", reply_markup=lottery_cancel_kb())
+    await callback.message.answer("💰 Введи цену одного билета (RP⭐️):", reply_markup=lottery_cancel_kb())
     await callback.answer()
 
 
@@ -257,7 +257,7 @@ async def cb_lottery_end_type(callback: CallbackQuery, db_user: User, state: FSM
     prompts = {
         "tickets": "🎟 Введи кол-во билетов для розыгрыша:",
         "time": "⏰ Введи кол-во часов до розыгрыша:",
-        "commission": "💰 Введи общую сумму сбора для розыгрыша (⭐):",
+        "commission": "💰 Введи общую сумму сбора для розыгрыша (RP⭐️):",
     }
     await state.set_state(AdminLotteryStates.enter_end_value)
     await callback.message.answer(prompts[end_type], reply_markup=lottery_cancel_kb())
@@ -298,7 +298,7 @@ async def msg_lottery_end_value(message: Message, state: FSMContext, session: As
         end_value=end_value,
     )
     await message.answer(
-        f"✅ <b>Лотерея #{lottery.id} создана!</b>\n\nЦена билета: {float(lottery.ticket_price):.1f} ⭐",
+        f"✅ <b>Лотерея #{lottery.id} создана!</b>\n\nЦена билета: {float(lottery.ticket_price):.1f} RP⭐️",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )
@@ -338,7 +338,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
     try:
         await callback.bot.send_message(
             winner_id,
-            f"🎉 <b>Поздравляем!</b> Вы выиграли в лотерее!\n\nПриз: <b>{float(active.prize_pool):.2f} ⭐</b>",
+            f"🎉 <b>Поздравляем!</b> Вы выиграли в лотерее!\n\nПриз: <b>{float(active.prize_pool):.2f} RP⭐️</b>",
             parse_mode="HTML",
         )
     except Exception:

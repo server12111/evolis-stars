@@ -37,8 +37,8 @@ async def cb_tower_menu(callback: CallbackQuery, db_user: User, state: FSMContex
     min_bet = await s_repo.get_float("tower_min_bet", 1.0)
     text = (
         f"🗼 <b>Башня</b>\n\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n"
-        f"Мин. ставка: <b>{min_bet:.0f} ⭐</b>\n\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
+        f"Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>\n\n"
         "8 уровней, 3 плитки/уровень, 1 мина/уровень.\n"
         "Выбери плитку без мины и поднимайся выше!\n\n"
         "Выбери ставку:"
@@ -97,7 +97,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
             await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
     if bet < min_bet:
-        txt = f"❌ Мин. ставка: <b>{min_bet:.0f} ⭐</b>"
+        txt = f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>"
         await _reply(txt, tower_cancel_kb())
         if callback:
             await callback.answer()
@@ -105,7 +105,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
 
     max_bet = await s_repo.get_float("tower_max_bet", 500.0)
     if bet > max_bet:
-        txt = f"❌ Макс. ставка: <b>{max_bet:.0f} ⭐</b>"
+        txt = f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>"
         await _reply(txt, tower_cancel_kb())
         if callback:
             await callback.answer()
@@ -135,8 +135,8 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
 
     text = (
         f"🗼 <b>Башня</b>\n\n"
-        f"Ставка: <b>{bet:.2f} ⭐</b> | Уровень: <b>1/{max_levels}</b>\n"
-        f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} ⭐</b>\n\n"
+        f"Ставка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>1/{max_levels}</b>\n"
+        f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
         "Выбери плитку 🟩:"
     )
     kb = tower_playing_kb(0, max_levels, mines, [], coeff, payout, bet)
@@ -179,10 +179,10 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
 
         text = (
             f"💣 <b>Мина! Башня рухнула.</b>\n\n"
-            f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+            f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
             f"Уровень: <b>{level + 1}/{max_levels}</b>\n"
-            f"Потеря: <b>-{bet:.2f} ⭐</b>\n"
-            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+            f"Потеря: <b>-{bet:.2f} RP⭐️</b>\n"
+            f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
         )
         try:
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=tower_over_kb(False))
@@ -207,11 +207,11 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
 
             text = (
                 f"🎉 <b>Башня покорена!</b>\n\n"
-                f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+                f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
                 f"Уровень: <b>{max_levels}/{max_levels}</b>\n"
                 f"Коэф: <b>×{coeff:.2f}</b>\n"
-                f"Выигрыш: <b>+{payout:.2f} ⭐</b>\n"
-                f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+                f"Выигрыш: <b>+{payout:.2f} RP⭐️</b>\n"
+                f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
             )
             try:
                 await callback.message.edit_text(text, parse_mode="HTML", reply_markup=tower_over_kb(True))
@@ -224,8 +224,8 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
 
             text = (
                 f"🗼 <b>Башня</b>\n\n"
-                f"Ставка: <b>{bet:.2f} ⭐</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
-                f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} ⭐</b>\n\n"
+                f"Ставка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
+                f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
                 "Выбери плитку 🟩:"
             )
             kb = tower_playing_kb(new_level, max_levels, mines, history, coeff, payout, bet)
@@ -264,11 +264,11 @@ async def cb_tower_cashout(callback: CallbackQuery, state: FSMContext, session: 
     net = round(payout - bet, 2)
     text = (
         f"💰 <b>Выигрыш забран!</b>\n\n"
-        f"Ставка: <b>{bet:.2f} ⭐</b>\n"
+        f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
         f"Пройдено уровней: <b>{level}/{max_levels}</b>\n"
         f"Коэф: <b>×{coeff:.2f}</b>\n"
-        f"Выигрыш: <b>+{payout:.2f} ⭐</b> (прибыль: +{net:.2f} ⭐)\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>"
+        f"Выигрыш: <b>+{payout:.2f} RP⭐️</b> (прибыль: +{net:.2f} RP⭐️)\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=tower_over_kb(True))
@@ -302,7 +302,7 @@ async def cb_tower_quit(callback: CallbackQuery, state: FSMContext, session: Asy
     kb = main_menu_kb(await ChatRepository(session).has_owned_chats(db_user.user_id))
     try:
         await callback.message.edit_text(
-            f"🏠 <b>Главное меню</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>",
+            f"🏠 <b>Главное меню</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>",
             parse_mode="HTML", reply_markup=kb,
         )
     except Exception:

@@ -13,7 +13,7 @@ async def cb_casino_menu(callback: CallbackQuery, db_user: User, state: FSMConte
     await state.clear()
     text = (
         f"🎰 <b>Казино</b>\n\n"
-        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\n"
+        f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n\n"
         "Выбери игру:"
     )
     try:

@@ -89,7 +89,7 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertIn("10⭐ — 🔴", rendered)
+        self.assertIn("10RP⭐️ — 🔴", rendered)
         self.assertNotIn("tower", rendered.lower())
 
     async def test_log_is_scoped_to_the_current_chat(self) -> None:
@@ -111,7 +111,7 @@ class InfoCommandTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
-        self.assertIn("10⭐ — 🔴", rendered)
+        self.assertIn("10RP⭐️ — 🔴", rendered)
         self.assertNotIn("7⭐ — ⚫️", rendered)
 
     async def test_log_with_no_games_replies_gracefully(self) -> None:

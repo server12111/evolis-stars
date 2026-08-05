@@ -38,7 +38,7 @@ def tower_playing_kb(
     if active_level is not None and active_level > 0:
         builder.row(
             InlineKeyboardButton(
-                text=f"💰 Забрать {payout:.2f} ⭐ (×{coeff:.2f})",
+                text=f"💰 Забрать {payout:.2f} RP⭐️ (×{coeff:.2f})",
                 callback_data="chattower:cashout",
             )
         )

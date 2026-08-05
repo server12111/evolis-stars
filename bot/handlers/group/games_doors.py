@@ -34,7 +34,7 @@ def _matches_doors_start(message: Message) -> bool:
 async def _show_level(sendable, round_, edit: bool) -> None:
     level_display = round_.level + 1
     text = (
-        f"🚪 <b>Двери</b>\n\nСтавка: <b>{float(round_.bet):.2f} ⭐</b>\n"
+        f"🚪 <b>Двери</b>\n\nСтавка: <b>{float(round_.bet):.2f} RP⭐️</b>\n"
         f"Уровень: <b>{level_display}/{DOORS_LEVELS}</b>\n\n"
         "За двумя дверями приз, за двумя — мина. Выбери дверь:"
     )
@@ -117,7 +117,7 @@ async def cb_doors_pick(callback: CallbackQuery, session: AsyncSession) -> None:
             session, callback.from_user.id, callback.message.chat.id, "doors",
             bet, 0.0, "doors_total_bet", "doors_total_payout",
         )
-        text = f"💣 <b>Мина!</b> Ставка сгорела: -{bet:.2f} ⭐"
+        text = f"💣 <b>Мина!</b> Ставка сгорела: -{bet:.2f} RP⭐️"
         try:
             await callback.message.edit_text(text, parse_mode="HTML")
         except Exception:
@@ -133,7 +133,7 @@ async def cb_doors_pick(callback: CallbackQuery, session: AsyncSession) -> None:
 
     text = (
         f"🎁 <b>Приз!</b> Уровень <b>{new_level}/{DOORS_LEVELS}</b> пройден.\n\n"
-        f"Множитель: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} ⭐</b>"
+        f"Множитель: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>"
     )
     kb = doors_result_kb(is_final_level=is_final)
     try:
@@ -191,7 +191,7 @@ async def cb_doors_cashout(callback: CallbackQuery, session: AsyncSession) -> No
 
     text = (
         f"💰 <b>Выигрыш забран!</b>\n\nПройдено уровней: <b>{round_.level}/{DOORS_LEVELS}</b>\n"
-        f"Множитель: <b>×{coeff:.2f}</b>\nВыплата: <b>+{payout:.2f} ⭐</b>"
+        f"Множитель: <b>×{coeff:.2f}</b>\nВыплата: <b>+{payout:.2f} RP⭐️</b>"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML")

@@ -12,7 +12,7 @@ def wheel_menu_kb() -> InlineKeyboardMarkup:
 def wheel_bet_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for amt in [1, 5, 10, 25, 50]:
-        builder.button(text=f"{amt} ⭐", callback_data=f"wheel:bet:{amt}")
+        builder.button(text=f"{amt} RP⭐️", callback_data=f"wheel:bet:{amt}")
     builder.adjust(3, 2)
     builder.row(InlineKeyboardButton(text="✏️ Своя сумма", callback_data="wheel:bet:custom"))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="menu:wheel"))

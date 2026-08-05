@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import func, select, update
 
@@ -8,11 +9,16 @@ from bot.database.repositories.base import BaseRepository
 
 class WithdrawalRepository(BaseRepository):
     async def create(
-        self, user_id: int, amount: float, recipient_username: str, withdrawal_method: str = "fragment",
+        self,
+        user_id: int,
+        amount: float,
+        recipient_username: str,
+        withdrawal_method: str = "fragment",
+        rp_debited: Decimal | None = None,
     ) -> Withdrawal:
         w = Withdrawal(
             user_id=user_id, amount=amount, recipient_username=recipient_username,
-            withdrawal_method=withdrawal_method,
+            withdrawal_method=withdrawal_method, rp_debited=rp_debited,
         )
         self.session.add(w)
         await self.session.flush()
@@ -25,6 +31,10 @@ class WithdrawalRepository(BaseRepository):
         result = await self.session.execute(
             select(func.count(Withdrawal.id)).where(Withdrawal.status == "pending")
         )
+        return result.scalar() or 0
+
+    async def total_count(self) -> int:
+        result = await self.session.execute(select(func.count(Withdrawal.id)))
         return result.scalar() or 0
 
     async def approved_sum(self) -> float:

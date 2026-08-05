@@ -16,44 +16,44 @@ from bot.states.admin import AdminSettingsStates
 router = Router()
 
 SETTING_LABELS = {
-    "referral_reward": ("🎁 Награда за реферала (3-5 спонсоров)", "число ⭐"),
-    "referral_reward_above_5": ("🎁 Награда за реферала (6+ спонсоров)", "число ⭐"),
-    "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число ⭐"),
+    "referral_reward": ("🎁 Награда за реферала (3-5 спонсоров)", "число RP⭐️"),
+    "referral_reward_above_5": ("🎁 Награда за реферала (6+ спонсоров)", "число RP⭐️"),
+    "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число RP⭐️"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
-    "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число ⭐"),
-    "referral_bonus_15": ("🏅 Бонус за 15 рефералов", "число ⭐"),
-    "referral_bonus_20": ("🏅 Бонус за 20 рефералов", "число ⭐"),
-    "referral_bonus_25": ("🏅 Бонус за 25 рефералов", "число ⭐"),
-    "referral_bonus_30": ("🏅 Бонус за 30 рефералов", "число ⭐"),
-    "referral_bonus_35": ("🏅 Бонус за 35 рефералов", "число ⭐"),
-    "referral_bonus_40": ("🏅 Бонус за 40 рефералов", "число ⭐"),
-    "referral_bonus_45": ("🏅 Бонус за 45 рефералов", "число ⭐"),
-    "referral_bonus_50": ("🏅 Бонус за 50 рефералов (VIP)", "число ⭐"),
-    "referral_bonus_55": ("🏅 Бонус за 55 рефералов", "число ⭐"),
-    "referral_bonus_60": ("🏅 Бонус за 60 рефералов", "число ⭐"),
-    "referral_bonus_67": ("🏅 Бонус за 67 рефералов", "число ⭐"),
-    "referral_bonus_70": ("🏅 Бонус за 70 рефералов", "число ⭐"),
-    "referral_bonus_76": ("🏅 Бонус за 76 рефералов", "число ⭐"),
-    "referral_bonus_80": ("🏅 Бонус за 80 рефералов", "число ⭐"),
-    "referral_bonus_90": ("🏅 Бонус за 90 рефералов", "число ⭐"),
-    "referral_bonus_100": ("🏅 Бонус за 100+ рефералов (навсегда)", "число ⭐"),
-    "bonus_min": ("🎁 Мин. ежедн. бонус", "число ⭐"),
-    "bonus_max": ("🎁 Макс. ежедн. бонус", "число ⭐"),
-    "tasks_reward": ("📋 Награда за задание", "число ⭐"),
-    "withdraw_min": ("⭐ Мин. сумма вывода", "число ⭐"),
+    "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число RP⭐️"),
+    "referral_bonus_15": ("🏅 Бонус за 15 рефералов", "число RP⭐️"),
+    "referral_bonus_20": ("🏅 Бонус за 20 рефералов", "число RP⭐️"),
+    "referral_bonus_25": ("🏅 Бонус за 25 рефералов", "число RP⭐️"),
+    "referral_bonus_30": ("🏅 Бонус за 30 рефералов", "число RP⭐️"),
+    "referral_bonus_35": ("🏅 Бонус за 35 рефералов", "число RP⭐️"),
+    "referral_bonus_40": ("🏅 Бонус за 40 рефералов", "число RP⭐️"),
+    "referral_bonus_45": ("🏅 Бонус за 45 рефералов", "число RP⭐️"),
+    "referral_bonus_50": ("🏅 Бонус за 50 рефералов (VIP)", "число RP⭐️"),
+    "referral_bonus_55": ("🏅 Бонус за 55 рефералов", "число RP⭐️"),
+    "referral_bonus_60": ("🏅 Бонус за 60 рефералов", "число RP⭐️"),
+    "referral_bonus_67": ("🏅 Бонус за 67 рефералов", "число RP⭐️"),
+    "referral_bonus_70": ("🏅 Бонус за 70 рефералов", "число RP⭐️"),
+    "referral_bonus_76": ("🏅 Бонус за 76 рефералов", "число RP⭐️"),
+    "referral_bonus_80": ("🏅 Бонус за 80 рефералов", "число RP⭐️"),
+    "referral_bonus_90": ("🏅 Бонус за 90 рефералов", "число RP⭐️"),
+    "referral_bonus_100": ("🏅 Бонус за 100+ рефералов (навсегда)", "число RP⭐️"),
+    "bonus_min": ("🎁 Мин. ежедн. бонус", "число RP⭐️"),
+    "bonus_max": ("🎁 Макс. ежедн. бонус", "число RP⭐️"),
+    "tasks_reward": ("📋 Награда за задание", "число RP⭐️"),
     "duel_commission": ("⚔️ Комиссия дуэлей %", "число 0-100"),
     "duel_min_refs": ("⚔️ Мин. рефералов для дуэлей", "целое число"),
     "lottery_min_refs": ("🎟 Мин. рефералов для лотереи", "целое число"),
     "games_min_refs": ("🎮 Мин. рефералов для игр", "целое число"),
     "sponsor_max_channels": ("📢 Макс. каналов спонсоров", "целое число"),
-    "mines_min_bet": ("💣 Мин. ставка в Минах", "число ⭐"),
+    "mines_min_bet": ("💣 Мин. ставка в Минах", "число RP⭐️"),
     "mines_house_edge": ("💣 Комиссия казино в Минах", "число 0-1 (напр. 0.1 = 10%)"),
     "mines_max_coeff": ("💣 Макс. множитель в Минах", "число (напр. 10)"),
+    "rp_exchange_rate": ("🔄 Курс покупки RP⭐️ (RP⭐️ за 1 Telegram ⭐)", "число > 0, напр. 1"),
 }
 
 TOGGLE_SETTINGS = {
     "bonus_enabled": "🎁 Бонус",
-    "withdraw_enabled": "⭐ Вывод",
+    "withdraw_enabled": "RP⭐️ Вывод",
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
 }
@@ -78,13 +78,13 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
-        f"🎁 Награда за реферала: 3-5сп <b>{referral_reward:.2f}</b> / 6+сп <b>{referral_reward_above_5:.2f}</b> ⭐\n"
-        f"💎 Награда за Premium-реферала: <b>{referral_reward_premium:.2f} ⭐</b> (фикс.)\n"
+        f"🎁 Награда за реферала: 3-5сп <b>{referral_reward:.2f}</b> / 6+сп <b>{referral_reward_above_5:.2f}</b> RP⭐️\n"
+        f"💎 Награда за Premium-реферала: <b>{referral_reward_premium:.2f} RP⭐️</b> (фикс.)\n"
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
-        f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} ⭐</b>\n"
-        f"📋 Награда за задание: <b>{task_reward:.1f} ⭐</b>\n\n"
+        f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} RP⭐️</b>\n"
+        f"📋 Награда за задание: <b>{task_reward:.1f} RP⭐️</b>\n\n"
         f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
-        f"⭐ Вывод: {'✅' if withdraw_on else '❌'}\n"
+        f"RP⭐️ Вывод: {'✅' if withdraw_on else '❌'}\n"
         f"🎮 Игры: {'✅' if games_on else '❌'} | "
         f"📋 Задания: {'✅' if tasks_on else '❌'}"
     )
@@ -165,6 +165,12 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         # min(raw, max_coeff), so max_coeff == 0 zeroes everything out.
         await message.answer(
             "❌ Макс. множитель должен быть больше 0:",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
+    if key == "rp_exchange_rate" and val <= 0:
+        await message.answer(
+            "❌ Курс обмена должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return

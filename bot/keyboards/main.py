@@ -22,6 +22,10 @@ def main_menu_kb(has_chats: bool = False) -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(text="🎲 Рандом", callback_data="menu:random", style="primary"),
     )
+    builder.row(
+        InlineKeyboardButton(text="🔄 Обмен", callback_data="menu:exchange", style="success"),
+        InlineKeyboardButton(text="ℹ️ Информация", callback_data="menu:info"),
+    )
     # Only shown to users who own at least one connected chat — everyone
     # else has nothing to manage there.
     if has_chats:

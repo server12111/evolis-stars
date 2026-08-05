@@ -24,4 +24,4 @@ async def msg_balance(message: Message, session: AsyncSession) -> None:
     if user is None:
         await message.reply(REGISTRATION_REQUIRED_TEXT, reply_markup=registration_required_kb(settings.bot_username))
         return
-    await message.reply(f"💰 Твой баланс: <b>{float(user.stars_balance):.2f} ⭐</b>", parse_mode="HTML")
+    await message.reply(f"💰 Твой баланс: <b>{float(user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML")

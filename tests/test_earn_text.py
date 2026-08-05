@@ -99,9 +99,9 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             await cb_earn(callback, db_user, session)
 
         rendered = callback.message.edit_text.await_args.args[0]
-        self.assertIn("3-5 спонсоров: <b>3 ⭐</b>", rendered)
-        self.assertIn("6+ спонсоров: <b>3.5 ⭐</b>", rendered)
-        self.assertIn("<b>4.5 ⭐</b>", rendered)
+        self.assertIn("3-5 спонсоров: <b>3 RP⭐️</b>", rendered)
+        self.assertIn("6+ спонсоров: <b>3.5 RP⭐️</b>", rendered)
+        self.assertIn("<b>4.5 RP⭐️</b>", rendered)
 
 
 if __name__ == "__main__":

@@ -114,11 +114,11 @@ class PreCheckoutTests(unittest.IsolatedAsyncioTestCase):
         await process_sponsor_skip_pre_checkout(pcq)
         pcq.answer.assert_awaited_once_with(ok=True)
 
-    async def test_rejects_unknown_payload(self) -> None:
-        pcq = SimpleNamespace(invoice_payload="something_else:5", answer=AsyncMock())
-        await process_sponsor_skip_pre_checkout(pcq)
-        pcq.answer.assert_awaited_once()
-        self.assertEqual(pcq.answer.await_args.kwargs.get("ok"), False)
+    # An unrelated payload never reaches this handler at all in the real
+    # router — it's routed there by the pre_checkout_query filter
+    # (invoice_payload.startswith("sponsor_skip:")), not by an internal
+    # check, so a different payment flow's payload can't be rejected by
+    # this handler answering ok=False for it.
 
 
 class SuccessfulPaymentTests(ChatModelsTestCase):
@@ -187,17 +187,11 @@ class SuccessfulPaymentTests(ChatModelsTestCase):
         self.assertEqual(saved.sponsor_wave, 1)
         message.answer.assert_not_awaited()
 
-    async def test_unrelated_payment_payload_is_ignored(self) -> None:
-        await self._add_user(15, sponsor_wave=1, sponsors_verified=False)
-        message = SimpleNamespace(
-            successful_payment=SimpleNamespace(invoice_payload="some_other_feature:15"),
-            answer=AsyncMock(),
-        )
-        bot = AsyncMock()
-        async with self.sessions() as session:
-            db_user = await session.get(User, 15)
-            await msg_sponsor_skip_paid(message, db_user, session, bot)
-        message.answer.assert_not_awaited()
+    # An unrelated payload never reaches this handler at all in the real
+    # router — it's routed there by the message filter (invoice_payload
+    # prefix), not by an internal check (see msg_sponsor_skip_paid's
+    # docstring comment for why an internal-only check would silently
+    # swallow other payment flows' updates).
 
 
 class SponsorWallMiddlewareBypassTests(unittest.IsolatedAsyncioTestCase):

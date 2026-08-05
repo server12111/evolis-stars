@@ -5,8 +5,8 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def user_actions_kb(user_id: int, is_blocked: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="➕ Начислить ⭐", callback_data=f"admin:user_add:{user_id}"),
-        InlineKeyboardButton(text="➖ Списать ⭐", callback_data=f"admin:user_sub:{user_id}"),
+        InlineKeyboardButton(text="➕ Начислить RP⭐️", callback_data=f"admin:user_add:{user_id}"),
+        InlineKeyboardButton(text="➖ Списать RP⭐️", callback_data=f"admin:user_sub:{user_id}"),
     )
     builder.row(
         InlineKeyboardButton(text="👥 Добавить рефералов", callback_data=f"admin:user_refs:{user_id}"),

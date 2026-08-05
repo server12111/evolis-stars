@@ -75,7 +75,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                 (
                     current.creator_id,
                     f"⏰ Дуэль #{current.id} отменена: никто не присоединился. "
-                    f"<b>{amount:.2f} ⭐</b> возвращено.",
+                    f"<b>{amount:.2f} RP⭐️</b> возвращено.",
                 )
             )
         elif original_status == "confirming":
@@ -84,7 +84,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
             current.status = "cancelled"
             text = (
                 f"⏰ Дуэль #{current.id} отменена: подтверждение не получено вовремя. "
-                f"<b>{amount:.2f} ⭐</b> возвращено."
+                f"<b>{amount:.2f} RP⭐️</b> возвращено."
             )
             notifications.extend(
                 [(current.creator_id, text), (current.joiner_id, text)]
@@ -120,7 +120,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                     current.winner_id = winner_id
                     text = (
                         f"🏆 Дуэль #{current.id} завершена после перезапуска. "
-                        f"Победителю начислено <b>{payout:.2f} ⭐</b>."
+                        f"Победителю начислено <b>{payout:.2f} RP⭐️</b>."
                     )
                     notifications.extend(
                         [(current.creator_id, text), (current.joiner_id, text)]

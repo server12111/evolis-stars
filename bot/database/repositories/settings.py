@@ -31,7 +31,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "bonus_max": "1.0",
     "bonus_enabled": "1",
     "withdraw_enabled": "1",
-    "withdraw_min": "15",
+    # RP⭐️ granted per 1 Telegram Star purchased via "🔄 Обмен" — admin-
+    # configurable, affects only purchases made after a change (the rate is
+    # snapshotted into each RpPurchase row at purchase time).
+    "rp_exchange_rate": "1",
     "games_enabled": "1",
     "tasks_enabled": "1",
     "tasks_reward": "0.3",

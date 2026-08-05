@@ -55,6 +55,7 @@ def _add_missing_user_columns(connection) -> None:
         "tos_accepted": "BOOLEAN NOT NULL DEFAULT 0",
         "tos_gate_shown": "BOOLEAN NOT NULL DEFAULT 0",
         "last_random_at": "DATETIME",
+        "rp_migrated": "BOOLEAN NOT NULL DEFAULT 0",
     }
     referral_counted_added = "referral_counted" not in columns
     for name, definition in additions.items():
@@ -65,6 +66,59 @@ def _add_missing_user_columns(connection) -> None:
         # Preserve that historical state and avoid double-counting users.
         connection.execute(text(
             "UPDATE users SET referral_counted = 1 WHERE referrer_id IS NOT NULL"
+        ))
+    # RP⭐️ currency migration: every pre-existing balance was denominated in
+    # the old Telegram-Stars-equivalent unit; convert it once at 1 old ⭐ = 3
+    # RP⭐️. Gated entirely by rp_migrated so this is safe to run on every
+    # startup — once a row is flagged, the WHERE clause never matches it
+    # again, so a restart (or running this twice in one process) can never
+    # re-multiply a balance. New users are created with rp_migrated=True by
+    # the model's default and so are never touched here.
+    migration_result = connection.execute(text(
+        "UPDATE users SET "
+        "stars_balance = stars_balance * 3, "
+        "free_game_credit_amount = CASE WHEN free_game_credit_amount IS NOT NULL "
+        "THEN free_game_credit_amount * 3 ELSE NULL END, "
+        "rp_migrated = 1 "
+        "WHERE rp_migrated = 0 OR rp_migrated IS NULL"
+    ))
+    if migration_result.rowcount:
+        # Recorded once for the admin panel's "Количество выполненных
+        # миграций" stat — rowcount is 0 on every later startup (the WHERE
+        # clause above already excludes migrated rows), so this only ever
+        # accumulates real migrations, never re-counts the same user.
+        existing_count_row = connection.execute(
+            text("SELECT value FROM bot_settings WHERE key = 'rp_migration_count'")
+        ).first()
+        existing_count = int(existing_count_row[0]) if existing_count_row else 0
+        new_count = existing_count + migration_result.rowcount
+        if existing_count_row:
+            connection.execute(
+                text("UPDATE bot_settings SET value = :v WHERE key = 'rp_migration_count'"),
+                {"v": str(new_count)},
+            )
+        else:
+            connection.execute(
+                text("INSERT INTO bot_settings (key, value) VALUES ('rp_migration_count', :v)"),
+                {"v": str(new_count)},
+            )
+    # Per-code chat-bonus/global-promo reward amounts were also fixed in the
+    # old unit at creation time — convert them once too (usage_limit/
+    # used_count are untouched). Gated by a one-time global marker rather
+    # than a per-row flag since these tables have no such column of their
+    # own; this whole function only ever runs sequentially at startup
+    # before the bot handles any request, so a plain check-then-act read is
+    # safe here (no concurrent writers exist yet).
+    already_migrated_bonuses = connection.execute(
+        text("SELECT 1 FROM bot_settings WHERE key = 'rp_bonus_migration_done'")
+    ).first()
+    if already_migrated_bonuses is None:
+        connection.execute(text(
+            "UPDATE chat_bonus_codes SET reward_amount = reward_amount * 3, total_charged = total_charged * 3"
+        ))
+        connection.execute(text("UPDATE promo_codes SET reward_amount = reward_amount * 3"))
+        connection.execute(text(
+            "INSERT INTO bot_settings (key, value) VALUES ('rp_bonus_migration_done', '1')"
         ))
     task_columns = {
         column["name"] for column in inspect(connection).get_columns("tasks")
@@ -111,6 +165,10 @@ def _add_missing_user_columns(connection) -> None:
     if "withdrawal_method" not in withdrawal_columns:
         connection.execute(
             text("ALTER TABLE withdrawals ADD COLUMN withdrawal_method VARCHAR(16)")
+        )
+    if "rp_debited" not in withdrawal_columns:
+        connection.execute(
+            text("ALTER TABLE withdrawals ADD COLUMN rp_debited NUMERIC(14,2)")
         )
     if "username" not in chat_columns:
         connection.execute(

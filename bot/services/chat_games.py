@@ -23,9 +23,9 @@ async def place_bet(
     True only when the error is specifically "not registered yet", so the
     caller knows to attach the registration-link button."""
     if not (bet > 0) or bet < min_bet:
-        return False, f"❌ Мин. ставка: {min_bet:.0f} ⭐.", False
+        return False, f"❌ Мин. ставка: {min_bet:.0f} RP⭐️.", False
     if max_bet is not None and bet > max_bet:
-        return False, f"❌ Макс. ставка: {max_bet:.0f} ⭐.", False
+        return False, f"❌ Макс. ставка: {max_bet:.0f} RP⭐️.", False
     active = await ChatGameRoundRepository(session).get_any_active(user_id)
     if active is not None:
         label = GAME_TYPE_LABELS.get(active.game_type, active.game_type)

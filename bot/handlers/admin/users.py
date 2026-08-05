@@ -98,7 +98,7 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
         f"ID: <code>{target.user_id}</code>\n"
         f"Имя: <b>{html.escape(target.first_name)}</b>\n"
         f"Username: {username_display}\n"
-        f"💰 Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>\n"
+        f"💰 Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>\n"
         f"👥 Рефералов: <b>{target.referrals_count}</b>\n"
         f"📋 Заданий: <b>{target.tasks_completed_count}</b>\n"
         f"🚫 Заблокирован: {'Да' if target.is_blocked else 'Нет'}"
@@ -177,7 +177,7 @@ async def cb_user_add_stars(callback: CallbackQuery, state: FSMContext, db_user:
     uid = int(callback.data.split(":")[2])
     await state.set_state(AdminUserStates.add_stars)
     await state.update_data(target_id=uid)
-    await callback.message.answer(f"➕ Введи кол-во ⭐ для начисления пользователю {uid}:", reply_markup=cancel_kb("admin:users"))
+    await callback.message.answer(f"➕ Введи кол-во RP⭐️ для начисления пользователю {uid}:", reply_markup=cancel_kb("admin:users"))
     await callback.answer()
 
 
@@ -203,7 +203,7 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
     )
     await session.commit()
     await session.refresh(target)
-    await message.answer(f"✅ Начислено <b>+{amount:.2f} ⭐</b> пользователю <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✅ Начислено <b>+{amount:.2f} RP⭐️</b> пользователю <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:user_sub:"))
@@ -212,7 +212,7 @@ async def cb_user_sub_stars(callback: CallbackQuery, state: FSMContext, db_user:
     uid = int(callback.data.split(":")[2])
     await state.set_state(AdminUserStates.sub_stars)
     await state.update_data(target_id=uid)
-    await callback.message.answer(f"➖ Введи кол-во ⭐ для списания у пользователя {uid}:", reply_markup=cancel_kb("admin:users"))
+    await callback.message.answer(f"➖ Введи кол-во RP⭐️ для списания у пользователя {uid}:", reply_markup=cancel_kb("admin:users"))
     await callback.answer()
 
 
@@ -243,7 +243,7 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
     )
     await session.commit()
     await session.refresh(target)
-    await message.answer(f"✅ Списано <b>-{amount:.2f} ⭐</b> у пользователя <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} ⭐</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✅ Списано <b>-{amount:.2f} RP⭐️</b> у пользователя <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:user_refs:"))

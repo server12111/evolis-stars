@@ -43,7 +43,7 @@ async def cb_task_view(callback: CallbackQuery, db_user: User, session: AsyncSes
     text = (
         f"📌 <b>{task.title}</b>\n\n{task.description}\n\n"
         f"🔗 URL: {task.url or 'нет'}\n"
-        f"💰 Награда: <b>{float(task.reward):.1f} ⭐</b>\n"
+        f"💰 Награда: <b>{float(task.reward):.1f} RP⭐️</b>\n"
         f"👥 Выполнено: <b>{task.completions_count}</b>\n"
         f"📊 Лимит: <b>{task.max_completions or '∞'}</b>"
     )
@@ -139,7 +139,7 @@ async def msg_task_url(message: Message, state: FSMContext, db_user: User) -> No
     if url == "-": url = ""
     await state.update_data(url=url)
     await state.set_state(AdminTaskStates.enter_reward)
-    await message.answer("💰 Введи награду (кол-во ⭐):", reply_markup=task_cancel_kb())
+    await message.answer("💰 Введи награду (кол-во RP⭐️):", reply_markup=task_cancel_kb())
 
 
 @router.message(AdminTaskStates.enter_reward)
@@ -178,7 +178,7 @@ async def msg_task_photo(message: Message, state: FSMContext, session: AsyncSess
         photo_file_id=photo_file_id,
     )
     await message.answer(
-        f"✅ <b>Задание создано!</b>\n\n<b>{task.title}</b>\nНаграда: {float(task.reward):.1f} ⭐",
+        f"✅ <b>Задание создано!</b>\n\n<b>{task.title}</b>\nНаграда: {float(task.reward):.1f} RP⭐️",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )

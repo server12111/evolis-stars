@@ -114,7 +114,7 @@ class SelfWithdrawalTests(ChatModelsTestCase):
             saved_user = await session.get(User, 10)
             result = await session.execute(select(Withdrawal))
             withdrawal = result.scalars().one()
-        self.assertEqual(float(saved_user.stars_balance), 85.0)
+        self.assertEqual(float(saved_user.stars_balance), 55.0)
         self.assertEqual(withdrawal.recipient_username, "myself")
         self.assertEqual(withdrawal.user_id, 10)
 
@@ -178,7 +178,7 @@ class OtherUserWithdrawalTests(ChatModelsTestCase):
             result = await session.execute(select(Withdrawal))
             withdrawal = result.scalars().one()
         # The REQUESTER's own balance is debited, regardless of recipient.
-        self.assertEqual(float(saved_user.stars_balance), 85.0)
+        self.assertEqual(float(saved_user.stars_balance), 55.0)
         self.assertEqual(withdrawal.recipient_username, "Some_Recipient")
         self.assertEqual(withdrawal.user_id, 20)
 

@@ -14,7 +14,7 @@ class PremiumEmojiTests(unittest.TestCase):
         markup = main_menu_kb()
         self.assertEqual(
             [len(row) for row in markup.inline_keyboard],
-            [1, 2, 2, 2, 1],
+            [1, 2, 2, 2, 1, 2],
         )
 
         decorate_markup(markup)

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import Chat, ChatAdSend, ChatBonusUse, ChatLinkClick, ChatPromoUse, User
 from bot.database.repositories.chat import ChatRepository
+from bot.database.repositories.rp_purchase import RpPurchaseRepository
 from bot.database.repositories.user import UserRepository
 from bot.database.repositories.game import GameRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
@@ -86,6 +87,9 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
     pending = await w_repo.pending_count()
     approved_sum = await w_repo.approved_sum()
     rejected = await w_repo.rejected_count()
+    total_withdrawal_requests = await w_repo.total_count()
+    rp_migration_count = await SettingsRepository(session).get_int("rp_migration_count", 0)
+    total_rp_purchased = await RpPurchaseRepository(session).total_rp_purchased()
     total_games = await g_repo.total_games()
     today_games = await g_repo.today_games()
     wins = await g_repo.win_count()
@@ -96,10 +100,15 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
         "👥 <b>Пользователи</b>",
         f"  Всего: <b>{total_users}</b>",
         f"  Новых сегодня: <b>{today_users}</b>",
-        f"  Общий баланс: <b>{total_balance:.2f} ⭐</b>\n",
+        f"  Общий баланс: <b>{total_balance:.2f} RP⭐️</b>\n",
+        "🔄 <b>RP⭐️ экономика</b>",
+        f"  Общий объём RP⭐️ в системе: <b>{total_balance:.2f}</b>",
+        f"  Выполнено миграций: <b>{rp_migration_count}</b>",
+        f"  Куплено RP⭐️ всего: <b>{total_rp_purchased:.2f}</b>\n",
         "💸 <b>Выплаты</b>",
         f"  В ожидании: <b>{pending}</b>",
-        f"  Выведено: <b>{approved_sum:.2f} ⭐</b>",
+        f"  Заявок всего: <b>{total_withdrawal_requests}</b>",
+        f"  Выведено: <b>{approved_sum:.2f} Telegram ⭐</b>",
         f"  Отклонено: <b>{rejected}</b>\n",
         "🎮 <b>Игры</b>",
         f"  Всего игр: <b>{total_games}</b>",
@@ -114,7 +123,7 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
         bet = await s_repo.get_float(f"{gt}_total_bet", 0)
         payout = await s_repo.get_float(f"{gt}_total_payout", 0)
         profit = round(bet - payout, 2)
-        lines.append(f"  {gt}: bet={bet:.1f} pay={payout:.1f} profit=<b>{profit:.1f} ⭐</b>")
+        lines.append(f"  {gt}: bet={bet:.1f} pay={payout:.1f} profit=<b>{profit:.1f} RP⭐️</b>")
 
     text = "\n".join(lines)
     try:
@@ -165,7 +174,7 @@ async def cb_admin_stats_chats(callback: CallbackQuery, db_user: User, session: 
         bet = await s_repo.get_float(f"{prefix}_total_bet", 0)
         payout = await s_repo.get_float(f"{prefix}_total_payout", 0)
         profit = round(bet - payout, 2)
-        lines.append(f"  {label}: bet={bet:.1f} pay={payout:.1f} profit=<b>{profit:.1f} ⭐</b>")
+        lines.append(f"  {label}: bet={bet:.1f} pay={payout:.1f} profit=<b>{profit:.1f} RP⭐️</b>")
 
     top_chats = await ChatRepository(session).top_by_member_count(10)
     lines.append("\n🏆 <b>Топ 10 чатов по участникам</b>")

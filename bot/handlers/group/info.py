@@ -37,7 +37,7 @@ _INFO_TEXT = (
     "профиль / пас — твой юзернейм, баланс и число сыгранных игр (всего и в этом чате)\n\n"
     "⚙️ <b>Владельцу чата</b>\n"
     "/EvolisOpen — панель управления чатом (только владелец, от 250 участников)\n\n"
-    "⭐️ Лучший реферальный бот — @EvolisStarsBot"
+    "RP⭐️ Лучший реферальный бот — @EvolisStarsBot"
 )
 
 
@@ -76,7 +76,7 @@ async def msg_group_profile(message: Message, session: AsyncSession) -> None:
         f"🪪 <b>Профиль</b>\n\n"
         f"👤 {username_display}\n"
         f"{vip_line}"
-        f"💰 Баланс: <b>{float(user.stars_balance):.2f} ⭐</b>\n"
+        f"💰 Баланс: <b>{float(user.stars_balance):.2f} RP⭐️</b>\n"
         f"🎮 Игр сыграно всего: <b>{total_games}</b>\n"
         f"💬 Игр в этом чате: <b>{chat_games}</b>"
     )
@@ -98,7 +98,7 @@ async def render_top_users_text(session: AsyncSession, chat_id: int) -> str | No
     for i, user in enumerate(users, 1):
         medal = _MEDALS[i - 1] if i <= 3 else f"{i}."
         name = escape(f"@{user.username}" if user.username else user.first_name)
-        lines.append(f"{medal} {name} — <b>{float(user.stars_balance):.0f} ⭐</b>")
+        lines.append(f"{medal} {name} — <b>{float(user.stars_balance):.0f} RP⭐️</b>")
     return "\n".join(lines)
 
 
@@ -135,10 +135,10 @@ async def render_roulette_log_text(session: AsyncSession, chat_id: int) -> str |
         bet_str = f"{val:.0f}" if val == int(val) else f"{val:.2f}".rstrip("0").rstrip(".")
         name = escape(f"@{username}" if username else (first_name or "—"))
         if game_result == "win":
-            outcome = f"✅ +{float(payout):.2f} ⭐"
+            outcome = f"✅ +{float(payout):.2f} RP⭐️"
         else:
-            outcome = f"❌ -{bet_str} ⭐"
-        lines.append(f"<code>{name}</code>: {bet_str}⭐ — {emoji} — {outcome}")
+            outcome = f"❌ -{bet_str} RP⭐️"
+        lines.append(f"<code>{name}</code>: {bet_str}RP⭐️ — {emoji} — {outcome}")
     return "\n".join(lines)
 
 

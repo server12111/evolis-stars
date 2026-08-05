@@ -167,7 +167,7 @@ async def cb_return_referrals(
     text = (
         "♻️ <b>Кого можно пригласить повторно</b>\n\n"
         f"{body}\n\n"
-        f"Награда за возврат: <b>{return_reward:.2f} ⭐</b>\n"
+        f"Награда за возврат: <b>{return_reward:.2f} RP⭐️</b>\n"
         f"Доступно всего: <b>{total}</b>"
     )
     if without_username:

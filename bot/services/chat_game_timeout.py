@@ -92,7 +92,7 @@ async def _settle_timeout(bot: Bot, session, round_: ChatGameRound) -> None:
     label = _LABELS.get(game_type, game_type)
     text = (
         f"⏱ Игра «{label}» у {name} завершена по тайм-ауту (2 минуты без действий).\n"
-        f"{note}\nВыплата: <b>{payout:.2f} ⭐</b>"
+        f"{note}\nВыплата: <b>{payout:.2f} RP⭐️</b>"
     )
     try:
         await bot.send_message(round_.chat_id, text, parse_mode="HTML")

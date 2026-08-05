@@ -6,7 +6,7 @@ def lottery_menu_kb(can_buy: bool, ticket_price: float = 5.0) -> InlineKeyboardM
     builder = InlineKeyboardBuilder()
     if can_buy:
         builder.row(InlineKeyboardButton(
-            text=f"🎟 Купить билет ({ticket_price:.0f} ⭐)",
+            text=f"🎟 Купить билет ({ticket_price:.0f} RP⭐️)",
             callback_data="game:lottery_buy",
             style="success",
         ))

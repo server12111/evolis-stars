@@ -48,7 +48,7 @@ async def msg_promo_code(message: Message, state: FSMContext, db_user: User) -> 
         return
     await state.update_data(code=code)
     await state.set_state(AdminPromoStates.enter_reward)
-    await message.answer(f"✅ Код: <b>{code}</b>\n\nВведи награду (кол-во ⭐):", parse_mode="HTML", reply_markup=promo_cancel_kb())
+    await message.answer(f"✅ Код: <b>{code}</b>\n\nВведи награду (кол-во RP⭐️):", parse_mode="HTML", reply_markup=promo_cancel_kb())
 
 
 @router.message(AdminPromoStates.enter_reward)
@@ -62,7 +62,7 @@ async def msg_promo_reward(message: Message, state: FSMContext, db_user: User) -
         return
     await state.update_data(reward=reward)
     await state.set_state(AdminPromoStates.enter_limit)
-    await message.answer(f"Награда: <b>{reward} ⭐</b>\n\nВведи лимит активаций (0 = неограниченно):", parse_mode="HTML", reply_markup=promo_cancel_kb())
+    await message.answer(f"Награда: <b>{reward} RP⭐️</b>\n\nВведи лимит активаций (0 = неограниченно):", parse_mode="HTML", reply_markup=promo_cancel_kb())
 
 
 @router.message(AdminPromoStates.enter_limit)
@@ -80,7 +80,7 @@ async def msg_promo_limit(message: Message, state: FSMContext, session: AsyncSes
     repo = PromoRepository(session)
     promo = await repo.create(data["code"], data["reward"], usage_limit=limit)
     await message.answer(
-        f"✅ <b>Промокод создан!</b>\n\nКод: <code>{promo.code}</code>\nНаграда: <b>{float(promo.reward_amount):.1f} ⭐</b>\nЛимит: <b>{limit or '∞'}</b>",
+        f"✅ <b>Промокод создан!</b>\n\nКод: <code>{promo.code}</code>\nНаграда: <b>{float(promo.reward_amount):.1f} RP⭐️</b>\nЛимит: <b>{limit or '∞'}</b>",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )

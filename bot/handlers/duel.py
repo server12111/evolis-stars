@@ -108,7 +108,7 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
     await session.commit()
 
     txt = (f"🏆 <b>Дуэль #{duel.id} завершена!</b>\n\n🎲 {c_roll} vs {j_roll}\n"
-           f"🥇 Победитель: <b>{winner_name}</b>\n💰 Выигрыш: <b>{winner_amount:.2f} ⭐</b>")
+           f"🥇 Победитель: <b>{winner_name}</b>\n💰 Выигрыш: <b>{winner_amount:.2f} RP⭐️</b>")
     await _notify(bot, duel.creator_id, txt, back_to_duel_kb())
     await _notify(bot, duel.joiner_id, txt, back_to_duel_kb())
 
@@ -125,7 +125,7 @@ async def cb_duel_menu(
     if db_user.referrals_count < min_refs:
         await callback.answer(f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}. У тебя: {db_user.referrals_count}", show_alert=True)
         return
-    text = (f"⚔️ <b>Дуэли</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\n"
+    text = (f"⚔️ <b>Дуэли</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n\n"
             f"Бросайте кубик против соперника!\nПобедитель получает <b>{(1 - commission) * 100:.0f}%</b> банка.")
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=duel_menu_kb())
@@ -151,7 +151,7 @@ async def cb_duel_create(
     await state.set_state(DuelStates.enter_amount)
     try:
         await callback.message.edit_text(
-            f"⚔️ <b>Создать дуэль</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>\n\nВведи сумму ставки:",
+            f"⚔️ <b>Создать дуэль</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n\nВведи сумму ставки:",
             parse_mode="HTML", reply_markup=back_to_duel_kb(),
         )
     except Exception:
@@ -175,7 +175,7 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
         await message.answer("❌ Введи положительное число:")
         return
     if db_user.stars_balance < amount:
-        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} ⭐</b>", parse_mode="HTML")
+        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML")
         return
 
     await state.clear()
@@ -187,7 +187,7 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
     await session.commit()
 
     await message.answer(
-        f"⚔️ <b>Дуэль #{duel.id} создана!</b>\n\n💰 Ставка: <b>{amount:.0f} ⭐</b>\n"
+        f"⚔️ <b>Дуэль #{duel.id} создана!</b>\n\n💰 Ставка: <b>{amount:.0f} RP⭐️</b>\n"
         f"⏳ Ожидание соперника... Если никто не вступит за {DUEL_EXPIRE_MINUTES} мин, "
         "ставка вернётся автоматически.",
         parse_mode="HTML", reply_markup=duel_creator_kb(duel.id),
@@ -219,7 +219,7 @@ async def cb_duel_cancel(callback: CallbackQuery, session: AsyncSession, db_user
     await session.commit()
     try:
         await callback.message.edit_text(
-            f"❌ <b>Дуэль #{duel_id} отменена.</b>\n\n💫 <b>{float(duel.amount):.0f} ⭐</b> возвращено.",
+            f"❌ <b>Дуэль #{duel_id} отменена.</b>\n\n💫 <b>{float(duel.amount):.0f} RP⭐️</b> возвращено.",
             parse_mode="HTML", reply_markup=back_to_duel_kb(),
         )
     except Exception:
@@ -278,8 +278,8 @@ async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: 
     try:
         await callback.message.edit_text(
             f"⚔️ <b>Дуэль #{duel.id}</b>\n\n👤 Создатель: <b>{escape(creator.first_name) if creator else 'Игрок'}</b>\n"
-            f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n⏳ Истекает: <b>{mins_left} мин</b>\n\n"
-            f"Победитель получит <b>{float(duel.amount) * 2 * (1 - commission):.0f} ⭐</b>",
+            f"💰 Ставка: <b>{float(duel.amount):.0f} RP⭐️</b>\n⏳ Истекает: <b>{mins_left} мин</b>\n\n"
+            f"Победитель получит <b>{float(duel.amount) * 2 * (1 - commission):.0f} RP⭐️</b>",
             parse_mode="HTML", reply_markup=duel_view_kb(duel.id),
         )
     except Exception:
@@ -305,7 +305,7 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
         await callback.answer("❌ Нельзя вступить в свою дуэль.", show_alert=True)
         return
     if db_user.stars_balance < duel.amount:
-        await callback.answer(f"❌ Нужно {float(duel.amount):.0f} ⭐", show_alert=True)
+        await callback.answer(f"❌ Нужно {float(duel.amount):.0f} RP⭐️", show_alert=True)
         return
 
     expires_at = datetime.utcnow() + timedelta(minutes=CONFIRM_TIMEOUT_MINUTES)
@@ -337,7 +337,7 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
     creator = await session.get(User, duel.creator_id)
     await _notify(callback.bot, duel.creator_id,
                   f"⚔️ <b>Дуэль #{duel_id}</b>\n\n👤 <b>{escape(db_user.first_name)}</b> хочет вступить!\n"
-                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n"
+                  f"💰 Ставка: <b>{float(duel.amount):.0f} RP⭐️</b>\n\n"
                   f"Подтвердить? (не ответишь за {CONFIRM_TIMEOUT_MINUTES} мин — ставки вернутся обоим)",
                   duel_confirm_kb(duel_id))
     try:
@@ -381,7 +381,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     try:
         await callback.message.edit_text(
             f"🔥 <b>Дуэль #{duel_id} началась!</b>\n\n⚔️ Соперник: <b>{escape(joiner.first_name) if joiner else 'Игрок'}</b>\n"
-            f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)",
+            f"💰 Ставка: <b>{float(duel.amount):.0f} RP⭐️</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)",
             parse_mode="HTML", reply_markup=roll_kb,
         )
     except Exception:
@@ -389,7 +389,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     await callback.answer()
     await _notify(callback.bot, duel.joiner_id,
                   f"🔥 <b>Дуэль #{duel_id} подтверждена!</b>\n\n⚔️ Соперник: <b>{escape(db_user.first_name)}</b>\n"
-                  f"💰 Ставка: <b>{float(duel.amount):.0f} ⭐</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)", roll_kb)
+                  f"💰 Ставка: <b>{float(duel.amount):.0f} RP⭐️</b>\n\n🎲 Бросьте кубик! (не успеете за {DICE_TIMEOUT_MINUTES} мин — ставка сгорит)", roll_kb)
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:decline_join:"))
@@ -509,7 +509,7 @@ async def cb_duel_history(callback: CallbackQuery, session: AsyncSession, db_use
         else:
             winner = await session.get(User, d.winner_id)
             result = f"🏆 {escape(winner.first_name) if winner else '?'}"
-        lines.append(f"⚔️ #{d.id} | {c_name} vs {j_name} | {float(d.amount):.0f}⭐ | {result}")
+        lines.append(f"⚔️ #{d.id} | {c_name} vs {j_name} | {float(d.amount):.0f}RP⭐️ | {result}")
 
     text = "📜 <b>История дуэлей</b>\n\n" + "\n".join(lines)
     try:

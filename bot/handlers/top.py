@@ -60,7 +60,7 @@ async def cb_top_referrals(callback: CallbackQuery, session: AsyncSession) -> No
 async def cb_top_balance(callback: CallbackQuery, session: AsyncSession) -> None:
     repo = UserRepository(session)
     users = await repo.top_by_balance(10)
-    text = _format_top(users, "stars_balance", "Топ по звёздам", "⭐")
+    text = _format_top(users, "stars_balance", "Топ по звёздам", "RP⭐️")
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=top_menu_kb())
     except Exception:

@@ -72,7 +72,7 @@ class InputAndAdminSecurityTests(unittest.IsolatedAsyncioTestCase):
             if button.callback_data
         }
         for key in (
-            "withdraw_min",
+            "rp_exchange_rate",
             "duel_commission",
             "duel_min_refs",
             "lottery_min_refs",

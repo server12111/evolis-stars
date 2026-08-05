@@ -17,7 +17,7 @@ def active_duels_kb(duels: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for duel in duels:
         builder.row(InlineKeyboardButton(
-            text=f"⚔️ Дуэль #{duel.id} — {float(duel.amount):.0f} ⭐",
+            text=f"⚔️ Дуэль #{duel.id} — {float(duel.amount):.0f} RP⭐️",
             callback_data=f"duel:view:{duel.id}",
         ))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="duel:menu"))

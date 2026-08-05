@@ -5,7 +5,7 @@ KEY_LABELS = {
     "welcome": "👋 Приветствие",
     "main_menu": "🏠 Главное меню",
     "earn": "💸 Заработать",
-    "withdraw": "⭐ Вывод",
+    "withdraw": "RP⭐️ Вывод",
     "bonus": "🎁 Бонус",
     "tasks": "📋 Задания",
     "games": "🎮 Игры",
@@ -20,7 +20,7 @@ _CASE_PRIZES_ALL = sorted({
 })
 
 VIDEO_LABELS: dict[str, str] = {
-    f"case_video_{str(p).replace('.', '_')}": f"🎁 Приз {p} ⭐"
+    f"case_video_{str(p).replace('.', '_')}": f"🎁 Приз {p} RP⭐️"
     for p in _CASE_PRIZES_ALL
 }
 VIDEO_LABELS["wheel_video_50x"] = "🎰 Колесо: Джекпот (50x)"

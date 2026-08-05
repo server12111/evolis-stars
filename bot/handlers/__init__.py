@@ -3,7 +3,7 @@ from aiogram import F, Router
 from bot.handlers import (
     start, earn, withdraw, bonus, tasks,
     profile, top, games, duel, cases, wheel, lottery,
-    casino, mines, tower, auction, random_game, mychats,
+    casino, mines, tower, auction, random_game, mychats, exchange,
 )
 from bot.handlers.admin import router as admin_router
 from bot.handlers.admin_channel import router as admin_channel_router  # noqa: F401 — re-exported; chat-type agnostic, included directly in main.py
@@ -38,4 +38,5 @@ router.include_router(tower.router)
 router.include_router(auction.router)
 router.include_router(random_game.router)
 router.include_router(mychats.router)
+router.include_router(exchange.router)
 router.include_router(admin_router)

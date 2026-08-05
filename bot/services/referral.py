@@ -226,7 +226,7 @@ async def reward_returning_referral(
         try:
             await bot.send_message(
                 requested_referrer_id,
-                f"♻️ Ваш реферал {username_display} вернулся по ссылке после {REFERRAL_RETURN_DAYS} дней неактивности.\n\nНачислено <b>{format_stars(reward)} ⭐</b> — половина обычной награды.",
+                f"♻️ Ваш реферал {username_display} вернулся по ссылке после {REFERRAL_RETURN_DAYS} дней неактивности.\n\nНачислено <b>{format_stars(reward)} RP⭐️</b> — половина обычной награды.",
                 parse_mode="HTML",
             )
         except Exception:
@@ -369,9 +369,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         )
         premium_tag = " 💎" if referred_is_premium else ""
         try:
-            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} ⭐</b> за пользователя {username_display}{premium_tag}."
+            msg = f"🎉 Вам начислено <b>{format_stars(total_reward)} RP⭐️</b> за пользователя {username_display}{premium_tag}."
             if bonus > 0:
-                msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} ⭐!"
+                msg += f"\n🎁 Бонус за достижение: +{format_stars(bonus)} RP⭐️!"
 
             await bot.send_message(
                 referrer.user_id,

@@ -51,10 +51,12 @@ async def _update_public_withdrawal_status(
     )
     vip_badge = " 💎 VIP" if user and user.is_vip else ""
     method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
+    rp_debited = withdrawal.rp_debited if withdrawal.rp_debited is not None else withdrawal.amount * 3
     text = (
         f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
-        f"💫 Сумма: <b>{float(withdrawal.amount):.0f} ⭐</b>\n"
+        f"🔄 Списано: <b>{float(rp_debited):.0f} RP⭐️</b>\n"
+        f"💫 Получит: <b>{float(withdrawal.amount):.0f} Telegram ⭐</b>\n"
         f"🔧 Способ вывода: <b>{method_label}</b>\n"
         f"{status_icon} Статус: <b>{status}</b>"
     )
@@ -95,7 +97,7 @@ async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession) ->
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nСумма: <b>{float(w.amount):.0f} ⭐</b>\nСкоро вы получите выплату.",
+            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nВы получите: <b>{float(w.amount):.0f} Telegram ⭐</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
@@ -125,9 +127,11 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> 
     except Exception:
         pass
     try:
+        rp_debited = w.rp_debited if w.rp_debited is not None else w.amount * 3
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\nСумма <b>{float(w.amount):.0f} ⭐</b> списана без возврата на баланс.",
+            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\n"
+            f"Списанные <b>{float(rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
     except Exception:
