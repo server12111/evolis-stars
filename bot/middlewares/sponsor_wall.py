@@ -3,6 +3,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from aiogram import Bot, BaseMiddleware
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +64,20 @@ async def _show_wave(
         return
     try:
         await inner.message.edit_text(
+            text,
+            parse_mode="HTML",
+            reply_markup=markup,
+        )
+    except TelegramBadRequest as exc:
+        if "not modified" in str(exc).lower():
+            # Pressing "check" without actually subscribing to anything new
+            # re-renders the exact same wave — Telegram rejects the edit as
+            # a no-op change. That must NOT fall through to the generic
+            # resend-as-a-new-message path below, or every repeat press
+            # spams another duplicate wave bubble into the chat.
+            await inner.answer("Пока ничего не изменилось.")
+            return
+        await inner.message.answer(
             text,
             parse_mode="HTML",
             reply_markup=markup,
