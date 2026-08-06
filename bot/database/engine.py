@@ -194,6 +194,17 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN custom_broadcast_next_index INTEGER DEFAULT 0")
         )
+    broadcast_msg_columns = {
+        column["name"] for column in inspect(connection).get_columns("chat_broadcast_messages")
+    }
+    if "photo_file_ids" not in broadcast_msg_columns:
+        connection.execute(
+            text("ALTER TABLE chat_broadcast_messages ADD COLUMN photo_file_ids TEXT")
+        )
+    if "buttons_json" not in broadcast_msg_columns:
+        connection.execute(
+            text("ALTER TABLE chat_broadcast_messages ADD COLUMN buttons_json TEXT")
+        )
     _ensure_integrity_indexes(connection)
 
 

@@ -1,9 +1,31 @@
+import json
 from datetime import datetime
 
 from sqlalchemy import delete, func, select
 
 from bot.database.models import Chat, ChatBroadcastMessage
 from bot.database.repositories.base import BaseRepository
+
+MAX_BROADCAST_PHOTOS = 5
+MAX_BROADCAST_BUTTONS = 3
+
+
+def load_photo_ids(message: ChatBroadcastMessage) -> list[str]:
+    if not message.photo_file_ids:
+        return []
+    try:
+        return json.loads(message.photo_file_ids)
+    except (TypeError, ValueError):
+        return []
+
+
+def load_buttons(message: ChatBroadcastMessage) -> list[dict]:
+    if not message.buttons_json:
+        return []
+    try:
+        return json.loads(message.buttons_json)
+    except (TypeError, ValueError):
+        return []
 
 
 class ChatBroadcastRepository(BaseRepository):
@@ -21,8 +43,19 @@ class ChatBroadcastRepository(BaseRepository):
         )
         return result.scalar_one()
 
-    async def add_message(self, chat_id: int, text: str) -> ChatBroadcastMessage:
-        message = ChatBroadcastMessage(chat_id=chat_id, text=text)
+    async def add_message(
+        self,
+        chat_id: int,
+        text: str,
+        photo_file_ids: list[str] | None = None,
+        buttons: list[dict] | None = None,
+    ) -> ChatBroadcastMessage:
+        message = ChatBroadcastMessage(
+            chat_id=chat_id,
+            text=text,
+            photo_file_ids=json.dumps(photo_file_ids[:MAX_BROADCAST_PHOTOS]) if photo_file_ids else None,
+            buttons_json=json.dumps(buttons[:MAX_BROADCAST_BUTTONS]) if buttons else None,
+        )
         self.session.add(message)
         await self.session.commit()
         return message

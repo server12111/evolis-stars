@@ -15,6 +15,9 @@ class ChatOwnerBonusStates(StatesGroup):
 
 class ChatOwnerBroadcastStates(StatesGroup):
     enter_text = State()
+    enter_photos = State()
+    ask_buttons = State()
+    enter_button = State()
     enter_interval = State()
 
 

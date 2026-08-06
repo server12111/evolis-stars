@@ -190,10 +190,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "case_5_total_payout": "0",
     # Random button (free daily spin)
     "random_cooldown_hours": "24",
-    # Owner-authored custom chat broadcast — RP⭐️ paid to the chat owner
-    # per rotated send, and the shortest interval an owner is allowed to set.
+    # Owner-authored custom chat broadcast — a free feature; only the
+    # shortest interval an owner is allowed to set is configurable.
     "broadcast_min_interval_seconds": "300",
-    "broadcast_reward_per_send": "0.5",
     # ToS / privacy policy links (Telegraph pages)
     "tos_user_agreement_url": "https://telegra.ph/Polzovatelskoe-soglashenie-EvolisStars-08-03-2",
     "tos_privacy_policy_url": "https://telegra.ph/Politika-konfidencialnosti-EvolisStars-08-03",

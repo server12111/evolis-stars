@@ -1,15 +1,17 @@
 import asyncio
 import logging
 from datetime import datetime
-from decimal import Decimal
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 
 from bot.database.engine import SessionFactory
-from bot.database.models import Chat
-from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
-from bot.database.repositories.settings import SettingsRepository
-from bot.services.chat_eligibility import credit_stars
+from bot.database.models import Chat, ChatBroadcastMessage
+from bot.database.repositories.chat_broadcast import (
+    ChatBroadcastRepository,
+    load_buttons,
+    load_photo_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,39 @@ async def _run_pass(bot: Bot) -> None:
             await _send_one(bot, session, chat, now)
 
 
+def _buttons_markup(buttons: list[dict]) -> InlineKeyboardMarkup | None:
+    if not buttons:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=b["text"], url=b["url"])] for b in buttons
+    ])
+
+
+async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> None:
+    photos = load_photo_ids(message)
+    kb = _buttons_markup(load_buttons(message))
+
+    if not photos:
+        await bot.send_message(chat_id, message.text, reply_markup=kb)
+        return
+
+    if len(photos) == 1:
+        await bot.send_photo(chat_id, photos[0], caption=message.text, reply_markup=kb)
+        return
+
+    # sendMediaGroup doesn't support reply_markup at all — if there are
+    # buttons too, they go out as a short separate follow-up message right
+    # after the album, since Telegram gives no way to attach them to the
+    # album itself.
+    media = [
+        InputMediaPhoto(media=file_id, caption=message.text if i == 0 else None)
+        for i, file_id in enumerate(photos)
+    ]
+    await bot.send_media_group(chat_id, media)
+    if kb:
+        await bot.send_message(chat_id, "🔗", reply_markup=kb)
+
+
 async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
     repo = ChatBroadcastRepository(session)
     messages = await repo.list_messages(chat.chat_id)
@@ -48,16 +83,11 @@ async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
         return
 
     index = chat.custom_broadcast_next_index % len(messages)
-    text = messages[index].text
     try:
-        await bot.send_message(chat.chat_id, text)
+        await _dispatch(bot, chat.chat_id, messages[index])
     except Exception as exc:
         logger.warning("Cannot send custom broadcast into chat %s: %s", chat.chat_id, exc)
         return
-
-    reward = Decimal(str(await SettingsRepository(session).get_float("broadcast_reward_per_send", 0.5)))
-    if reward > 0:
-        await credit_stars(session, chat.owner_user_id, reward)
 
     chat.custom_broadcast_last_sent_at = now
     chat.custom_broadcast_next_index = (index + 1) % len(messages)

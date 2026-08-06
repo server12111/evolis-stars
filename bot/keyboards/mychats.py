@@ -76,6 +76,26 @@ def custom_broadcast_cancel_kb(chat_id: int) -> InlineKeyboardMarkup:
     ]])
 
 
+def broadcast_photos_step_kb(chat_id: int, count: int) -> InlineKeyboardMarkup:
+    label = f"✅ Дальше ({count}/5 фото)" if count else "⏭ Без фото"
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=label, callback_data=f"mychats:custombc:photos:next:{chat_id}"),
+    ]])
+
+
+def broadcast_ask_buttons_kb(chat_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Да", callback_data=f"mychats:custombc:buttons:yes:{chat_id}"),
+        InlineKeyboardButton(text="❌ Нет", callback_data=f"mychats:custombc:buttons:no:{chat_id}"),
+    ]])
+
+
+def broadcast_buttons_step_kb(chat_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Готово", callback_data=f"mychats:custombc:buttons:done:{chat_id}"),
+    ]])
+
+
 def mychat_back_kb(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"),

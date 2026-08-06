@@ -565,4 +565,9 @@ class ChatBroadcastMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
     text: Mapped[str] = mapped_column(Text)
+    # JSON list of up to 5 Telegram photo file_ids, sent as an album
+    # (or a single photo with the text as caption) alongside the text.
+    photo_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON list of up to 3 {"text": ..., "url": ...} link buttons.
+    buttons_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
