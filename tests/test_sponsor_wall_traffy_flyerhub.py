@@ -34,6 +34,17 @@ def user(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
+def fake_session() -> SimpleNamespace:
+    """Minimal fake covering both the direct commit() calls this suite
+    already exercised and BlockedSponsorRepository's SELECT (via
+    _evaluate_wave_state's blocklist lookup) -- defaults to an empty
+    blocklist so existing scenarios are unaffected."""
+    return SimpleNamespace(
+        commit=AsyncMock(),
+        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))),
+    )
+
+
 def frozen_user(items: list[dict], **kwargs) -> SimpleNamespace:
     base = dict(
         user_id=1,
@@ -54,7 +65,7 @@ def fake_get_int(wave_size: int = 10):
 
 class TraffyFreshWaveTests(unittest.IsolatedAsyncioTestCase):
     async def test_get_traffy_tasks_called_when_not_yet_frozen(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", ""),
             patch.object(settings, "botohub_key", ""),
@@ -76,7 +87,7 @@ class TraffyFreshWaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(state.items or []), 2)
 
     async def test_traffy_not_configured_contributes_nothing(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", "cfg"),
             patch.object(settings, "botohub_key", ""),
@@ -99,7 +110,7 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
         """Re-fetching /tasks on every "check" press would hand out brand
         new assignment_ids and silently replace the frozen wave -- the
         recheck must go through check_traffy_tasks with the SAVED ref."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user(
             [{"provider": "traffy", "url": "https://t.me/tf0", "name": "TF", "ref": "assign-0"}]
         )
@@ -124,7 +135,7 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.status, "complete")
 
     async def test_frozen_wave_stays_pending_when_not_completed(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user(
             [{"provider": "traffy", "url": "https://t.me/tf0", "name": "TF", "ref": "assign-0"}]
         )
@@ -146,7 +157,7 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state.status, "pending")
 
     async def test_check_failure_reports_unavailable_not_complete(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user(
             [{"provider": "traffy", "url": "https://t.me/tf0", "name": "TF", "ref": "assign-0"}]
         )
@@ -169,7 +180,7 @@ class FlyerhubOpKeyIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def test_op_wall_uses_flyerhub_op_key_not_the_tasks_key(self) -> None:
         """A webapp-type FLYERHUB_KEY (used by "Задания") rejects /get_tasks
         outright -- the ОП wall must use the separate FLYERHUB_OP_KEY."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", ""),
             patch.object(settings, "botohub_key", ""),
@@ -187,7 +198,7 @@ class FlyerhubOpKeyIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(get_tasks.await_args.args[0], "op-only-key")
 
     async def test_not_configured_when_only_tasks_key_is_set(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", "cfg"),
             patch.object(settings, "botohub_key", ""),
@@ -211,7 +222,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
         though our own bot sees the user as a channel member, membership
         isn't the same as having given the boost -- only FlyerHub's own
         check_task verdict may resolve it."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user([{
             "provider": "flyerhub", "url": "https://t.me/boostchan", "name": "Boost",
             "ref": "sig-1", "kind": "trust",
@@ -233,7 +244,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
         bot.get_chat_member.assert_not_awaited()
 
     async def test_trust_kind_item_resolves_once_flyerhub_confirms_complete(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user([{
             "provider": "flyerhub", "url": "https://t.me/boostchan", "name": "Boost",
             "ref": "sig-1", "kind": "trust",
@@ -255,7 +266,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
 
 class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_when_every_configured_provider_fails(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", ""),
             patch.object(settings, "botohub_key", ""),
@@ -277,7 +288,7 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
         another one already has enough sponsors) -- otherwise a temporary
         outage could freeze a wave missing that provider's mandatory
         sponsors and let the user pass them permanently."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", ""),
             patch.object(settings, "botohub_key", ""),
@@ -299,7 +310,7 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
         not part of THIS wave (no saved traffy items -> nothing to
         re-check -> a trivially successful empty result) must not block a
         recheck of a wave that never needed it."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         frozen = frozen_user(
             [{"provider": "flyerhub", "url": "https://t.me/fh0", "name": "FH", "ref": "sig-0"}]
         )
@@ -318,6 +329,32 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(passed)
         check_traffy.assert_not_awaited()
+
+
+class BlockedSponsorWiringTests(unittest.IsolatedAsyncioTestCase):
+    async def test_blocked_sponsor_url_is_loaded_from_the_repository_and_excluded(self) -> None:
+        """End-to-end: _evaluate_wave_state must actually query
+        BlockedSponsorRepository (not just accept a blocked_urls kwarg in
+        isolation) and keep a matching sponsor out of the wave."""
+        session = fake_session()
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch(
+                "bot.database.repositories.blocked_sponsor.BlockedSponsorRepository.url_key_set",
+                AsyncMock(return_value={"https://t.me/tg0"}),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=offers("tg", 2))),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            state = await _evaluate_wave_state(inner(), user(), session)
+
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertNotIn("https://t.me/tg0", shown_urls)
+        self.assertEqual(shown_urls, {"https://t.me/tg1"})
 
 
 if __name__ == "__main__":

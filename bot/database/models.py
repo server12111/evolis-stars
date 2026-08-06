@@ -295,6 +295,22 @@ class OwnSponsorCompletion(Base):
     completed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+# ─── BlockedSponsorUrl ────────────────────────────────────────────────────────
+# Admin-maintained exclusion list for the paid tgrass/botohub/traffy/flyerhub
+# sponsor wall — a sponsor a provider keeps offering but whose own
+# subscribe/check flow is broken gets pasted here by URL and is dropped from
+# every future wave across all four providers, regardless of which one(s)
+# report it.
+
+class BlockedSponsorUrl(Base):
+    __tablename__ = "blocked_sponsor_urls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url: Mapped[str] = mapped_column(Text)  # as pasted by the admin, for display
+    url_key: Mapped[str] = mapped_column(String(512), unique=True)  # normalized, for fast lookup
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 # ─── ContentItem ──────────────────────────────────────────────────────────────
 
 class ContentItem(Base):

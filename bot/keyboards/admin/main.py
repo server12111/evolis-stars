@@ -22,6 +22,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="📢 Свои спонсоры", callback_data="admin:own_sponsors"),
+        InlineKeyboardButton(text="🚫 Блок-лист спонсоров", callback_data="admin:blocked_sponsors"),
     )
     builder.row(
         InlineKeyboardButton(text="💬 Список чатов", callback_data="admin:chatslist"),

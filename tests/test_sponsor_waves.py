@@ -381,5 +381,52 @@ class TraffyFlyerhubMergeTests(unittest.TestCase):
         self.assertEqual([item["url"] for item in state.items or []], ["https://t.me/tg0"])
 
 
+@patch("bot.services.sponsor_waves.WAVE_SIZE", 6)
+class BlockedSponsorFilterTests(unittest.TestCase):
+    def test_blocked_url_never_enters_a_fresh_wave(self) -> None:
+        current = user()
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 3),
+            botohub_result=[],
+            blocked_urls=frozenset({"https://t.me/tg1"}),
+        )
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertNotIn("https://t.me/tg1", shown_urls)
+        self.assertEqual(shown_urls, {"https://t.me/tg0", "https://t.me/tg2"})
+
+    def test_blocking_after_freeze_auto_resolves_the_item(self) -> None:
+        """An admin blocking a sponsor mid-way through a user's already-
+        frozen wave must not leave that user stuck waiting to "subscribe"
+        to something we're now deliberately ignoring."""
+        current = user()
+        evaluate_waves(current, tgrass_result=offers("tg", 2), botohub_result=[])
+
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 2),
+            botohub_result=[],
+            blocked_urls=frozenset({"https://t.me/tg0", "https://t.me/tg1"}),
+        )
+        self.assertEqual(state.status, "complete")
+
+    def test_blocked_candidate_is_never_offered_as_a_top_up_replacement(self) -> None:
+        current = user()
+        evaluate_waves(current, tgrass_result=offers("tg", 2), botohub_result=[])
+
+        # tg0 resolves; tg2 would normally be a fresh top-up candidate, but
+        # it's blocked and must be skipped in favor of nothing (or a later
+        # unblocked candidate).
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 1, start=1) + offers("tg", 1, start=2),
+            botohub_result=[],
+            blocked_urls=frozenset({"https://t.me/tg2"}),
+        )
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertNotIn("https://t.me/tg2", shown_urls)
+        self.assertEqual(shown_urls, {"https://t.me/tg1"})
+
+
 if __name__ == "__main__":
     unittest.main()

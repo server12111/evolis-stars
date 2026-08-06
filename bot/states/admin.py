@@ -61,3 +61,7 @@ class AdminOwnSponsorStates(StatesGroup):
     enter_url = State()
     enter_name = State()
     enter_target_count = State()
+
+
+class AdminBlockedSponsorStates(StatesGroup):
+    enter_url = State()

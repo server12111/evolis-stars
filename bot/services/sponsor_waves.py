@@ -29,8 +29,15 @@ def _key(item: dict) -> tuple[str, str]:
     return provider, url
 
 
+def normalize_sponsor_url(url: str) -> str:
+    """Canonical form used both for in-wave dedup and for matching against
+    the admin blocklist (BlockedSponsorRepository stores/compares the same
+    way) -- keep these in sync."""
+    return str(url or "").strip().rstrip("/").lower()
+
+
 def _url_key(item: dict) -> str:
-    return str(item.get("url", "")).strip().rstrip("/").lower()
+    return normalize_sponsor_url(item.get("url", ""))
 
 
 def classify_sponsor_type(url: str) -> Literal["tg", "web"]:
@@ -115,6 +122,7 @@ def initialize_waves(
     traffy_result: ProviderResult = None,
     flyerhub_result: ProviderResult = None,
     wave_size: int | None = None,
+    blocked_urls: frozenset[str] = frozenset(),
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves.
 
@@ -122,7 +130,11 @@ def initialize_waves(
     FlyerHub, TgRass, Botohub -- e.g. Traffy contributing 10 and FlyerHub 2
     fills a 12-sponsor wave before TgRass/Botohub are even considered.
     Telegram-resource sponsors are still sorted before web/other ones
-    regardless of provider (see the sort below)."""
+    regardless of provider (see the sort below).
+
+    blocked_urls (normalized via normalize_sponsor_url) are dropped before
+    the wave_size trim -- an admin-blocked sponsor a provider keeps
+    offering must never get frozen into a wave in the first place."""
     if user.sponsor_wave in {1, 2}:
         return
 
@@ -143,7 +155,7 @@ def initialize_waves(
     seen_urls: set[str] = set()
     for item in combined:
         url_key = _url_key(item)
-        if not url_key or url_key in seen_urls:
+        if not url_key or url_key in seen_urls or url_key in blocked_urls:
             continue
         seen_urls.add(url_key)
         item["type"] = classify_sponsor_type(url_key)
@@ -173,6 +185,7 @@ def evaluate_waves(
     flyerhub_configured: bool = False,
     wave_size: int | None = None,
     top_up: bool = True,
+    blocked_urls: frozenset[str] = frozenset(),
 ) -> SponsorWaveState:
     """Check only saved sponsors and advance through both waves in order.
 
@@ -180,7 +193,13 @@ def evaluate_waves(
     below) without disabling anything else — needed by the "skip sponsors"
     price quote, which must report what's genuinely still pending right
     now without side-effect-persisting a bigger wave than what's on
-    screen just because someone opened the price dialog."""
+    screen just because someone opened the price dialog.
+
+    blocked_urls: see initialize_waves' own docstring -- also auto-
+    resolves a blocked sponsor still sitting in an ALREADY-frozen wave
+    (blocked after that wave was assembled), the same way a retired
+    "piarflow" item is auto-resolved below, and is excluded from top-up
+    candidates so a blocked sponsor can never re-enter as a replacement."""
     if wave_size is None:
         wave_size = WAVE_SIZE
 
@@ -202,6 +221,7 @@ def evaluate_waves(
         traffy_result=traffy_result,
         flyerhub_result=flyerhub_result,
         wave_size=wave_size,
+        blocked_urls=blocked_urls,
     )
 
     results: dict[str, ProviderResult] = {
@@ -218,8 +238,12 @@ def evaluate_waves(
         # `results` above. A user whose wave was frozen with a piarflow
         # sponsor before this change must not get stuck returning
         # "unavailable" forever; auto-resolve any leftover piarflow items
-        # instead, same as if the user had finished them.
-        saved = [item for item in _current_items(user) if str(item.get("provider", "")) != "piarflow"]
+        # instead, same as if the user had finished them. Same auto-resolve
+        # for a sponsor an admin blocked after this wave was already frozen.
+        saved = [
+            item for item in _current_items(user)
+            if str(item.get("provider", "")) != "piarflow" and _url_key(item) not in blocked_urls
+        ]
         if not saved:
             if wave == 1 and _load(user.sponsor_wave_two):
                 user.sponsor_wave = 2
@@ -278,7 +302,7 @@ def evaluate_waves(
                     if len(remaining) >= wave_size:
                         break
                     url_key = _url_key(candidate)
-                    if not url_key or url_key in already_shown or url_key in picked:
+                    if not url_key or url_key in already_shown or url_key in picked or url_key in blocked_urls:
                         continue
                     new_candidates.append(candidate)
                     remaining.append(candidate)

@@ -17,6 +17,17 @@ def inner() -> SimpleNamespace:
     return SimpleNamespace(from_user=None, message=None, answer=AsyncMock())
 
 
+def fake_session() -> SimpleNamespace:
+    """Minimal fake covering both the direct commit() calls this suite
+    already exercised and BlockedSponsorRepository's SELECT (via
+    _evaluate_wave_state's blocklist lookup) -- defaults to an empty
+    blocklist so existing scenarios are unaffected."""
+    return SimpleNamespace(
+        commit=AsyncMock(),
+        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))),
+    )
+
+
 def user(**kwargs) -> SimpleNamespace:
     base = dict(
         user_id=1,
@@ -53,7 +64,7 @@ class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase)
         """The provider says the user is still unsubscribed, but our own bot
         confirms they ARE a member — the false negative must be corrected
         instead of blocking the user."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot(member_status="member")
         with (
             patch.object(settings, "tgrass_code", "cfg"),
@@ -74,7 +85,7 @@ class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase)
     async def test_genuinely_unsubscribed_user_still_blocked(self) -> None:
         """Our own check confirms the provider was right (user really isn't
         a member) — the wave must still show as pending."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot(member_status="left")
         with (
             patch.object(settings, "tgrass_code", "cfg"),
@@ -94,7 +105,7 @@ class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase)
     async def test_no_bot_available_falls_back_to_trusting_the_provider(self) -> None:
         """Backward-compatible: when bot isn't passed, behave exactly as
         before — trust the provider's unsubscribed list outright."""
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         with (
             patch.object(settings, "tgrass_code", "cfg"),
             patch.object(settings, "botohub_key", "cfg"),
@@ -111,7 +122,7 @@ class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase)
         self.assertFalse(passed)
 
     async def test_get_chat_member_failure_falls_back_to_trusting_the_provider(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = SimpleNamespace(get_chat_member=AsyncMock(side_effect=Exception("boom")))
         with (
             patch.object(settings, "tgrass_code", "cfg"),
@@ -150,7 +161,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_expired_pin_with_no_real_subscription_stays_pending(self) -> None:
         saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot(member_status="left")  # user genuinely never joined
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -173,7 +184,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_expired_pin_with_genuine_subscription_still_completes(self) -> None:
         saved = [{"provider": "botohub", "url": "https://t.me/joinedchan", "name": "Channel", "type": "tg"}]
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot(member_status="member")  # user genuinely did join
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -198,7 +209,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         # sponsor this cycle, or a user could clear a requirement they
         # never actually subscribed to just by waiting out the pin window.
         saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot_no_access()
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -225,7 +236,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         # signal available and must be trusted, or a bot sponsor the user
         # genuinely completed would get reinstated forever.
         saved = [{"provider": "botohub", "url": "https://t.me/SomeSponsorBot", "name": "Bot", "type": "tg"}]
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot_no_access()
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -249,7 +260,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         # has nothing to do (the one get_chat_member call that does happen
         # is _drop_confirmed_subscriptions' own false-negative check).
         saved = [{"provider": "botohub", "url": "https://t.me/stillpending", "name": "Channel", "type": "tg"}]
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         bot = fake_bot(member_status="left")
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -281,7 +292,7 @@ class SponsorRecheckAfterCompleteTests(unittest.IsolatedAsyncioTestCase):
     wave 3."""
 
     async def test_periodic_recheck_offers_a_new_sponsor_after_wave_3(self) -> None:
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         complete_user = user(sponsor_wave=3)
         with (
             patch.object(settings, "tgrass_code", "cfg"),
@@ -305,7 +316,7 @@ class SponsorRecheckAfterCompleteTests(unittest.IsolatedAsyncioTestCase):
         skip must never re-query providers for an already-complete user."""
         from bot.middlewares.sponsor_wall import get_pending_sponsor_items
 
-        session = SimpleNamespace(commit=AsyncMock())
+        session = fake_session()
         complete_user = user(sponsor_wave=3)
         with (
             patch.object(settings, "tgrass_code", "cfg"),
