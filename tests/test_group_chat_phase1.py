@@ -17,9 +17,12 @@ from bot.handlers.group.owner_menu import cmd_evolis_open
 from bot.middlewares.group_activity import GroupActivityMiddleware
 
 
-def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left", is_bot: bool = False):
+def _chat_member_updated(
+    chat_id: int, user_id: int, status: str, old_status: str = "left", is_bot: bool = False,
+    chat_type: str = "supergroup",
+):
     return SimpleNamespace(
-        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None),
+        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None, type=chat_type),
         new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id, is_bot=is_bot)),
         old_chat_member=SimpleNamespace(status=old_status),
     )
@@ -90,6 +93,46 @@ class OnboardingTests(ChatModelsTestCase):
             chat = await session.get(Chat, -102)
         self.assertEqual(chat.status, "left")
         self.assertIsNotNone(chat.left_at)
+
+    async def test_channel_never_becomes_a_manageable_chat(self) -> None:
+        """Channels have no member interaction, so none of the "chat
+        owner" features (promo/bonus/broadcast/games/top) make sense for
+        them — adding the bot as admin to a channel must never create a
+        Панель чатов entry, unlike a group/supergroup."""
+        event = _chat_member_updated(-300, 1, "administrator", chat_type="channel")
+        bot = SimpleNamespace(
+            id=1,
+            get_chat_member_count=AsyncMock(return_value=5000),
+            get_chat_administrators=AsyncMock(
+                return_value=[SimpleNamespace(status="creator", user=SimpleNamespace(id=42))]
+            ),
+            send_message=AsyncMock(),
+        )
+        async with self.sessions() as session:
+            await on_my_chat_member(event, bot, session, _state())
+
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -300)
+        self.assertIsNone(chat)
+        bot.send_message.assert_not_awaited()  # no "successfully connected" DM either
+
+    async def test_channel_incorrectly_registered_before_the_fix_gets_self_healed(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-301, title="Old Channel", status="active", owner_user_id=42, member_count=5000))
+            await session.commit()
+
+        event = _chat_member_updated(-301, 1, "administrator", old_status="administrator", chat_type="channel")
+        bot = SimpleNamespace(
+            id=1, get_chat_member_count=AsyncMock(), get_chat_administrators=AsyncMock(), send_message=AsyncMock(),
+        )
+        async with self.sessions() as session:
+            await on_my_chat_member(event, bot, session, _state())
+
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -301)
+            owned = await ChatRepository(session).list_owned_by(42)
+        self.assertEqual(chat.status, "left")
+        self.assertNotIn(-301, {c.chat_id for c in owned})
 
 
 class ChatUpsertConcurrencyTests(ChatModelsTestCase):

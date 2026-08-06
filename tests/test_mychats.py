@@ -34,9 +34,9 @@ def _callback(user_id: int, data: str):
     return SimpleNamespace(message=message, from_user=SimpleNamespace(id=user_id), data=data, answer=AsyncMock())
 
 
-def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left"):
+def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left", chat_type: str = "supergroup"):
     return SimpleNamespace(
-        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None),
+        chat=SimpleNamespace(id=chat_id, title="Test Chat", username=None, type=chat_type),
         new_chat_member=SimpleNamespace(status=status, user=SimpleNamespace(id=user_id)),
         old_chat_member=SimpleNamespace(status=old_status),
         from_user=None,

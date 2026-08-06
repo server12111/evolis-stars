@@ -47,6 +47,17 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
     old_status = event.old_chat_member.status
     chat_id = event.chat.id
 
+    if event.chat.type == "channel":
+        # Every "chat owner" feature (promo codes, chat bonuses, games,
+        # custom broadcast, top members) assumes member interaction a
+        # channel fundamentally doesn't have — channels must never become
+        # a manageable "Панель чатов" entry. mark_left here isn't just for
+        # a genuine departure: it also self-heals a channel that was
+        # incorrectly registered before this check existed, since
+        # list_owned_by() excludes status="left" rows.
+        await ChatRepository(session).mark_left(chat_id)
+        return
+
     if new_status in _LEFT_STATUSES:
         await ChatRepository(session).mark_left(chat_id)
         return

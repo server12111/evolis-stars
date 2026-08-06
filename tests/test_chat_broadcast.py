@@ -17,6 +17,7 @@ from bot.database.repositories.chat_broadcast import (
 )
 from bot.handlers.admin_channel import cb_broadcast_mod_approve, cb_broadcast_mod_reject
 from bot.handlers.mychats import (
+    _post_broadcast_for_moderation,
     cb_custom_broadcast_add_start,
     cb_custom_broadcast_buttons_no,
     cb_custom_broadcast_buttons_done,
@@ -41,7 +42,11 @@ def _state():
 
 
 def _bot():
-    return SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=999)))
+    return SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=999)),
+        send_photo=AsyncMock(),
+        send_media_group=AsyncMock(),
+    )
 
 
 def _callback(user_id: int, data: str, bot=None):
@@ -401,6 +406,44 @@ class HandlerAccessControlTests(ChatModelsTestCase):
         async with self.sessions() as session:
             messages = await ChatBroadcastRepository(session).list_messages(-1)
         self.assertEqual(messages[0].moderation_channel_message_id, 999)
+
+    async def test_moderation_post_attaches_a_single_photo(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        bot = _bot()
+        with patch.object(mychats_settings, "broadcast_moderation_channel_id", "-100999"):
+            async with self.sessions() as session:
+                repo = ChatBroadcastRepository(session)
+                msg = await repo.add_message(-1, "hello", photo_file_ids=["p1"])
+                chat = await session.get(Chat, -1)
+                await _post_broadcast_for_moderation(bot, session, chat, msg)
+
+        bot.send_photo.assert_awaited_once_with(-100999, "p1")
+        bot.send_media_group.assert_not_awaited()
+        bot.send_message.assert_awaited_once()  # the separate text+buttons message
+        rendered = bot.send_message.await_args.args[1]
+        self.assertIn("Фото приложены выше", rendered)
+
+    async def test_moderation_post_attaches_multiple_photos_as_an_album(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        bot = _bot()
+        with patch.object(mychats_settings, "broadcast_moderation_channel_id", "-100999"):
+            async with self.sessions() as session:
+                repo = ChatBroadcastRepository(session)
+                msg = await repo.add_message(-1, "hello", photo_file_ids=["p1", "p2"])
+                chat = await session.get(Chat, -1)
+                await _post_broadcast_for_moderation(bot, session, chat, msg)
+
+        bot.send_media_group.assert_awaited_once()
+        media = bot.send_media_group.await_args.args[1]
+        self.assertEqual([m.media for m in media], ["p1", "p2"])
+        bot.send_photo.assert_not_awaited()
+        bot.send_message.assert_awaited_once()
 
     async def test_more_than_5_photos_ignored(self) -> None:
         async with self.sessions() as session:

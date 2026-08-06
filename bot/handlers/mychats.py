@@ -3,7 +3,13 @@ from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Message,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
@@ -541,7 +547,7 @@ async def _post_broadcast_for_moderation(
     buttons = load_buttons(broadcast_msg)
     extra_lines = []
     if photos:
-        extra_lines.append(f"📸 Фото: {len(photos)}")
+        extra_lines.append("📸 Фото приложены выше.")
     if buttons:
         extra_lines.append("🔘 Кнопки:")
         extra_lines.extend(f"  • {escape(b['text'])} → {escape(b['url'])}" for b in buttons)
@@ -558,6 +564,25 @@ async def _post_broadcast_for_moderation(
         InlineKeyboardButton(text="✅ Одобрить", callback_data=f"broadcast_mod:approve:{broadcast_msg.id}"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"broadcast_mod:reject:{broadcast_msg.id}"),
     ]])
+
+    # Photos (if any) are sent as their own message(s) first, with no
+    # caption/buttons — a moderator reviewing image-based violations the
+    # keyword filter can't catch needs to actually SEE them, not just read
+    # a "📸 Фото: 3" count. The decision buttons always end up on the
+    # separate text message below regardless of photo count, so
+    # approve/reject's edit_text-on-decision never has to special-case a
+    # photo caption (sendMediaGroup can't carry buttons at all anyway).
+    if len(photos) == 1:
+        try:
+            await bot.send_photo(int(channel_id), photos[0])
+        except Exception as exc:
+            logger.warning("Cannot attach photo for moderation post %s: %s", broadcast_msg.id, exc)
+    elif len(photos) > 1:
+        try:
+            await bot.send_media_group(int(channel_id), [InputMediaPhoto(media=fid) for fid in photos])
+        except Exception as exc:
+            logger.warning("Cannot attach photos for moderation post %s: %s", broadcast_msg.id, exc)
+
     try:
         posted = await bot.send_message(int(channel_id), text, parse_mode="HTML", reply_markup=kb)
         await ChatBroadcastRepository(session).set_moderation_message_id(broadcast_msg.id, posted.message_id)
