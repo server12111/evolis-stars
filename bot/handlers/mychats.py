@@ -553,13 +553,28 @@ async def _post_broadcast_for_moderation(
         extra_lines.extend(f"  • {escape(b['text'])} → {escape(b['url'])}" for b in buttons)
     extras = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
 
-    text = (
+    header = (
         f"📋 <b>Новый текст рассылки на модерацию</b>\n\n"
         f"💬 Чат: {escape(chat.title or str(chat.chat_id))} (<code>{chat.chat_id}</code>)\n"
         f"👤 Владелец: {owner_display} (<code>{chat.owner_user_id}</code>)\n\n"
-        f"Текст:\n<code>{escape(broadcast_msg.text)}</code>"
-        f"{extras}"
+        f"Текст:\n<code>"
     )
+    footer = f"</code>{extras}"
+    escaped_body = escape(broadcast_msg.text)
+    # html.escape() can expand a character up to 6x ('"' -> '&quot;'), so a
+    # text near the (already-capped) 1000-char limit that's heavy on
+    # quotes/&/<>/ can still blow past Telegram's 4096-char message cap —
+    # send_message would then raise, the row would stay "pending" forever
+    # with nothing posted for a moderator to see, and the owner has no way
+    # to resubmit since the 1-text-per-chat slot stays occupied. Truncate
+    # conservatively (raw chars, not the already-escaped string, so an
+    # entity like "&amp;" is never cut in half) to guarantee it fits.
+    budget = 4096 - len(header) - len(footer) - 60
+    if len(escaped_body) > budget:
+        notice = "\n\n[текст обрезан для показа здесь — полный текст в панели чата]"
+        raw_budget = max(0, (budget - len(notice)) // 6)
+        escaped_body = escape(broadcast_msg.text[:raw_budget]) + notice
+    text = header + escaped_body + footer
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Одобрить", callback_data=f"broadcast_mod:approve:{broadcast_msg.id}"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"broadcast_mod:reject:{broadcast_msg.id}"),

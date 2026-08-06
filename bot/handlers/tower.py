@@ -55,6 +55,8 @@ async def cb_tower_menu(callback: CallbackQuery, db_user: User, state: FSMContex
 async def cb_tower_bet(callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: User) -> None:
     try:
         bet = float(callback.data.split(":")[2])
+        if not math.isfinite(bet) or bet < 1:
+            raise ValueError
     except (IndexError, ValueError):
         await callback.answer("❌ Неверная ставка.", show_alert=True)
         return

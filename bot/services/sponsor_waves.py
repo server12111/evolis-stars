@@ -147,8 +147,15 @@ def evaluate_waves(
     piarflow_result: ProviderResult = None,
     piarflow_configured: bool = False,
     wave_size: int | None = None,
+    top_up: bool = True,
 ) -> SponsorWaveState:
-    """Check only saved sponsors and advance through both waves in order."""
+    """Check only saved sponsors and advance through both waves in order.
+
+    top_up=False disables growing the wave with replacement sponsors (see
+    below) without disabling anything else — needed by the "skip sponsors"
+    price quote, which must report what's genuinely still pending right
+    now without side-effect-persisting a bigger wave than what's on
+    screen just because someone opened the price dialog."""
     if wave_size is None:
         wave_size = WAVE_SIZE
 
@@ -224,7 +231,7 @@ def evaluate_waves(
         # still the same sponsor, and must not be topped up as "new" just
         # because it's attributed to a different provider than the one
         # already saved under.
-        if len(remaining) < wave_size:
+        if top_up and len(remaining) < wave_size:
             already_shown = {_url_key(item) for item in saved}
             picked = {_url_key(item) for item in remaining}
             new_candidates: list[dict] = []

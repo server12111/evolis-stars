@@ -236,6 +236,31 @@ class SponsorWaveTests(unittest.TestCase):
         shown_urls = [item["url"] for item in state.items or []]
         self.assertEqual(shown_urls, ["https://t.me/tg1"])
 
+    def test_top_up_false_never_grows_or_persists_the_wave(self) -> None:
+        """Bug found in review: get_pending_sponsor_items (the "skip
+        sponsors" price quote) calls evaluate_waves purely to read what's
+        still pending -- with top_up left on, merely opening that dialog
+        would grow the wave with fresh candidates and COMMIT them, so a
+        user who'd subscribed to all but 2 of 10 would suddenly owe for
+        10 again just from viewing the price. top_up=False must report
+        the true pending count with no persistence side effect."""
+        current = user()
+        evaluate_waves(current, tgrass_result=offers("tg", 10), botohub_result=[])
+        before = current.sponsor_wave_one
+
+        # User has since subscribed to all but 2 -- provider only reports
+        # those 2 as still outstanding, and there's a much larger pool
+        # available that top_up=True would normally pull replacements from.
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 2) + offers("new", 20),
+            botohub_result=[],
+            top_up=False,
+        )
+
+        self.assertEqual(len(state.items or []), 2)
+        self.assertEqual(current.sponsor_wave_one, before)
+
     def test_saved_progress_survives_a_restart(self) -> None:
         first_process = user()
         evaluate_waves(

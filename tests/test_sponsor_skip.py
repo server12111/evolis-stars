@@ -103,6 +103,40 @@ class SponsorSkipButtonTests(ChatModelsTestCase):
         self.assertIn("3", rendered)
         self.assertIn("3⭐", rendered)
 
+    async def test_skip_price_does_not_grow_or_persist_the_wave(self) -> None:
+        """Bug found in review: opening the skip dialog runs the same
+        evaluate_waves() that a real check does, which can top up a
+        shrunk wave with fresh replacements and commit them. Merely
+        viewing the price must not silently inflate what the user owes
+        or grow their saved wave, even when a much larger provider pool
+        is available to top up from."""
+        items = _wave_items("a", 5)
+        await self._add_user(
+            14, sponsor_wave=1, sponsor_wave_one=json.dumps(items), sponsor_wave_two=None,
+        )
+        cb = _callback("sponsor_skip", user_id=14)
+        bot = _fake_bot(confirmed_subscribed={f"@a{i}" for i in range(2, 5)})
+        # Only 2 of the original 5 are still pending, but tgrass also
+        # offers a much larger fresh pool that a top-up (if it ran here)
+        # would happily pull replacements from.
+        still_pending = items[:2] + _wave_items("new", 20)
+        async with self.sessions() as session:
+            db_user = await session.get(User, 14)
+            with (
+                patch("bot.handlers.start.settings.tgrass_code", "cfg"),
+                patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=still_pending)),
+                patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            ):
+                await cb_sponsor_skip(cb, db_user, session, bot)
+
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("2 спонсор", rendered)
+        self.assertNotIn("22", rendered)
+
+        async with self.sessions() as session:
+            saved_user = await session.get(User, 14)
+        self.assertEqual(len(json.loads(saved_user.sponsor_wave_one)), 5)
+
     async def test_price_reflects_only_still_unsubscribed_not_the_full_frozen_wave(self) -> None:
         """Regression: the frozen wave can be larger than what's still
         actually unsubscribed (e.g. the user already subscribed to some of

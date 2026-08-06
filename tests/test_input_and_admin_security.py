@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 from bot.handlers.admin.games import _lottery_end_value
 from bot.handlers.auction import cb_auction_bid
 from bot.handlers.games import msg_bet_enter
+from bot.handlers.mines import cb_mines_bet
+from bot.handlers.tower import cb_tower_bet
 from bot.keyboards.admin.settings import settings_kb
 from bot.middlewares.user import UserMiddleware
 
@@ -26,6 +28,31 @@ class InputAndAdminSecurityTests(unittest.IsolatedAsyncioTestCase):
 
         session.commit.assert_not_awaited()
         message.answer.assert_awaited_once()
+
+    async def test_tower_preset_bet_callback_rejects_nan(self) -> None:
+        # Same class of bug as the wheel/auction NaN-bet fix: a forged
+        # callback_data value bypasses every numeric guard downstream
+        # (NaN comparisons are always False), corrupting the balance.
+        callback = SimpleNamespace(data="tower:bet:nan", answer=AsyncMock())
+        session = SimpleNamespace(commit=AsyncMock())
+        user = SimpleNamespace(stars_balance=Decimal(100))
+
+        await cb_tower_bet(callback, state=None, session=session, db_user=user)
+
+        callback.answer.assert_awaited_once()
+        session.commit.assert_not_awaited()
+        self.assertEqual(user.stars_balance, Decimal(100))
+
+    async def test_mines_preset_bet_callback_rejects_nan(self) -> None:
+        callback = SimpleNamespace(data="mines:bet:nan", answer=AsyncMock())
+        session = SimpleNamespace(commit=AsyncMock())
+        user = SimpleNamespace(stars_balance=Decimal(100))
+
+        await cb_mines_bet(callback, state=None, session=session, db_user=user)
+
+        callback.answer.assert_awaited_once()
+        session.commit.assert_not_awaited()
+        self.assertEqual(user.stars_balance, Decimal(100))
 
     async def test_removed_admin_id_revokes_persisted_admin_flag(self) -> None:
         user = SimpleNamespace(

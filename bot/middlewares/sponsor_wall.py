@@ -228,7 +228,9 @@ async def get_pending_sponsor_items(
     # the user already finished normally must report nothing left to skip
     # instead of hitting every provider again — see the parameter's own
     # docstring below for why this must NOT apply to the periodic recheck.
-    wave_state = await _evaluate_wave_state(inner, db_user, session, bot, skip_when_complete=True)
+    wave_state = await _evaluate_wave_state(
+        inner, db_user, session, bot, skip_when_complete=True, top_up=False,
+    )
     if wave_state.status != "pending":
         return []
     return wave_state.items or []
@@ -240,6 +242,7 @@ async def _evaluate_wave_state(
     session: AsyncSession,
     bot: Bot | None = None,
     skip_when_complete: bool = False,
+    top_up: bool = True,
 ) -> SponsorWaveState:
     """Checks every configured sponsor provider fresh and evaluates the
     current wave against it — the shared core behind both
@@ -258,6 +261,12 @@ async def _evaluate_wave_state(
     providers for sponsors that weren't there before — short-circuiting
     here too would make that recheck a permanent no-op forever after the
     first time a user ever reaches wave 3, silently defeating it.
+
+    top_up mirrors this same read-only requirement for get_pending_
+    sponsor_items: evaluate_waves() can grow and persist a bigger wave
+    when sponsors resolve (see its own docstring), which is exactly right
+    for a real check but wrong for a price quote — merely opening the
+    "skip sponsors" dialog must not silently inflate what the user owes.
     """
     if db_user.sponsor_wave == 3 and skip_when_complete:
         return SponsorWaveState("complete")
@@ -404,6 +413,7 @@ async def _evaluate_wave_state(
         piarflow_result=piarflow_result,
         piarflow_configured=piarflow_needed,
         wave_size=wave_size,
+        top_up=top_up,
     )
     await session.commit()
     return wave_state

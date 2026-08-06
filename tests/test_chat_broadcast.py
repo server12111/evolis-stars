@@ -445,6 +445,30 @@ class HandlerAccessControlTests(ChatModelsTestCase):
         bot.send_photo.assert_not_awaited()
         bot.send_message.assert_awaited_once()
 
+    async def test_moderation_post_truncates_a_heavily_escaped_text_to_fit_telegrams_limit(self) -> None:
+        """Regression: html.escape() can expand a character up to 6x
+        ('"' -> '&quot;'), so a near-1000-char text heavy on quotes/&/<>
+        can blow past Telegram's 4096-char message cap -- send_message
+        would then raise, and the submission would stay "pending" forever
+        with no moderation post for an admin to ever see."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        bot = _bot()
+        heavy_text = '"&<>' * 300  # 1200 raw chars, escapes to ~5700
+        with patch.object(mychats_settings, "broadcast_moderation_channel_id", "-100999"):
+            async with self.sessions() as session:
+                repo = ChatBroadcastRepository(session)
+                msg = await repo.add_message(-1, heavy_text)
+                chat = await session.get(Chat, -1)
+                await _post_broadcast_for_moderation(bot, session, chat, msg)
+
+        bot.send_message.assert_awaited_once()
+        rendered = bot.send_message.await_args.args[1]
+        self.assertLessEqual(len(rendered), 4096)
+        self.assertIn("обрезан", rendered)
+
     async def test_more_than_5_photos_ignored(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
@@ -788,7 +812,7 @@ class SchedulerTests(ChatModelsTestCase):
             chat = await session.get(Chat, -1)
             await _send_one(bot, session, chat, now)
 
-        bot.send_message.assert_awaited_once_with(-1, "first", reply_markup=None)
+        bot.send_message.assert_awaited_once_with(-1, "first", parse_mode=None, reply_markup=None)
         async with self.sessions() as session:
             chat = await session.get(Chat, -1)
         self.assertEqual(chat.custom_broadcast_next_index, 1)
@@ -799,7 +823,7 @@ class SchedulerTests(ChatModelsTestCase):
         async with self.sessions() as session:
             chat = await session.get(Chat, -1)
             await _send_one(bot2, session, chat, now)
-        bot2.send_message.assert_awaited_once_with(-1, "second", reply_markup=None)
+        bot2.send_message.assert_awaited_once_with(-1, "second", parse_mode=None, reply_markup=None)
 
     async def test_pending_only_message_is_not_sent_and_does_not_disable(self) -> None:
         async with self.sessions() as session:
@@ -834,8 +858,32 @@ class SchedulerTests(ChatModelsTestCase):
             chat = await session.get(Chat, -1)
             await _send_one(bot, session, chat, datetime.utcnow())
 
-        bot.send_photo.assert_awaited_once_with(-1, "p1", caption="caption", reply_markup=None)
+        bot.send_photo.assert_awaited_once_with(-1, "p1", caption="caption", parse_mode=None, reply_markup=None)
         bot.send_message.assert_not_awaited()
+
+    async def test_raw_html_special_chars_do_not_get_parsed_as_html(self) -> None:
+        """Regression: the bot has a global parse_mode=HTML default, and
+        message.text is raw unescaped owner text (only ever checked for
+        length/banned words). Leaving parse_mode unset here would make
+        Telegram try to parse ordinary text like "цена < 100" as HTML and
+        reject it outright -- parse_mode must be explicitly disabled for
+        every send path (text-only, single photo, and album)."""
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=60,
+            ))
+            await session.commit()
+        await self._add_approved_message(-1, "цена < 100 & больше 3 > 2")
+
+        bot = SimpleNamespace(send_message=AsyncMock())
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+            await _send_one(bot, session, chat, datetime.utcnow())
+
+        bot.send_message.assert_awaited_once_with(
+            -1, "цена < 100 & больше 3 > 2", parse_mode=None, reply_markup=None,
+        )
 
     async def test_send_one_with_multiple_photos_uses_media_group_and_buttons_follow_up(self) -> None:
         async with self.sessions() as session:
@@ -934,7 +982,7 @@ class SchedulerTests(ChatModelsTestCase):
         with patch("bot.services.chat_broadcast_scheduler.SessionFactory", self.sessions):
             await _run_pass(bot)
 
-        bot.send_message.assert_awaited_once_with(-1, "hi", reply_markup=None)
+        bot.send_message.assert_awaited_once_with(-1, "hi", parse_mode=None, reply_markup=None)
 
 
 if __name__ == "__main__":

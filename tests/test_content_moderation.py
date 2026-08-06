@@ -27,6 +27,11 @@ class FalsePositiveRegressionTests(unittest.TestCase):
         self.assertIsNone(find_banned_term("подпишись на наш канал скидки 50%"))
         self.assertIsNone(find_banned_term("подпишись на канал и получи бонус"))
 
+    def test_sex_does_not_match_essex_unisex_sextant(self) -> None:
+        self.assertIsNone(find_banned_term("Essex county trip"))
+        self.assertIsNone(find_banned_term("unisex одежда скидка"))
+        self.assertIsNone(find_banned_term("sextant навигация история"))
+
     def test_ordinary_bot_vocabulary_never_flagged(self) -> None:
         self.assertIsNone(find_banned_term(
             "баланс вывод звезды чат спонсор реферал бонус рулетка "
@@ -44,6 +49,10 @@ class GenuineMatchTests(unittest.TestCase):
 
     def test_anal_still_matches_standalone(self) -> None:
         self.assertIsNotNone(find_banned_term("чистый анал"))
+
+    def test_sex_still_matches_standalone(self) -> None:
+        self.assertIsNotNone(find_banned_term("секс знакомства рядом"))
+        self.assertIsNotNone(find_banned_term("sex chat here"))
 
     def test_dotted_spacing_evasion_still_caught(self) -> None:
         self.assertEqual(find_banned_term("п.о.р.н.о видео тут"), "порно")

@@ -99,17 +99,17 @@ def _normalize_term(term: str) -> str:
 
 
 # Short, common-English-word-shaped terms whose obvious "safe" superset
-# words (skill, analytics/анализ, moral/coral/floral) are far more likely
-# in ordinary broadcast text than the explicit term itself — these are
-# matched as a WHOLE word only, never as a substring of a longer word.
-# Every other term is intentionally substring-matched (within a single
-# word — never across a word boundary) so inflected Russian forms like
-# "дрочить"/"дрочу" still get caught from the "дроч" stem.
-# Normalized the exact same way as the main term list below, so the
+# words (skill, analytics/анализ, moral/coral/floral, Essex/unisex/sextant)
+# are far more likely in ordinary broadcast text than the explicit term
+# itself — these are matched as a WHOLE word only, never as a substring of
+# a longer word. Every other term is intentionally substring-matched
+# (within a single word — never across a word boundary) so inflected
+# Russian forms like "дрочить"/"дрочу" still get caught from the "дроч"
+# stem. Normalized the exact same way as the main term list below, so the
 # homoglyph fold's mixed-alphabet output (e.g. "anal" -> "анаl", with a
 # Latin "l") still compares equal on both sides.
 _WHOLE_WORD_ONLY: frozenset[str] = frozenset(
-    _normalize_term(t) for t in ("kill", "anal", "oral", "анал", "орал")
+    _normalize_term(t) for t in ("kill", "anal", "oral", "анал", "орал", "sex", "секс")
 )
 
 _NORMALIZED_BANNED_TERMS: frozenset[str] = frozenset(
