@@ -1,15 +1,21 @@
 from aiogram import Router
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.database.models import User
 from bot.keyboards.games import casino_menu_kb
+from bot.services.game_abandon_guard import guard_active_game
 
 router = Router()
 
 
 @router.callback_query(lambda c: c.data == "menu:casino")
-async def cb_casino_menu(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
+async def cb_casino_menu(
+    callback: CallbackQuery, db_user: User, state: FSMContext, session: AsyncSession,
+) -> None:
+    if await guard_active_game(callback, session, db_user, state):
+        return
     await state.clear()
     text = (
         f"🎰 <b>Казино</b>\n\n"

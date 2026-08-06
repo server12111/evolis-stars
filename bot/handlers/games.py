@@ -10,6 +10,7 @@ from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.game import GameRepository
 from bot.keyboards.main import back_to_menu_kb
+from bot.services.game_abandon_guard import guard_active_game
 from bot.services.referral import referrals_word
 from bot.keyboards.games import (
     games_menu_kb, dice_side_kb, football_side_kb, bowling_side_kb,
@@ -181,15 +182,8 @@ def _result_text(game_type, won, bet, payout, value, balance, side=None) -> str:
 
 @router.callback_query(lambda c: c.data == "menu:games")
 async def cb_games_menu(callback: CallbackQuery, session: AsyncSession, db_user: User, state: FSMContext) -> None:
-    fsm = await state.get_state()
-    if fsm in (GameStates.choose_dice_side, GameStates.choose_football_side,
-               GameStates.choose_basketball_side, GameStates.choose_bowling_side,
-               GameStates.choose_darts_side):
-        data = await state.get_data()
-        bet = data.get("bet", 0.0)
-        if bet:
-            db_user.stars_balance = round(float(db_user.stars_balance) + float(bet), 2)
-            await session.commit()
+    if await guard_active_game(callback, session, db_user, state):
+        return
     await state.clear()
 
     s_repo = SettingsRepository(session)

@@ -28,6 +28,7 @@ from bot.services.tos import get_tos_urls
 from bot.middlewares.sponsor_wall import get_pending_sponsor_items, run_sponsor_wall_check
 from bot.services.adv import send_ad
 from bot.services.background import spawn_background
+from bot.services.game_abandon_guard import guard_active_game
 from bot.services.referral import (
     check_referral_reward,
     notify_referrer_joined,
@@ -192,6 +193,8 @@ async def cmd_start(
 
 @router.callback_query(lambda c: c.data == "menu:main")
 async def cb_main_menu(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
+    if await guard_active_game(callback, session, db_user, state):
+        return
     await state.clear()
     spawn_background(
         send_ad(settings.botohub_views_key, db_user.user_id, hi=False),
