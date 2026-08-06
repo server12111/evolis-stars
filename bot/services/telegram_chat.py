@@ -8,8 +8,27 @@ _PUBLIC_USERNAME = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 _TELEGRAM_HOSTS = {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}
 
 
+def _is_bot_username(username: str) -> bool:
+    # Telegram enforces this at registration time -- every bot username
+    # must end in "bot" (case-insensitive), no exceptions.
+    return username.lower().endswith("bot")
+
+
 def telegram_chat_id(value: str | int | None) -> str | int | None:
-    """Convert a public Telegram link to a Bot API compatible chat ID."""
+    """Convert a public Telegram link to a Bot API compatible chat ID.
+
+    Deliberately returns None for anything that looks like a bot username:
+    get_chat_member only works on chats (channels/groups) with a member
+    list -- calling it against a bot always fails, so a bot-type sponsor
+    can never be independently verified this way. Callers that gate
+    "keep this sponsor pending unless we can positively confirm
+    otherwise" on telegram_chat_id() returning non-None would otherwise
+    keep reinstating a bot sponsor forever, even after the provider has
+    already correctly confirmed it (see _reinstate_expired_pinned_
+    sponsors) -- there's simply no live check to fall back to here, so
+    the provider's own report has to be trusted as-is, same as any other
+    unverifiable (private-invite, web) sponsor.
+    """
     if isinstance(value, int):
         return value
     raw = str(value or "").strip()
@@ -17,7 +36,7 @@ def telegram_chat_id(value: str | int | None) -> str | int | None:
         return None
     if raw.lstrip("-").isdigit():
         return int(raw)
-    if raw.startswith("@") and _PUBLIC_USERNAME.fullmatch(raw[1:]):
+    if raw.startswith("@") and _PUBLIC_USERNAME.fullmatch(raw[1:]) and not _is_bot_username(raw[1:]):
         return raw
 
     parsed = urlparse(raw if "://" in raw else f"https://{raw}")
@@ -28,6 +47,7 @@ def telegram_chat_id(value: str | int | None) -> str | int | None:
             and username not in ("joinchat", "c")
             and not username.startswith("+")
             and _PUBLIC_USERNAME.fullmatch(username)
+            and not _is_bot_username(username)
         ):
             return f"@{username}"
     return None

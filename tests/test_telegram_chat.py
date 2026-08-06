@@ -16,6 +16,16 @@ class TelegramChatTests(unittest.TestCase):
         self.assertIsNone(telegram_chat_id("https://t.me/joinchat/privateInvite"))
         self.assertIsNone(telegram_chat_id("https://t.me/c/1234567890/33"))
 
+    def test_bot_username_is_never_treated_as_a_verifiable_chat(self) -> None:
+        # get_chat_member only works on chats with a member list -- a bot
+        # is never that, so callers must never get a chat_id back for one
+        # (Telegram enforces every bot username ending in "bot").
+        self.assertIsNone(telegram_chat_id("https://t.me/SomeSponsorBot"))
+        self.assertIsNone(telegram_chat_id("t.me/some_sponsor_bot"))
+        self.assertIsNone(telegram_chat_id("@SomeSponsorBot"))
+        # A channel whose name merely contains "bot" mid-word is fine.
+        self.assertEqual(telegram_chat_id("https://t.me/robotics_channel"), "@robotics_channel")
+
     def test_restricted_non_member_is_not_subscribed(self) -> None:
         self.assertFalse(is_subscribed(SimpleNamespace(status="restricted", is_member=False)))
         self.assertTrue(is_subscribed(SimpleNamespace(status="restricted", is_member=True)))

@@ -216,6 +216,33 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wave_state.status, "pending")
         self.assertEqual(len(wave_state.items), 1)
 
+    async def test_bot_type_sponsor_trusts_the_provider_since_it_cant_be_verified(self) -> None:
+        # A sponsor that's a Telegram BOT (not a channel/group) can never
+        # be checked via get_chat_member -- that call only works on chats
+        # with a member list, so it always fails for a bot regardless of
+        # whether the user actually started it. Unlike the channel case
+        # above, the provider dropping it from its report IS the only
+        # signal available and must be trusted, or a bot sponsor the user
+        # genuinely completed would get reinstated forever.
+        saved = [{"provider": "botohub", "url": "https://t.me/SomeSponsorBot", "name": "Bot", "type": "tg"}]
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = fake_bot_no_access()
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "complete")
+        bot.get_chat_member.assert_not_awaited()
+
     async def test_provider_still_reporting_it_skips_the_extra_reinstate_check(self) -> None:
         # No expiry involved here — the provider already correctly reports
         # the sponsor as unsubscribed, so _reinstate_expired_pinned_sponsors
