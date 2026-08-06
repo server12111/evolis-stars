@@ -76,15 +76,18 @@ class SponsorWaveTests(unittest.TestCase):
         self.assertIn("sponsor_check", callback_data)
         self.assertIn("sponsor_skip", callback_data)
 
-    def test_single_wave_completes_without_unlocking_a_second_wave(self) -> None:
+    def test_single_wave_never_unlocks_a_second_wave(self) -> None:
         current = user()
         evaluate_waves(
             current,
             tgrass_result=offers("tg", 12),
             botohub_result=[],
         )
-        # Only the first 6 offers are ever frozen — the rest never become a
-        # second wave since MAX_WAVES caps the sponsor wall at one wave.
+        # Only the first 6 offers are ever frozen initially — MAX_WAVES
+        # caps the sponsor wall at one wave, so there's never a genuine
+        # "wave 2" — but a resolved slot in wave 1 can still be topped up
+        # from the rest of the same 12-offer pool (see the top-up tests
+        # below), it just never spills into a second wave/step.
         self.assertIsNone(current.sponsor_wave_two)
 
         still_first = evaluate_waves(
@@ -92,11 +95,13 @@ class SponsorWaveTests(unittest.TestCase):
             tgrass_result=offers("tg", 1, start=2) + offers("tg", 6, start=6),
             botohub_result=[],
         )
-        self.assertEqual((still_first.status, still_first.wave), ("pending", 1))
+        self.assertEqual((still_first.status, still_first.wave, still_first.total_waves), ("pending", 1, 1))
+        self.assertIsNone(current.sponsor_wave_two)
 
+        # Provider reports nothing left at all -> genuinely exhausted.
         completed = evaluate_waves(
             current,
-            tgrass_result=offers("tg", 6, start=6),
+            tgrass_result=[],
             botohub_result=[],
         )
         self.assertEqual((completed.status, current.sponsor_wave), ("complete", 3))
@@ -177,6 +182,59 @@ class SponsorWaveTests(unittest.TestCase):
         saved = json.loads(current.sponsor_wave_one)
         self.assertEqual(len(saved), 3)
         self.assertEqual(len(state.items or []), 3)
+
+    def test_wave_tops_up_with_a_replacement_when_a_sponsor_resolves(self) -> None:
+        """A sponsor dropping out of `remaining` (confirmed subscribed)
+        must not just shrink the wave -- a fresh, not-yet-shown candidate
+        from the provider's current batch should fill the gap."""
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 4),  # tg0-tg3, under wave_size(6)
+            botohub_result=[],
+        )
+        self.assertEqual(len(json.loads(current.sponsor_wave_one)), 4)
+
+        # tg0 no longer reported by the provider (user subscribed to it);
+        # tg4 is a brand-new candidate that wasn't available before.
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 3, start=1) + offers("tg", 1, start=4),
+            botohub_result=[],
+        )
+
+        self.assertEqual(state.status, "pending")
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertEqual(shown_urls, {"https://t.me/tg1", "https://t.me/tg2", "https://t.me/tg3", "https://t.me/tg4"})
+        self.assertNotIn("https://t.me/tg0", shown_urls)
+
+        # tg0's resolved history must survive in storage -- referral-reward
+        # sponsor counting reads sponsor_wave_one/two directly and needs
+        # every sponsor ever offered, not just the ones still pending.
+        saved_urls = {item["url"] for item in json.loads(current.sponsor_wave_one)}
+        self.assertIn("https://t.me/tg0", saved_urls)
+        self.assertEqual(len(saved_urls), 5)
+
+    def test_top_up_never_duplicates_a_sponsor_still_pending_in_the_wave(self) -> None:
+        """The new-candidate pool for top-up must exclude anything already
+        in `saved` -- including an item that's simultaneously still
+        pending (still reported by its provider) -- or it would show
+        twice."""
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 2),  # tg0, tg1
+            botohub_result=[],
+        )
+        # tg0 resolves; tg1 is still pending and still reported as-is (no
+        # brand-new candidate available this round).
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 1, start=1),
+            botohub_result=[],
+        )
+        shown_urls = [item["url"] for item in state.items or []]
+        self.assertEqual(shown_urls, ["https://t.me/tg1"])
 
     def test_saved_progress_survives_a_restart(self) -> None:
         first_process = user()

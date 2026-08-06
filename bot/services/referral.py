@@ -192,6 +192,16 @@ async def reward_returning_referral(
 
     referred_user_id = user.user_id
     tg_urls, web_urls = _current_sponsor_urls(user)
+    # _current_sponsor_urls reads the frozen wave saved back when this
+    # referral first completed the sponsor wall — potentially long ago.
+    # Without an independent re-check here, a referral who subscribed to
+    # a big first wave months ago and unsubscribed from most of it since
+    # would still price this reactivation reward off that stale count
+    # (e.g. "6-8 sponsors" tier) even though only 1 sponsor is genuinely
+    # current. Re-verify TG links the same way check_referral_reward does;
+    # web links have no independent check and keep trusting the saved list.
+    if bot and tg_urls:
+        tg_urls = await _verify_tg_subscriptions(bot, referred_user_id, tg_urls)
     sponsor_count = len(tg_urls) + len(web_urls)
     base_reward = await get_referral_reward(session, sponsor_count, is_premium=bool(user.is_premium))
     reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)

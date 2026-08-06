@@ -199,6 +199,42 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(saved_referrer.stars_balance), 9.0)
         self.assertEqual(saved_referrer.referrals_count, 1)
 
+    async def test_returning_referral_reward_uses_fresh_count_not_stale_wave(self) -> None:
+        """Item: a returning referral subscribed to just 1 sponsor on this
+        visit, but the reactivation reward priced it as if for 6-8 —
+        because it was reading sponsor_count straight off the frozen wave
+        saved back when this referral FIRST completed the sponsor wall
+        (months ago), with no re-verification that those sponsors are
+        still current."""
+        inactive_since = datetime.utcnow() - timedelta(days=8)
+        async with self.sessions() as session:
+            referrer = User(user_id=770, first_name="Referrer", stars_balance=Decimal(0))
+            referred = User(
+                user_id=771,
+                first_name="Referred",
+                referrer_id=770,
+                referral_counted=True,
+                referral_reward_given=True,
+                last_seen_at=inactive_since,
+                # A big first-time wave from long ago — 7 sponsors.
+                sponsor_wave_one=_wave_json(*[f"https://t.me/old{i}" for i in range(7)]),
+            )
+            session.add_all((referrer, referred))
+            await session.commit()
+
+            # Bot-confirmed: the user has since left every old sponsor
+            # except one — only 1 is genuinely current right now.
+            bot = _bot(confirmed_statuses={f"@old{i}": "left" for i in range(1, 7)})
+            reward = await reward_returning_referral(
+                referred, referrer.user_id, inactive_since, session, bot,
+            )
+
+        # Base tier for 1 sponsor is the flat "referral_reward" (9),
+        # halved for reactivation -> 4.50. Must NOT be the 6-8 tier
+        # (referral_reward_top, 13.5 -> 6.75) the stale 7-item wave would
+        # have produced.
+        self.assertEqual(reward, Decimal("4.50"))
+
     async def test_bot_side_verification_excludes_unconfirmed_tg_sponsor(self) -> None:
         async with self.sessions() as session:
             referrer = User(user_id=740, first_name="Referrer", stars_balance=Decimal(0))

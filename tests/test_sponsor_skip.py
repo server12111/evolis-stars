@@ -62,12 +62,22 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
 
-def _fake_bot() -> SimpleNamespace:
-    # get_chat_member raising means _drop_confirmed_subscriptions can't
-    # independently verify anything, so it trusts whatever the (mocked)
-    # provider check reported — exactly what these tests want to control.
+def _fake_bot(confirmed_subscribed: set[str] | None = None) -> SimpleNamespace:
+    # get_chat_member raising means _drop_confirmed_subscriptions /
+    # _reinstate_expired_pinned_sponsors can't independently verify
+    # anything for that chat — an unverifiable sponsor is kept pending
+    # rather than dropped (a provider simply omitting it is NOT proof of
+    # subscription). `confirmed_subscribed` lets a test explicitly mark
+    # specific @usernames as genuinely, positively subscribed instead.
+    confirmed = confirmed_subscribed or set()
+
+    async def get_chat_member(chat_id, user_id):
+        if chat_id in confirmed:
+            return SimpleNamespace(status="member")
+        raise Exception("no live check in this test")
+
     return SimpleNamespace(
-        get_chat_member=AsyncMock(side_effect=Exception("no live check in this test")),
+        get_chat_member=AsyncMock(side_effect=get_chat_member),
         send_invoice=AsyncMock(),
     )
 
@@ -103,9 +113,11 @@ class SponsorSkipButtonTests(ChatModelsTestCase):
             13, sponsor_wave=1, sponsor_wave_one=json.dumps(items), sponsor_wave_two=None,
         )
         cb = _callback("sponsor_skip", user_id=13)
-        bot = _fake_bot()
         # The user has since subscribed to all but 2 — check_tgrass only
-        # reports those 2 as still unsubscribed.
+        # reports those 2 as still unsubscribed, and the bot positively
+        # confirms membership for the other 3 (not just their absence from
+        # tgrass's report, which alone must NOT be read as "subscribed").
+        bot = _fake_bot(confirmed_subscribed={f"@a{i}" for i in range(2, 5)})
         still_pending = items[:2]
         async with self.sessions() as session:
             db_user = await session.get(User, 13)

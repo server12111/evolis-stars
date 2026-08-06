@@ -208,6 +208,54 @@ def evaluate_waves(
                 )
 
         remaining = [item for item in saved if _key(item) in unsubscribed]
+
+        # Top up: a sponsor that just got confirmed drops out of `remaining`
+        # above, but the user should see a replacement instead of a
+        # shrinking wave (same for a wave that started under wave_size
+        # because a provider simply didn't have enough at freeze time).
+        # Candidates come straight from `results` — the same fresh,
+        # already-verified "still unsubscribed" lists used above, so a
+        # replacement is never one the user is secretly already
+        # subscribed to. Never re-offer anything already in `saved`
+        # (already shown once this wave, whether resolved or still
+        # pending) or already picked as a replacement. Dedup by URL alone
+        # (matching initialize_waves' own dedup), not the provider-scoped
+        # _key() — the same URL reported by two different providers is
+        # still the same sponsor, and must not be topped up as "new" just
+        # because it's attributed to a different provider than the one
+        # already saved under.
+        if len(remaining) < wave_size:
+            already_shown = {_url_key(item) for item in saved}
+            picked = {_url_key(item) for item in remaining}
+            new_candidates: list[dict] = []
+            for provider, provider_result in results.items():
+                if len(remaining) >= wave_size:
+                    break
+                if not isinstance(provider_result, list):
+                    continue
+                for candidate in _decorate(provider_result, provider):
+                    if len(remaining) >= wave_size:
+                        break
+                    url_key = _url_key(candidate)
+                    if not url_key or url_key in already_shown or url_key in picked:
+                        continue
+                    new_candidates.append(candidate)
+                    remaining.append(candidate)
+                    picked.add(url_key)
+
+            if new_candidates:
+                # Append to the FULL saved history (resolved items
+                # included), not just `remaining` — referral-reward
+                # sponsor counting (_current_sponsor_urls / total_sponsor_
+                # count) reads sponsor_wave_one/two directly and needs
+                # every sponsor ever offered, not only the ones still
+                # pending right now.
+                persisted = saved + new_candidates
+                if wave == 1:
+                    user.sponsor_wave_one = _dump(persisted)
+                else:
+                    user.sponsor_wave_two = _dump(persisted)
+
         if remaining:
             return SponsorWaveState(
                 "pending",
