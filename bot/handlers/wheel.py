@@ -51,8 +51,14 @@ async def cb_wheel_bet(callback: CallbackQuery, session: AsyncSession, bot: Bot,
         return
     try:
         bet = float(callback.data.split(":")[2])
+        if not math.isfinite(bet) or bet < 1:
+            raise ValueError
     except (IndexError, ValueError):
         await callback.answer("❌ Неверная ставка.", show_alert=True)
+        return
+    max_bet = await SettingsRepository(session).get_float("wheel_max_bet", 500.0)
+    if bet > max_bet:
+        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} RP⭐️.", show_alert=True)
         return
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and db_user.stars_balance < bet:
