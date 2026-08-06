@@ -42,6 +42,12 @@ def fake_bot(member_status: str = "member") -> SimpleNamespace:
     return SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status=member_status)))
 
 
+def fake_bot_no_access() -> SimpleNamespace:
+    """Most sponsor channels are third-party — this bot was never added to
+    them, so get_chat_member raises instead of returning a real status."""
+    return SimpleNamespace(get_chat_member=AsyncMock(side_effect=Exception("member list is inaccessible")))
+
+
 class SponsorCheckIndependentVerificationTests(unittest.IsolatedAsyncioTestCase):
     async def test_provider_false_negative_is_overridden_by_our_own_check(self) -> None:
         """The provider says the user is still unsubscribed, but our own bot
@@ -183,6 +189,32 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
             wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
 
         self.assertEqual(wave_state.status, "complete")
+
+    async def test_expired_pin_with_no_bot_access_still_stays_pending(self) -> None:
+        # The bot has no visibility into most third-party sponsor channels
+        # (never added to them) — get_chat_member fails with "unknown", not
+        # a definite "left". That must NOT be read as "fine, drop it" just
+        # because the provider's rotating batch stopped mentioning the
+        # sponsor this cycle, or a user could clear a requirement they
+        # never actually subscribed to just by waiting out the pin window.
+        saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
+        session = SimpleNamespace(commit=AsyncMock())
+        bot = fake_bot_no_access()
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "pending")
+        self.assertEqual(len(wave_state.items), 1)
 
     async def test_provider_still_reporting_it_skips_the_extra_reinstate_check(self) -> None:
         # No expiry involved here — the provider already correctly reports

@@ -187,7 +187,14 @@ async def _reinstate_expired_pinned_sponsors(
         if chat_id is None:
             continue  # not a t.me link — no independent way to verify a web sponsor
         subscribed = await _check_membership_cached(bot, chat_id, db_user.user_id, cache)
-        if subscribed is False:
+        # Reinstate unless our own bot can POSITIVELY confirm membership.
+        # For most sponsor channels the bot has no visibility at all (it's
+        # a third-party channel it was never added to), so this lookup
+        # comes back None far more often than False — treating None as
+        # "fine, drop it" (the old behaviour) let a sponsor silently leave
+        # the wave just because the provider's rotating batch stopped
+        # mentioning it, with the user never having subscribed to anything.
+        if subscribed is not True:
             provider_result.append(item)
 
 
