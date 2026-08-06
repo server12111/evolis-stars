@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from bot.database.models import Chat, ChatBroadcastMessage
 from bot.database.repositories.base import BaseRepository
@@ -29,6 +29,9 @@ def load_buttons(message: ChatBroadcastMessage) -> list[dict]:
 
 
 class ChatBroadcastRepository(BaseRepository):
+    async def get(self, message_id: int) -> ChatBroadcastMessage | None:
+        return await self.session.get(ChatBroadcastMessage, message_id)
+
     async def list_messages(self, chat_id: int) -> list[ChatBroadcastMessage]:
         result = await self.session.execute(
             select(ChatBroadcastMessage)
@@ -37,9 +40,31 @@ class ChatBroadcastRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_approved(self, chat_id: int) -> list[ChatBroadcastMessage]:
+        """Only these are ever eligible to be sent by the scheduler —
+        pending/rejected rows are excluded even if custom_broadcast_enabled
+        is on."""
+        result = await self.session.execute(
+            select(ChatBroadcastMessage)
+            .where(ChatBroadcastMessage.chat_id == chat_id, ChatBroadcastMessage.status == "approved")
+            .order_by(ChatBroadcastMessage.id)
+        )
+        return list(result.scalars().all())
+
     async def count(self, chat_id: int) -> int:
+        """Counts pending + approved rows (i.e. everything but rejected,
+        which is deleted outright) — this is what the per-chat text cap is
+        checked against, so a rejected submission never blocks a retry."""
         result = await self.session.execute(
             select(func.count(ChatBroadcastMessage.id)).where(ChatBroadcastMessage.chat_id == chat_id)
+        )
+        return result.scalar_one()
+
+    async def count_approved(self, chat_id: int) -> int:
+        result = await self.session.execute(
+            select(func.count(ChatBroadcastMessage.id)).where(
+                ChatBroadcastMessage.chat_id == chat_id, ChatBroadcastMessage.status == "approved",
+            )
         )
         return result.scalar_one()
 
@@ -55,10 +80,44 @@ class ChatBroadcastRepository(BaseRepository):
             text=text,
             photo_file_ids=json.dumps(photo_file_ids[:MAX_BROADCAST_PHOTOS]) if photo_file_ids else None,
             buttons_json=json.dumps(buttons[:MAX_BROADCAST_BUTTONS]) if buttons else None,
+            status="pending",
         )
         self.session.add(message)
         await self.session.commit()
         return message
+
+    async def set_moderation_message_id(self, message_id: int, channel_message_id: int) -> None:
+        await self.session.execute(
+            update(ChatBroadcastMessage)
+            .where(ChatBroadcastMessage.id == message_id)
+            .values(moderation_channel_message_id=channel_message_id)
+        )
+        await self.session.commit()
+
+    async def approve(self, message_id: int) -> ChatBroadcastMessage | None:
+        """Returns the approved row, or None if it was already decided
+        (double-tap on the moderation channel's buttons)."""
+        result = await self.session.execute(
+            update(ChatBroadcastMessage)
+            .where(ChatBroadcastMessage.id == message_id, ChatBroadcastMessage.status == "pending")
+            .values(status="approved")
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return None
+        await self.session.commit()
+        return await self.session.get(ChatBroadcastMessage, message_id)
+
+    async def reject(self, message_id: int) -> tuple[int, str] | None:
+        """Deletes the pending row and returns its (chat_id, text) for the
+        owner notification, or None if it was already decided."""
+        message = await self.session.get(ChatBroadcastMessage, message_id)
+        if message is None or message.status != "pending":
+            return None
+        chat_id, text = message.chat_id, message.text
+        await self.session.delete(message)
+        await self.session.commit()
+        return chat_id, text
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:
         result = await self.session.execute(

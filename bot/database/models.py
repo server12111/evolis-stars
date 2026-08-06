@@ -570,4 +570,14 @@ class ChatBroadcastMessage(Base):
     photo_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     # JSON list of up to 3 {"text": ..., "url": ...} link buttons.
     buttons_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pending -> approved | rejected. Only "approved" rows are ever sent by
+    # the scheduler — every new submission goes through manual review in
+    # the moderation channel first. Existing rows from before this column
+    # existed are grandfathered in as "approved" by the migration (see
+    # engine.py), since they were already live under the old unmoderated
+    # system.
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    # The moderation-channel post's message_id, so the approve/reject
+    # handlers can edit it in place to show the decision.
+    moderation_channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

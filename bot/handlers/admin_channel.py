@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
 from bot.database.models import Withdrawal
+from bot.database.repositories.chat import ChatRepository
+from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
@@ -141,4 +143,75 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> 
     except Exception:
         pass
     await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌")
+    await callback.answer("❌ Отклонено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("broadcast_mod:approve:"))
+async def cb_broadcast_mod_approve(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer()
+        return
+    message_id = int(callback.data.split(":")[2])
+    broadcast_msg = await ChatBroadcastRepository(session).approve(message_id)
+    if not broadcast_msg:
+        await callback.answer("❌ Уже обработано.", show_alert=True)
+        return
+
+    try:
+        await callback.message.edit_text(
+            (callback.message.text or "") + "\n\n✅ <b>Одобрено</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    chat = await ChatRepository(session).get(broadcast_msg.chat_id)
+    if chat:
+        try:
+            await callback.bot.send_message(
+                chat.owner_user_id,
+                "✅ <b>Твой текст для рассылки одобрен!</b>\n\nОн добавлен в ротацию.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    await callback.answer("✅ Одобрено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("broadcast_mod:reject:"))
+async def cb_broadcast_mod_reject(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer()
+        return
+    message_id = int(callback.data.split(":")[2])
+    result = await ChatBroadcastRepository(session).reject(message_id)
+    if not result:
+        await callback.answer("❌ Уже обработано.", show_alert=True)
+        return
+    chat_id, _text = result
+
+    try:
+        await callback.message.edit_text(
+            (callback.message.text or "") + "\n\n❌ <b>Отклонено</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    chat = await ChatRepository(session).get(chat_id)
+    if chat:
+        try:
+            await callback.bot.send_message(
+                chat.owner_user_id,
+                "❌ <b>Твой текст для рассылки отклонён модератором.</b>\n\nМожешь отправить другой.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
     await callback.answer("❌ Отклонено")

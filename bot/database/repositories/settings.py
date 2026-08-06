@@ -46,6 +46,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "payments_channel_id": "",
     "payments_channel_link": "",
     "admin_channel_id": "",
+    # Custom chat-broadcast texts (and photos/buttons) go here for admin
+    # approve/reject before they can ever be sent by the scheduler.
+    "broadcast_moderation_channel_id": "",
     # game settings
     "game_football_enabled": "1",
     "game_football_min_bet": "1.0",

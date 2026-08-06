@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     admin_channel_id: str = ""
     payments_channel_id: str = ""
     payments_channel_link: str = ""
+    broadcast_moderation_channel_id: str = ""
 
     tgrass_code: str = ""
     botohub_key: str = ""

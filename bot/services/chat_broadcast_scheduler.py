@@ -81,11 +81,14 @@ async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> No
 
 async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
     repo = ChatBroadcastRepository(session)
-    messages = await repo.list_messages(chat.chat_id)
+    messages = await repo.list_approved(chat.chat_id)
     if not messages:
-        # Owner deleted every text after enabling — nothing left to rotate.
-        chat.custom_broadcast_enabled = False
-        await session.commit()
+        # Only disable if there's truly nothing left (everything deleted
+        # or rejected) — a text still awaiting moderation must NOT disable
+        # the chat, it just has nothing to send yet this pass.
+        if await repo.count(chat.chat_id) == 0:
+            chat.custom_broadcast_enabled = False
+            await session.commit()
         return
 
     index = chat.custom_broadcast_next_index % len(messages)

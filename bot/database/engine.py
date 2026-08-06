@@ -205,6 +205,18 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chat_broadcast_messages ADD COLUMN buttons_json TEXT")
         )
+    if "status" not in broadcast_msg_columns:
+        # Existing rows predate moderation and were already live under the
+        # old unmoderated system — grandfather them in as approved. New
+        # rows created via the ORM going forward default to "pending"
+        # (see the model) and require explicit admin approval.
+        connection.execute(
+            text("ALTER TABLE chat_broadcast_messages ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'approved'")
+        )
+    if "moderation_channel_message_id" not in broadcast_msg_columns:
+        connection.execute(
+            text("ALTER TABLE chat_broadcast_messages ADD COLUMN moderation_channel_message_id INTEGER")
+        )
     _ensure_integrity_indexes(connection)
 
 

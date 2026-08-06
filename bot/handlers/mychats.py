@@ -1,12 +1,13 @@
 import logging
+from html import escape
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import Chat
+from bot.database.models import Chat, ChatBroadcastMessage
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_broadcast import (
     MAX_BROADCAST_BUTTONS,
@@ -18,6 +19,7 @@ from bot.database.repositories.chat_broadcast import (
 from bot.database.repositories.chat_promo import ChatPromoRepository
 from bot.database.repositories.game import GameRepository
 from bot.database.repositories.settings import SettingsRepository
+from bot.database.repositories.user import UserRepository
 from bot.handlers.group.chat_bonus import (
     cb_bonus_add_sponsor_start,
     cb_bonus_mode,
@@ -41,6 +43,7 @@ from bot.keyboards.mychats import (
     mychat_panel_kb,
     mychats_list_kb,
 )
+from bot.services.content_moderation import find_banned_term
 from bot.states.group import ChatOwnerBonusStates, ChatOwnerBroadcastStates, ChatOwnerPromoStates
 
 router = Router()
@@ -48,7 +51,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _GAME_LABELS = {"roulette": "Рулетка", "doors": "Двери", "maze": "Лабиринт", "tower": "Башня"}
-_BROADCAST_MAX_TEXTS = 10
+_BROADCAST_MAX_TEXTS = 1
 _BROADCAST_MAX_TEXT_LEN = 1000
 
 
@@ -319,7 +322,8 @@ async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[s
         f"Минимальный интервал: <b>{min_interval} сек.</b>",
     ]
     if messages:
-        lines.append("\nТексты в ротации:")
+        lines.append("\nТексты:")
+        status_icons = {"pending": "⏳ на модерации", "approved": "✅ одобрен"}
         for i, message in enumerate(messages, start=1):
             preview = message.text if len(message.text) <= 60 else message.text[:57] + "..."
             extras = []
@@ -330,7 +334,8 @@ async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[s
             if button_count:
                 extras.append(f"🔘{button_count}")
             extras_str = f" ({', '.join(extras)})" if extras else ""
-            lines.append(f"{i}. {preview}{extras_str}")
+            status = status_icons.get(message.status, message.status)
+            lines.append(f"{i}. {preview}{extras_str} — {status}")
     else:
         lines.append("\nТекстов пока нет — добавь хотя бы один, чтобы включить рассылку.")
 
@@ -387,7 +392,9 @@ async def cb_custom_broadcast_add_start(callback: CallbackQuery, session: AsyncS
     if chat is None:
         return
     if await ChatBroadcastRepository(session).count(chat_id) >= _BROADCAST_MAX_TEXTS:
-        await callback.answer(f"❌ Максимум {_BROADCAST_MAX_TEXTS} текстов.", show_alert=True)
+        await callback.answer(
+            "❌ На один чат — один текст. Удали текущий, чтобы добавить новый.", show_alert=True,
+        )
         return
 
     await state.set_state(ChatOwnerBroadcastStates.enter_text)
@@ -426,6 +433,16 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
     if len(body) > _BROADCAST_MAX_TEXT_LEN:
         await message.answer(
             f"❌ Слишком длинно (максимум {_BROADCAST_MAX_TEXT_LEN} символов):",
+            reply_markup=custom_broadcast_cancel_kb(chat_id),
+        )
+        return
+    if find_banned_term(body):
+        logger.warning(
+            "MYCHATS broadcast text rejected (banned content) chat=%s user=%s",
+            chat_id, message.from_user.id,
+        )
+        await message.answer(
+            "❌ Текст содержит запрещённый контент и не может быть использован. Отправь другой текст:",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -504,13 +521,60 @@ async def cb_custom_broadcast_photos_next(callback: CallbackQuery, session: Asyn
     await callback.answer()
 
 
-async def _save_pending_broadcast(session: AsyncSession, state: FSMContext, chat: Chat) -> None:
+async def _post_broadcast_for_moderation(
+    bot: Bot, session: AsyncSession, chat: Chat, broadcast_msg: ChatBroadcastMessage,
+) -> None:
+    settings_repo = SettingsRepository(session)
+    channel_id = settings.broadcast_moderation_channel_id or await settings_repo.get(
+        "broadcast_moderation_channel_id",
+    )
+    if not channel_id:
+        logger.warning(
+            "Broadcast moderation channel not configured — message %s for chat %s stays pending indefinitely.",
+            broadcast_msg.id, chat.chat_id,
+        )
+        return
+
+    owner = await UserRepository(session).get(chat.owner_user_id)
+    owner_display = f"@{owner.username}" if owner and owner.username else str(chat.owner_user_id)
+    photos = load_photo_ids(broadcast_msg)
+    buttons = load_buttons(broadcast_msg)
+    extra_lines = []
+    if photos:
+        extra_lines.append(f"📸 Фото: {len(photos)}")
+    if buttons:
+        extra_lines.append("🔘 Кнопки:")
+        extra_lines.extend(f"  • {escape(b['text'])} → {escape(b['url'])}" for b in buttons)
+    extras = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
+
+    text = (
+        f"📋 <b>Новый текст рассылки на модерацию</b>\n\n"
+        f"💬 Чат: {escape(chat.title or str(chat.chat_id))} (<code>{chat.chat_id}</code>)\n"
+        f"👤 Владелец: {owner_display} (<code>{chat.owner_user_id}</code>)\n\n"
+        f"Текст:\n<code>{escape(broadcast_msg.text)}</code>"
+        f"{extras}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"broadcast_mod:approve:{broadcast_msg.id}"),
+        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"broadcast_mod:reject:{broadcast_msg.id}"),
+    ]])
+    try:
+        posted = await bot.send_message(int(channel_id), text, parse_mode="HTML", reply_markup=kb)
+        await ChatBroadcastRepository(session).set_moderation_message_id(broadcast_msg.id, posted.message_id)
+    except Exception as exc:
+        logger.warning("Cannot post broadcast message %s for moderation: %s", broadcast_msg.id, exc)
+
+
+async def _save_pending_broadcast(bot: Bot, session: AsyncSession, state: FSMContext, chat: Chat) -> None:
     data = await state.get_data()
     body = data.get("pending_text", "")
     photos = data.get("pending_photos") or []
     buttons = data.get("pending_buttons") or []
-    await ChatBroadcastRepository(session).add_message(chat.chat_id, body, photos or None, buttons or None)
+    broadcast_msg = await ChatBroadcastRepository(session).add_message(
+        chat.chat_id, body, photos or None, buttons or None,
+    )
     await state.clear()
+    await _post_broadcast_for_moderation(bot, session, chat, broadcast_msg)
 
 
 async def _finalize_broadcast_text(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
@@ -524,9 +588,9 @@ async def _finalize_broadcast_text(callback: CallbackQuery, session: AsyncSessio
         await callback.answer()
         return
 
-    await _save_pending_broadcast(session, state, chat)
+    await _save_pending_broadcast(callback.bot, session, state, chat)
     await _render_broadcast_panel(callback, session, chat)
-    await callback.answer("✅ Текст добавлен.")
+    await callback.answer("⏳ Текст отправлен на модерацию.")
 
 
 @router.callback_query(ChatOwnerBroadcastStates.ask_buttons, F.data.startswith("mychats:custombc:buttons:no:"))
@@ -583,13 +647,23 @@ async def msg_custom_broadcast_button(message: Message, session: AsyncSession, s
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
+    if find_banned_term(label):
+        logger.warning(
+            "MYCHATS broadcast button rejected (banned content) chat=%s user=%s",
+            chat_id, message.from_user.id,
+        )
+        await message.answer(
+            "❌ Текст кнопки содержит запрещённый контент. Отправь другой:",
+            reply_markup=custom_broadcast_cancel_kb(chat_id),
+        )
+        return
 
     buttons = (data.get("pending_buttons") or []) + [{"text": label, "url": url}]
     await state.update_data(pending_buttons=buttons)
 
     if len(buttons) >= MAX_BROADCAST_BUTTONS:
-        await _save_pending_broadcast(session, state, chat)
-        await message.answer("✅ Текст добавлен.")
+        await _save_pending_broadcast(message.bot, session, state, chat)
+        await message.answer("⏳ Текст отправлен на модерацию.")
         await _send_broadcast_panel(message, session, chat)
         return
     await message.answer(
@@ -654,9 +728,8 @@ async def msg_custom_broadcast_interval(message: Message, session: AsyncSession,
     chat.custom_broadcast_interval_seconds = seconds
     await session.commit()
     await state.clear()
-    messages = await ChatBroadcastRepository(session).list_messages(chat_id)
-    kb = custom_broadcast_panel_kb(chat_id, messages, chat.custom_broadcast_enabled)
-    await message.answer(f"✅ Интервал установлен: {seconds} сек.", reply_markup=kb)
+    await message.answer(f"✅ Интервал установлен: {seconds} сек.")
+    await _send_broadcast_panel(message, session, chat)
 
 
 @router.callback_query(F.data.startswith("mychats:custombc:toggle:"))
@@ -673,9 +746,11 @@ async def cb_custom_broadcast_toggle(callback: CallbackQuery, session: AsyncSess
         return
 
     if not chat.custom_broadcast_enabled:
-        count = await ChatBroadcastRepository(session).count(chat_id)
-        if count == 0:
-            await callback.answer("❌ Сначала добавь хотя бы один текст.", show_alert=True)
+        approved = await ChatBroadcastRepository(session).count_approved(chat_id)
+        if approved == 0:
+            await callback.answer(
+                "❌ Нужен хотя бы один одобренный модератором текст.", show_alert=True,
+            )
             return
         if not chat.custom_broadcast_interval_seconds:
             await callback.answer("❌ Сначала задай интервал.", show_alert=True)
