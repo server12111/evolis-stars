@@ -17,7 +17,7 @@ async def _send_content(
     through PremiumEmojiMiddleware and gets the same premium-emoji
     decoration as every other bot-authored message — copy_message has no
     text/caption field for the middleware to rewrite."""
-    caption = message.caption_html if message.caption else None
+    caption = message.html_text if message.caption else None
     if message.photo:
         await bot.send_photo(chat_id, message.photo[-1].file_id, caption=caption, parse_mode="HTML", reply_markup=reply_markup)
     elif message.video:

@@ -8,16 +8,20 @@ from bot.services.broadcast import broadcast
 def _text_message():
     return SimpleNamespace(
         photo=None, video=None, document=None, animation=None,
-        text="Hello ⭐", html_text="Hello ⭐", caption=None, caption_html=None,
+        text="Hello ⭐", html_text="Hello ⭐", caption=None,
         copy_to=AsyncMock(),
     )
 
 
 def _photo_message():
+    # Real aiogram Message objects have no `caption_html` attribute — only
+    # `html_text`, which falls back to caption/caption_entities when `text`
+    # is empty. A mock that defines `caption_html` would mask a call to a
+    # nonexistent attribute that raises AttributeError for real messages.
     return SimpleNamespace(
         photo=[SimpleNamespace(file_id="f1"), SimpleNamespace(file_id="f2")],
         video=None, document=None, animation=None,
-        text=None, html_text=None, caption="caption text", caption_html="caption <b>text</b>",
+        text=None, html_text="caption <b>text</b>", caption="caption text",
         copy_to=AsyncMock(),
     )
 
@@ -25,7 +29,7 @@ def _photo_message():
 def _voice_message():
     return SimpleNamespace(
         photo=None, video=None, document=None, animation=None,
-        text=None, html_text=None, caption=None, caption_html=None,
+        text=None, html_text=None, caption=None,
         copy_to=AsyncMock(),
     )
 
