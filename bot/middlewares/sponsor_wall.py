@@ -217,7 +217,7 @@ async def _reinstate_expired_pinned_sponsors(
 
         chat_id = telegram_chat_id(item.get("url"))
         if chat_id is None:
-            continue  # not a t.me link — no independent way to verify a web sponsor
+            continue  # not independently verifiable (bot/private-invite/web) — trust the provider
         subscribed = await _check_membership_cached(bot, chat_id, db_user.user_id, cache)
         # Reinstate unless our own bot can POSITIVELY confirm membership.
         # For most sponsor channels the bot has no visibility at all (it's
@@ -260,6 +260,10 @@ async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | Non
         return []
     outcomes = await asyncio.gather(
         *(fh_check_task_op(api_key, ref) for ref in refs), return_exceptions=True,
+    )
+    logger.info(
+        "FlyerHub recheck raw outcomes: %s",
+        {ref: (str(outcome) if not isinstance(outcome, BaseException) else f"ERR:{outcome}") for ref, outcome in zip(refs, outcomes)},
     )
     statuses: dict[str, bool] = {}
     any_resolved = False
