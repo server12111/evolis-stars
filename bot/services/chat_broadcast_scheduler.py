@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 
 from bot.database.engine import SessionFactory
@@ -100,8 +101,31 @@ async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
         return
 
     index = chat.custom_broadcast_next_index % len(messages)
+    message = messages[index]
     try:
-        await _dispatch(bot, chat.chat_id, messages[index])
+        await _dispatch(bot, chat.chat_id, message)
+    except TelegramBadRequest as exc:
+        # A malformed button URL, banned content, etc. -- Telegram will
+        # reject this exact same message on every future pass too, so
+        # retrying it forever (the old behaviour) would spam an identical
+        # warning every 30s and starve every other message in this chat's
+        # rotation. Drop it and tell the owner why, same as a moderator
+        # rejecting it, instead of looping on it permanently.
+        logger.warning(
+            "Custom broadcast permanently rejected by Telegram, dropping message %s in chat %s: %s",
+            message.id, chat.chat_id, exc,
+        )
+        await repo.delete_message(chat.chat_id, message.id)
+        if chat.owner_user_id:
+            try:
+                await bot.send_message(
+                    chat.owner_user_id,
+                    f"❌ Рассылка в чате не отправилась и была удалена: {exc}\n\n"
+                    f"Проверьте текст/кнопки (ссылки должны вести на настоящий сайт или t.me) и отправьте заново.",
+                )
+            except Exception:
+                pass
+        return
     except Exception as exc:
         logger.warning("Cannot send custom broadcast into chat %s: %s", chat.chat_id, exc)
         return

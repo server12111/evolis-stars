@@ -504,6 +504,29 @@ class HandlerAccessControlTests(ChatModelsTestCase):
         data = await state.get_data()
         self.assertEqual(data["pending_buttons"], [])
 
+    async def test_button_url_without_a_real_domain_is_rejected(self) -> None:
+        """Regression: "https://EvolisStarsBot" (a chat owner meaning a
+        link to the bot, missing "t.me/") passed the old prefix-only check
+        and got saved -- Telegram then rejected it as "Wrong HTTP URL" on
+        every single broadcast attempt forever. Must be caught at input
+        time instead."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(ChatOwnerBroadcastStates.enter_button)
+        await state.update_data(chat_id=-1, pending_text="X", pending_buttons=[])
+
+        msg = _text_message(1, "Open - https://EvolisStarsBot")
+        async with self.sessions() as session:
+            await msg_custom_broadcast_button(msg, session, state)
+
+        msg.answer.assert_awaited_once()
+        self.assertIn("Неверный формат", msg.answer.await_args.args[0])
+        data = await state.get_data()
+        self.assertEqual(data["pending_buttons"], [])
+
     async def test_third_button_auto_finalizes(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
@@ -960,6 +983,49 @@ class SchedulerTests(ChatModelsTestCase):
         async with self.sessions() as session:
             chat = await session.get(Chat, -1)
         self.assertFalse(chat.custom_broadcast_enabled)
+
+    async def test_permanently_rejected_message_is_dropped_and_owner_notified(self) -> None:
+        """Regression: a bad button URL (e.g. a chat owner typing
+        "https://MyBot" instead of "https://t.me/MyBot") makes Telegram
+        reject the SAME message every single pass forever -- the old code
+        just logged a warning and retried it next time, permanently
+        starving every other message in the chat's rotation and spamming
+        identical warnings. It must be dropped and the owner told why."""
+        from aiogram.exceptions import TelegramBadRequest
+
+        async with self.sessions() as session:
+            session.add(User(user_id=1, first_name="Owner"))
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=60,
+            ))
+            await session.commit()
+        bad = await self._add_approved_message(-1, "buy now", buttons=[{"text": "Open", "url": "https://EvolisStarsBot"}])
+        await self._add_approved_message(-1, "second, fine")
+
+        error = TelegramBadRequest(
+            method=SimpleNamespace(),
+            message="Bad Request: inline keyboard button URL 'https://EvolisStarsBot' is invalid: Wrong HTTP URL",
+        )
+        bot = SimpleNamespace(send_message=AsyncMock(side_effect=[error, SimpleNamespace(message_id=1)]))
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+            await _send_one(bot, session, chat, datetime.utcnow())
+
+        # Owner got a DM explaining the failure (first send_message call
+        # was the doomed broadcast attempt itself, second is the owner DM).
+        self.assertEqual(bot.send_message.await_count, 2)
+        owner_dm_args = bot.send_message.await_args_list[1].args
+        self.assertEqual(owner_dm_args[0], 1)
+        self.assertIn("не отправилась", owner_dm_args[1])
+
+        async with self.sessions() as session:
+            remaining = await ChatBroadcastRepository(session).list_approved(-1)
+            chat = await session.get(Chat, -1)
+        # The bad message is gone; the chat stays enabled so the good one
+        # keeps rotating on subsequent passes instead of getting disabled.
+        self.assertNotIn(bad.id, [m.id for m in remaining])
+        self.assertTrue(chat.custom_broadcast_enabled)
 
     async def test_run_pass_only_sends_to_due_chats(self) -> None:
         now = datetime.utcnow()

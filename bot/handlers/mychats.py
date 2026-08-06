@@ -1,5 +1,6 @@
 import logging
 from html import escape
+from urllib.parse import urlparse
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -675,9 +676,16 @@ async def msg_custom_broadcast_button(message: Message, session: AsyncSession, s
     label, _, url = raw.partition(" - ")
     label = label.strip()
     url = url.strip()
-    if not label or not url or not url.startswith(("http://", "https://")):
+    # Telegram rejects the button (and the WHOLE send) at delivery time for
+    # a host with no real TLD -- e.g. a chat owner typing "https://MyBot"
+    # meaning a link to the bot, instead of "https://t.me/MyBot". That
+    # failure only ever surfaces later as a silent per-broadcast-attempt
+    # warning in the scheduler, so catch it here instead.
+    parsed_url = urlparse(url) if url.startswith(("http://", "https://")) else None
+    if not label or not parsed_url or not parsed_url.netloc or "." not in parsed_url.netloc:
         await message.answer(
-            "❌ Неверный формат. Отправь так:\nТекст кнопки - https://ссылка",
+            "❌ Неверный формат. Отправь так:\nТекст кнопки - https://ссылка\n\n"
+            "Ссылка должна вести на настоящий сайт или t.me (например, https://t.me/EvolisStarsBot, а не https://EvolisStarsBot):",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
