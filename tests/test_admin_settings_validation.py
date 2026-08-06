@@ -71,6 +71,39 @@ class MinesHouseEdgeValidationTests(ChatModelsTestCase):
         self.assertEqual(saved, "15.0")
 
 
+class BonusMinMaxOrderingValidationTests(ChatModelsTestCase):
+    async def test_setting_min_above_current_max_is_rejected(self) -> None:
+        message = _message("5")
+        state = _state({"setting_key": "bonus_min"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("bonus_min", "unset")
+        self.assertIn("не может быть больше макс", message.answer.await_args.args[0])
+        self.assertEqual(saved, "0.1")  # default never overwritten by the rejected "5"
+
+    async def test_setting_max_below_current_min_is_rejected(self) -> None:
+        message = _message("0.01")
+        state = _state({"setting_key": "bonus_max"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("bonus_max", "unset")
+        self.assertIn("не может быть меньше мин", message.answer.await_args.args[0])
+        self.assertEqual(saved, "1.0")  # default never overwritten by the rejected "0.01"
+
+    async def test_valid_min_max_pair_is_accepted(self) -> None:
+        message_min = _message("0.2")
+        state_min = _state({"setting_key": "bonus_min"})
+        message_max = _message("2.0")
+        state_max = _state({"setting_key": "bonus_max"})
+        async with self.sessions() as session:
+            await msg_setting_value(message_min, state_min, session, _admin())
+            await msg_setting_value(message_max, state_max, session, _admin())
+            saved_min = await SettingsRepository(session).get("bonus_min", "unset")
+            saved_max = await SettingsRepository(session).get("bonus_max", "unset")
+        self.assertEqual(saved_min, "0.2")
+        self.assertEqual(saved_max, "2.0")
+
+
 class GameCoeffValidationTests(ChatModelsTestCase):
     async def test_coefficient_above_100_is_rejected_as_likely_typo(self) -> None:
         message = _message("200")

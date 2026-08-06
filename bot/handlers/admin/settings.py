@@ -175,6 +175,22 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
             reply_markup=settings_cancel_kb(),
         )
         return
+    if key == "bonus_min":
+        current_max = await repo.get_float("bonus_max", 1.0)
+        if val > current_max:
+            await message.answer(
+                f"❌ Мин. бонус не может быть больше макс. ({current_max}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
+    if key == "bonus_max":
+        current_min = await repo.get_float("bonus_min", 0.1)
+        if val < current_min:
+            await message.answer(
+                f"❌ Макс. бонус не может быть меньше мин. ({current_min}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
     await state.clear()
     stored_value = str(int(val)) if key in integer_keys else str(val)
     await repo.set(key, stored_value)
