@@ -229,7 +229,10 @@ class VcSubscriptionGateTests(DbTestCase):
         async with self.sessions() as session:
             session.add(db_user_row(1))
             await session.commit()
-            with patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"):
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
                 await cb_vc_confirm(cb, db_user(), session, state, bot)
 
         bot.send_message.assert_awaited_once()
@@ -251,7 +254,10 @@ class VcSubscriptionGateTests(DbTestCase):
             await session.commit()
             from bot.database.repositories.settings import SettingsRepository
             await SettingsRepository(session).set("vc_mandatory_channel", "")
-            with patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"):
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
                 await cb_vc_confirm(cb, db_user(), session, state, bot)
 
         bot.send_message.assert_awaited_once()
@@ -275,7 +281,10 @@ class VcSubscriptionGateTests(DbTestCase):
         async with self.sessions() as session:
             session.add(db_user_row(1))
             await session.commit()
-            with patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"):
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
                 await cb_vc_check_sub(cb, db_user(), session, state, bot)
         bot.send_message.assert_awaited_once()
 
@@ -298,7 +307,10 @@ class VcFinalizeTests(DbTestCase):
         async with self.sessions() as session:
             session.add(db_user_row(10, balance="1000"))
             await session.commit()
-            with patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"):
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
                 await cb_vc_confirm(cb, db_user(user_id=10), session, state, bot)
 
         async with self.sessions() as session:
@@ -335,7 +347,10 @@ class VcFinalizeTests(DbTestCase):
         async with self.sessions() as session:
             session.add(db_user_row(12))
             await session.commit()
-            with patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"):
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
                 await cb_vc_confirm(cb, db_user(user_id=12), session, state, bot)
 
         async with self.sessions() as session:
@@ -343,6 +358,40 @@ class VcFinalizeTests(DbTestCase):
             count = (await session.execute(select(func.count(VcWithdrawal.id)))).scalar_one()
         self.assertEqual(float(saved_user.stars_balance), 1000.0)  # debited then refunded
         self.assertEqual(count, 0)
+
+    async def test_posts_to_payments_channel_when_configured_and_uses_display_number(self) -> None:
+        cb = callback("vcwithdraw:confirm")
+        state = await self._confirmed_state()
+        bot = SimpleNamespace(
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+            send_message=AsyncMock(side_effect=[
+                SimpleNamespace(message_id=77),  # payments channel
+                SimpleNamespace(message_id=88),  # admin channel
+            ]),
+        )
+        async with self.sessions() as session:
+            session.add(db_user_row(14))
+            await session.commit()
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", "-100888"),
+            ):
+                await cb_vc_confirm(cb, db_user(user_id=14), session, state, bot)
+
+        self.assertEqual(bot.send_message.await_count, 2)
+        payments_call, admin_call = bot.send_message.await_args_list
+        self.assertEqual(payments_call.args[0], -100888)
+        self.assertEqual(admin_call.args[0], -100999)
+        # Same request text goes to both channels, numbered #1 (first-ever
+        # allocation in this fresh in-memory test DB).
+        self.assertIn("#1", payments_call.args[1])
+        self.assertIn("#1", admin_call.args[1])
+
+        async with self.sessions() as session:
+            withdrawals = (await session.execute(select(VcWithdrawal))).scalars().all()
+        self.assertEqual(withdrawals[0].channel_message_id, 77)
+        self.assertEqual(withdrawals[0].admin_message_id, 88)
+        self.assertEqual(withdrawals[0].display_number, 1)
 
     async def test_admin_tightened_max_after_confirm_screen_blocks_stale_amount(self) -> None:
         """State was set with vc_amount=10000 while max was 500000; if an
@@ -477,6 +526,42 @@ class VcAdminApproveRejectTests(DbTestCase):
         cb.answer.assert_awaited_once()
         self.assertIn("уже обработана", cb.answer.await_args.args[0])
         cb.bot.send_message.assert_not_awaited()
+
+
+class CrossCurrencyNumberingTests(DbTestCase):
+    async def test_stars_and_vc_withdrawals_share_one_sequence(self) -> None:
+        """A Stars withdrawal followed by a VC withdrawal must NOT both come
+        out as "#1" -- they draw from the same shared counter, not each
+        table's own independent autoincrement id."""
+        from bot.database.repositories.withdrawal import WithdrawalRepository
+        from bot.services.withdrawal_numbering import next_withdrawal_number
+
+        async with self.sessions() as session:
+            stars_repo = WithdrawalRepository(session)
+            stars_w = await stars_repo.create(1, 15.0, "tester", "fragment", Decimal("45"))
+            stars_w.display_number = await next_withdrawal_number(session)
+            await session.commit()
+            stars_number = stars_w.display_number
+
+        cb = callback("vcwithdraw:confirm")
+        state = FakeState({"vc_amount": 10_000, "vc_rate": "1000", "vc_rp_cost": "10"})
+        bot = SimpleNamespace(
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+            send_message=AsyncMock(return_value=SimpleNamespace(message_id=1)),
+        )
+        async with self.sessions() as session:
+            session.add(db_user_row(15))
+            await session.commit()
+            with (
+                patch("bot.handlers.vc_withdraw.settings.admin_channel_id", "-100999"),
+                patch("bot.handlers.vc_withdraw.settings.payments_channel_id", ""),
+            ):
+                await cb_vc_confirm(cb, db_user(user_id=15), session, state, bot)
+
+        async with self.sessions() as session:
+            vc_w = (await session.execute(select(VcWithdrawal))).scalars().one()
+        self.assertEqual(stars_number, 1)
+        self.assertEqual(vc_w.display_number, 2)
 
 
 class WithdrawMethodChoiceTests(unittest.IsolatedAsyncioTestCase):

@@ -170,6 +170,29 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE withdrawals ADD COLUMN rp_debited NUMERIC(14,2)")
         )
+    if "display_number" not in withdrawal_columns:
+        connection.execute(
+            text("ALTER TABLE withdrawals ADD COLUMN display_number INTEGER")
+        )
+        # Historically `id` itself was shown to admins/users as "Заявка
+        # #N" -- backfill so every pre-existing row keeps the number it was
+        # already shown under.
+        connection.execute(text("UPDATE withdrawals SET display_number = id WHERE display_number IS NULL"))
+    vc_withdrawals_exists = inspect(connection).has_table("vc_withdrawals")
+    if vc_withdrawals_exists:
+        vc_withdrawal_columns = {
+            column["name"] for column in inspect(connection).get_columns("vc_withdrawals")
+        }
+        if "display_number" not in vc_withdrawal_columns:
+            connection.execute(
+                text("ALTER TABLE vc_withdrawals ADD COLUMN display_number INTEGER")
+            )
+            connection.execute(text("UPDATE vc_withdrawals SET display_number = id WHERE display_number IS NULL"))
+        if "channel_message_id" not in vc_withdrawal_columns:
+            connection.execute(
+                text("ALTER TABLE vc_withdrawals ADD COLUMN channel_message_id INTEGER")
+            )
+    _seed_withdrawal_counter(connection)
     if "username" not in chat_columns:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN username VARCHAR(64)")
@@ -252,6 +275,25 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(text("DROP TABLE blocked_sponsor_urls"))
         connection.execute(text("ALTER TABLE blocked_sponsor_urls_new RENAME TO blocked_sponsor_urls"))
     _ensure_integrity_indexes(connection)
+
+
+def _seed_withdrawal_counter(connection) -> None:
+    """One-time seed of the shared withdrawal_counters row (id=1) so newly
+    allocated display_numbers (see bot/services/withdrawal_numbering.py)
+    start above every number already shown to admins historically -- from
+    either currency's table -- instead of restarting at 1 and colliding
+    with an old post still visible in the channel."""
+    existing = connection.execute(text("SELECT 1 FROM withdrawal_counters WHERE id = 1")).first()
+    if existing is not None:
+        return
+    max_stars = connection.execute(text("SELECT COALESCE(MAX(id), 0) FROM withdrawals")).scalar() or 0
+    max_vc = 0
+    if inspect(connection).has_table("vc_withdrawals"):
+        max_vc = connection.execute(text("SELECT COALESCE(MAX(id), 0) FROM vc_withdrawals")).scalar() or 0
+    connection.execute(
+        text("INSERT INTO withdrawal_counters (id, value) VALUES (1, :v)"),
+        {"v": max(max_stars, max_vc)},
+    )
 
 
 def _ensure_integrity_indexes(connection) -> None:

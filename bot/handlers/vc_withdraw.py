@@ -19,8 +19,10 @@ from bot.keyboards.vc_withdraw import (
     vc_withdraw_confirm_kb,
     vc_withdraw_subscribe_kb,
 )
+from bot.keyboards.withdraw import payments_channel_kb
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
+from bot.services.withdrawal_numbering import next_withdrawal_number
 from bot.states.vc_withdraw import VcWithdrawStates
 
 router = Router()
@@ -283,6 +285,9 @@ async def _finalize_vc_withdrawal(
         await callback.answer()
         return
 
+    payments_channel_id = settings.payments_channel_id or await repo.get("payments_channel_id")
+    payments_link = settings.payments_channel_link or await repo.get("payments_channel_link")
+
     # Captured now, not re-read off db_user later — a rollback below (if
     # the admin-channel send fails) expires the whole identity map, and
     # accessing an expired attribute outside an active await crashes an
@@ -296,17 +301,29 @@ async def _finalize_vc_withdrawal(
 
     w_repo = VcWithdrawalRepository(session)
     withdrawal = await w_repo.create(user_id, Decimal(amount), rate, rp_cost)
+    withdrawal.display_number = await next_withdrawal_number(session)
 
     vip_badge = " 💎 VIP" if db_user.is_vip else ""
     user_display = f"@{escape(db_user.username)}" if db_user.username else str(db_user.user_id)
     request_text = (
-        f"💎 <b>Новая заявка на вывод VC #{withdrawal.id}</b>{vip_badge}\n\n"
+        f"💎 <b>Новая заявка на вывод VC #{withdrawal.display_number}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {user_display} | ID: <code>{db_user.user_id}</code>\n"
         f"💎 Получит: <b>{amount} VC</b>\n"
         f"🔄 Курс: 1 RP⭐️ = {_fmt_rate(rate)} VC\n"
         f"💰 Списано: <b>{rp_cost} RP⭐️</b>\n"
         f"⏳ Статус: На рассмотрении"
     )
+
+    # Send to public payments channel first (mirrors withdraw.py's stars
+    # flow) -- same channel, so admins and users see both currencies as one
+    # continuous stream instead of VC requests being invisible there.
+    ch_msg_id = None
+    if payments_channel_id:
+        try:
+            msg = await bot.send_message(int(payments_channel_id), request_text, parse_mode="HTML")
+            ch_msg_id = msg.message_id
+        except Exception as e:
+            logger.warning("Cannot send VC withdrawal to payments channel %s: %s", payments_channel_id, e)
 
     adm_msg_id = None
     try:
@@ -325,6 +342,11 @@ async def _finalize_vc_withdrawal(
         # RP⭐️ vanishes with no withdrawal ever created for it.
         await session.rollback()
         await credit_stars(session, user_id, rp_cost)
+        if ch_msg_id and payments_channel_id:
+            try:
+                await bot.delete_message(int(payments_channel_id), ch_msg_id)
+            except Exception:
+                pass
         await callback.message.answer(
             "⚠️ Не удалось передать заявку администраторам. RP⭐️ не списаны, попробуйте позже.",
             reply_markup=back_to_menu_kb(),
@@ -332,14 +354,16 @@ async def _finalize_vc_withdrawal(
         await callback.answer()
         return
 
+    withdrawal.channel_message_id = ch_msg_id
     withdrawal.admin_message_id = adm_msg_id
     await session.commit()
 
+    kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await callback.message.answer(
-        f"✅ <b>Заявка #{withdrawal.id} создана!</b>\n\n"
+        f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
         f"Вам пришлют: <b>{amount} VC</b>\n"
         f"Ожидайте обработки.",
         parse_mode="HTML",
-        reply_markup=back_to_menu_kb(),
+        reply_markup=kb,
     )
     await callback.answer()

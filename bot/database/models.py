@@ -183,6 +183,13 @@ class Withdrawal(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / approved / rejected
+    # "Заявка #N" as shown to the user/admins — allocated from the shared
+    # WithdrawalCounter (see bot/services/withdrawal_numbering.py) so Stars
+    # and VC requests share ONE continuous sequence instead of each table's
+    # own autoincrement `id` colliding with the other's. Nullable only for
+    # rows created before this existed (backfilled to their own `id`, which
+    # is what was already shown to admins for them historically).
+    display_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     admin_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -223,9 +230,24 @@ class VcWithdrawal(Base):
     rate: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     rp_debited: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / approved / rejected
+    # Shares one sequence with Withdrawal.display_number — see that field's
+    # own comment.
+    display_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     admin_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# ─── WithdrawalCounter ────────────────────────────────────────────────────────
+# Single-row (id=1) shared sequence backing Withdrawal.display_number and
+# VcWithdrawal.display_number — see those fields' own comments.
+
+class WithdrawalCounter(Base):
+    __tablename__ = "withdrawal_counters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    value: Mapped[int] = mapped_column(Integer, default=0)
 
 
 # ─── PromoCode ────────────────────────────────────────────────────────────────

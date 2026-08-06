@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import Withdrawal
+from bot.database.models import VcWithdrawal, Withdrawal
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
 from bot.database.repositories.settings import SettingsRepository
@@ -61,7 +61,7 @@ async def _update_public_withdrawal_status(
         method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
         method_line = f"🔧 Способ вывода: <b>{method_label}</b>\n"
     text = (
-        f"📌 <b>Запрос на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
+        f"📌 <b>Запрос на вывод #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
         f"💫 Получит: <b>{float(withdrawal.amount):.0f} Telegram ⭐</b>\n"
         f"{method_line}"
@@ -77,6 +77,48 @@ async def _update_public_withdrawal_status(
     except Exception as exc:
         logger.warning(
             "Cannot update withdrawal %s in payments channel %s: %s",
+            withdrawal.id,
+            payments_channel_id,
+            exc,
+        )
+
+
+async def _update_public_vc_withdrawal_status(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    withdrawal: VcWithdrawal,
+    status: str,
+    status_icon: str,
+) -> None:
+    if not withdrawal.channel_message_id:
+        return
+
+    payments_channel_id = (
+        settings.payments_channel_id
+        or await SettingsRepository(session).get("payments_channel_id")
+    )
+    if not payments_channel_id:
+        return
+
+    user = await UserRepository(session).get(withdrawal.user_id)
+    user_display = f"@{html.escape(user.username)}" if user and user.username else str(withdrawal.user_id)
+    vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    text = (
+        f"💎 <b>Запрос на вывод VC #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
+        f"👤 Пользователь: {user_display} | ID: <code>{withdrawal.user_id}</code>\n"
+        f"💎 Получит: <b>{float(withdrawal.vc_amount):.0f} VC</b>\n"
+        f"{status_icon} Статус: <b>{status}</b>"
+    )
+    try:
+        await callback.bot.edit_message_text(
+            chat_id=int(payments_channel_id),
+            message_id=withdrawal.channel_message_id,
+            text=text,
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Cannot update VC withdrawal %s in payments channel %s: %s",
             withdrawal.id,
             payments_channel_id,
             exc,
@@ -104,7 +146,7 @@ async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession) ->
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nВы получите: <b>{float(w.amount):.0f} Telegram ⭐</b>\nСкоро вы получите выплату.",
+            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.amount):.0f} Telegram ⭐</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
@@ -137,7 +179,7 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> 
         rp_debited = w.rp_debited if w.rp_debited is not None else w.amount * 3
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\n"
+            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
             f"Списанные <b>{float(rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
@@ -167,11 +209,12 @@ async def cb_vcwithdraw_approve(callback: CallbackQuery, session: AsyncSession) 
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} VC</b>\nСкоро вы получите выплату.",
+            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} VC</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
         pass
+    await _update_public_vc_withdrawal_status(callback, session, w, "Принято", "✅")
     await callback.answer("✅ Одобрено")
 
 
@@ -198,12 +241,13 @@ async def cb_vcwithdraw_reject(callback: CallbackQuery, session: AsyncSession) -
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\n"
+            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
             f"Списанные <b>{float(w.rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
     except Exception:
         pass
+    await _update_public_vc_withdrawal_status(callback, session, w, "Отклонено", "❌")
     await callback.answer("❌ Отклонено")
 
 

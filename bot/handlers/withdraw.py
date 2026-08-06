@@ -26,6 +26,7 @@ from bot.keyboards.withdraw import (
 )
 from bot.services.captcha import generate_captcha
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough
+from bot.services.withdrawal_numbering import next_withdrawal_number
 from bot.states.withdraw import WithdrawStates
 
 router = Router()
@@ -397,6 +398,7 @@ async def msg_captcha(
     withdrawal = await w_repo.create(
         user_id, float(amount), recipient_username, withdrawal_method, rp_needed,
     )
+    withdrawal.display_number = await next_withdrawal_number(session)
 
     username_display = f"@{escape(recipient_username)}"
     gift_note = (
@@ -414,7 +416,7 @@ async def msg_captcha(
         if amount >= _METHOD_CHOICE_THRESHOLD else ""
     )
     request_text = (
-        f"📌 <b>Новая заявка на вывод #{withdrawal.id}</b>{vip_badge}\n\n"
+        f"📌 <b>Новая заявка на вывод #{withdrawal.display_number}</b>{vip_badge}\n\n"
         f"👤 Пользователь: @{escape(db_user.username) if db_user.username else db_user.user_id} | ID: <code>{db_user.user_id}</code>\n"
         f"🎁 Получатель: {username_display}{gift_note}\n"
         f"💫 Получит: <b>{amount} Telegram ⭐</b>\n"
@@ -474,7 +476,7 @@ async def msg_captcha(
 
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await message.answer(
-        f"✅ <b>Заявка #{withdrawal.id} создана!</b>\n\n"
+        f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
         f"Получите: <b>{amount} Telegram ⭐</b>\n"
         f"Ожидайте рассмотрения администратором.",
         parse_mode="HTML",
