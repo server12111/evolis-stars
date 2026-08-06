@@ -243,7 +243,16 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
     statuses = await check_traffy_tasks(api_key, user_id, refs)
     if statuses is None:
         return None
-    return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]
+    # Traffy's /tasks/check omits assignment_ids it no longer recognizes
+    # (expired/not_found/telegram_id_mismatch per its docs) rather than
+    # returning them with some explicit terminal status -- the same class
+    # of "stuck forever" bug fixed for FlyerHub's "unavailable" above.
+    # A ref missing from the response is treated as resolved, not as
+    # still pending, or the user could never clear it from the wall.
+    return [
+        item for item in saved
+        if str(item.get("ref", "")) in statuses and not statuses[str(item.get("ref", ""))]
+    ]
 
 
 async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | None:

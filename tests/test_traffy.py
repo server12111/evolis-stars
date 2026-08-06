@@ -116,6 +116,19 @@ class CheckTraffyTasksTests(unittest.IsolatedAsyncioTestCase):
             statuses = await check_traffy_tasks("key", 123, ["a", "b", "c"])
         self.assertEqual(statuses, {"a": True, "b": False, "c": False})
 
+    async def test_assignment_id_absent_from_results_is_absent_from_the_returned_dict(self) -> None:
+        """An id the API no longer recognizes (expired/not_found/mismatch)
+        is simply omitted from `results` -- callers must be able to tell
+        that apart from a recognized-but-incomplete id, so it must not be
+        silently defaulted to False in the returned dict."""
+        with _patched(_Response(200, {
+            "ok": True,
+            "results": [{"assignment_id": "a", "status": "completed"}],
+        })):
+            statuses = await check_traffy_tasks("key", 123, ["a", "b"])
+        self.assertEqual(statuses, {"a": True})
+        self.assertNotIn("b", statuses)
+
     async def test_http_error_returns_none(self) -> None:
         with _patched(_Response(500, {})):
             self.assertIsNone(await check_traffy_tasks("key", 123, ["a"]))

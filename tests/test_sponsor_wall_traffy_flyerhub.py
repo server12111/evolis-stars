@@ -156,6 +156,30 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(state.status, "pending")
 
+    async def test_ref_missing_from_response_resolves_instead_of_trapping_the_user(self) -> None:
+        """Traffy's /tasks/check omits assignment_ids it no longer
+        recognizes (expired/not_found/telegram_id_mismatch) instead of
+        returning some explicit terminal status -- same "unavailable"
+        class of bug as FlyerHub, discovered live: a user's traffy count
+        stayed stuck across 13+ minutes and many "check" presses."""
+        session = fake_session()
+        frozen = frozen_user(
+            [{"provider": "traffy", "url": "https://t.me/tf0", "name": "TF", "ref": "assign-0"}]
+        )
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", "traffy-key"),
+            patch.object(settings, "flyerhub_op_key", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.traffy.check_traffy_tasks", AsyncMock(return_value={})),
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        self.assertEqual(state.status, "complete")
+
     async def test_check_failure_reports_unavailable_not_complete(self) -> None:
         session = fake_session()
         frozen = frozen_user(

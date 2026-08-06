@@ -136,13 +136,21 @@ async def check_traffy_tasks(
                         logger.warning("Traffy check_tasks returned invalid results")
                         return None
                     statuses: dict[str, bool] = {}
+                    raw: dict[str, str] = {}
                     for item in results:
                         if not isinstance(item, dict):
                             continue
                         assignment_id = str(item.get("assignment_id", ""))
                         if not assignment_id:
                             continue
-                        statuses[assignment_id] = str(item.get("status", "")) in _COMPLETED_STATUSES
+                        status = str(item.get("status", ""))
+                        raw[assignment_id] = status
+                        statuses[assignment_id] = status in _COMPLETED_STATUSES
+                    missing = [aid for aid in assignment_ids if aid not in raw]
+                    logger.info(
+                        "Traffy check_tasks raw statuses: %s; missing from response: %s",
+                        raw, missing,
+                    )
                     return statuses
         except Exception as e:
             # Retry -- same reasoning as get_traffy_tasks above.
