@@ -179,7 +179,7 @@ class FlyerhubOpKeyIsolationTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.flyerhub.fh_get_tasks", AsyncMock(return_value=[])) as get_tasks,
+            patch("bot.services.flyerhub.fh_get_tasks_op", AsyncMock(return_value=[])) as get_tasks,
         ):
             await _evaluate_wave_state(inner(), user(), session)
 
@@ -197,7 +197,7 @@ class FlyerhubOpKeyIsolationTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=offers("tg", 1))),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.flyerhub.fh_get_tasks", AsyncMock()) as get_tasks,
+            patch("bot.services.flyerhub.fh_get_tasks_op", AsyncMock()) as get_tasks,
         ):
             state = await _evaluate_wave_state(inner(), user(), session)
 
@@ -225,7 +225,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.flyerhub.fh_check_task", AsyncMock(return_value="incomplete")),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="incomplete")),
         ):
             state = await _evaluate_wave_state(inner(), frozen, session, bot)
 
@@ -246,7 +246,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.flyerhub.fh_check_task", AsyncMock(return_value="complete")),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="complete")),
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
 
@@ -265,7 +265,7 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch("bot.services.traffy.get_traffy_tasks", AsyncMock(return_value=None)),
-            patch("bot.services.flyerhub.fh_get_tasks", AsyncMock(return_value=None)),
+            patch("bot.services.flyerhub.fh_get_tasks_op", AsyncMock(return_value=None)),
         ):
             passed = await run_sponsor_wall_check(inner(), user(), session)
 
@@ -287,7 +287,7 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch("bot.services.traffy.get_traffy_tasks", AsyncMock(return_value=None)),
-            patch("bot.services.flyerhub.fh_get_tasks", AsyncMock(return_value=offers("fh", 2))),
+            patch("bot.services.flyerhub.fh_get_tasks_op", AsyncMock(return_value=offers("fh", 2))),
         ):
             passed = await run_sponsor_wall_check(inner(), user(), session)
 
@@ -312,7 +312,7 @@ class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch("bot.services.traffy.check_traffy_tasks", AsyncMock()) as check_traffy,
-            patch("bot.services.flyerhub.fh_check_task", AsyncMock(return_value="complete")),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="complete")),
         ):
             passed = await run_sponsor_wall_check(inner(), frozen, session)
 

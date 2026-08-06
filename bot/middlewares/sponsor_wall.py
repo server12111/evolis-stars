@@ -248,18 +248,18 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
 
 async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | None:
     """Re-check previously-issued FlyerHub signatures by signature (same
-    non-re-fetch reasoning as _recheck_traffy above). fh_check_task has no
-    batch form, so signatures are checked concurrently one call each; a
+    non-re-fetch reasoning as _recheck_traffy above). fh_check_task_op has
+    no batch form, so signatures are checked concurrently one call each; a
     signature whose call itself fails is left pending rather than treated
     as complete, but doesn't abort the whole recheck unless every single
     one fails."""
-    from bot.services.flyerhub import fh_check_task
+    from bot.services.flyerhub import fh_check_task_op
 
     refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
     if not refs:
         return []
     outcomes = await asyncio.gather(
-        *(fh_check_task(api_key, ref) for ref in refs), return_exceptions=True,
+        *(fh_check_task_op(api_key, ref) for ref in refs), return_exceptions=True,
     )
     statuses: dict[str, bool] = {}
     any_resolved = False
@@ -334,7 +334,7 @@ async def _evaluate_wave_state(
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
     from bot.services.traffy import get_traffy_tasks
-    from bot.services.flyerhub import fh_get_tasks, fh_task_to_sponsor_item
+    from bot.services.flyerhub import fh_get_tasks_op, fh_task_to_sponsor_item
     from bot.services.sponsor_waves import _current_items
 
     membership_cache: dict = {}
@@ -407,9 +407,8 @@ async def _evaluate_wave_state(
             ]
             flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, saved_flyerhub)
         else:
-            raw_tasks = await fh_get_tasks(
+            raw_tasks = await fh_get_tasks_op(
                 settings.flyerhub_op_key,
-                db_user.user_id,
                 db_user.user_id,
                 limit=min(10, wave_size),
             )
