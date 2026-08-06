@@ -125,7 +125,7 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.traffy.get_traffy_tasks", AsyncMock()) as get_tasks,
             patch(
                 "bot.services.traffy.check_traffy_tasks",
-                AsyncMock(return_value={"assign-0": True}),
+                AsyncMock(return_value={"assign-0": "completed"}),
             ) as check_tasks,
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
@@ -149,12 +149,41 @@ class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch(
                 "bot.services.traffy.check_traffy_tasks",
-                AsyncMock(return_value={"assign-0": False}),
+                AsyncMock(return_value={"assign-0": "pending"}),
             ),
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
 
         self.assertEqual(state.status, "pending")
+
+    async def test_rejected_traffy_offer_resolves_instead_of_trapping_the_user(self) -> None:
+        """Confirmed live: a user had 2 "rejected" + 2 "pending" Traffy
+        items and stayed stuck at traffy=4 for 13+ minutes, because
+        "rejected" was neither "completed" nor absent from the response --
+        it must resolve (drop from the wall) same as "completed" does,
+        while a genuinely "pending" item must still block it."""
+        session = fake_session()
+        frozen = frozen_user([
+            {"provider": "traffy", "url": "https://t.me/tf0", "name": "TF", "ref": "rejected-0"},
+            {"provider": "traffy", "url": "https://t.me/tf1", "name": "TF2", "ref": "pending-0"},
+        ])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", "traffy-key"),
+            patch.object(settings, "flyerhub_op_key", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch(
+                "bot.services.traffy.check_traffy_tasks",
+                AsyncMock(return_value={"rejected-0": "rejected", "pending-0": "pending"}),
+            ),
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        self.assertEqual(state.status, "pending")
+        self.assertEqual([item["ref"] for item in state.items], ["pending-0"])
 
     async def test_ref_missing_from_response_resolves_instead_of_trapping_the_user(self) -> None:
         """Traffy's /tasks/check omits assignment_ids it no longer

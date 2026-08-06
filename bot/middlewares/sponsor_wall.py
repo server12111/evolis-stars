@@ -235,7 +235,7 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
     re-fetching a fresh /tasks batch, which would hand out brand-new
     assignment_ids and silently grow/replace the frozen wave every time
     the user presses "check"."""
-    from bot.services.traffy import check_traffy_tasks
+    from bot.services.traffy import TERMINAL_STATUSES, check_traffy_tasks
 
     refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
     if not refs:
@@ -243,15 +243,19 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
     statuses = await check_traffy_tasks(api_key, user_id, refs)
     if statuses is None:
         return None
-    # Traffy's /tasks/check omits assignment_ids it no longer recognizes
-    # (expired/not_found/telegram_id_mismatch per its docs) rather than
-    # returning them with some explicit terminal status -- the same class
-    # of "stuck forever" bug fixed for FlyerHub's "unavailable" above.
-    # A ref missing from the response is treated as resolved, not as
-    # still pending, or the user could never clear it from the wall.
+    # A ref is still genuinely pending only if Traffy's response actually
+    # mentions it AND its status isn't terminal (e.g. "pending"). Both a
+    # ref missing from the response (an id the API no longer recognizes --
+    # expired/not_found/telegram_id_mismatch per its docs) and a terminal
+    # non-"completed" status like "rejected" are treated as resolved --
+    # confirmed live: a user's traffy count stayed stuck at 4 for 13+
+    # minutes on 2 "rejected" + 2 "pending" items, because the old
+    # dict[str, bool] contract collapsed "rejected" and "pending" into the
+    # same False and both stayed on the wall forever.
     return [
         item for item in saved
-        if str(item.get("ref", "")) in statuses and not statuses[str(item.get("ref", ""))]
+        if (status := statuses.get(str(item.get("ref", "")))) is not None
+        and status not in TERMINAL_STATUSES
     ]
 
 

@@ -9,7 +9,15 @@ TRAFFY_API = "https://traffy.ai/publisher"
 _RETRY_DELAYS = [2, 4]
 
 # Per https://traffy.ai/publisher/docs#result-codes — /tasks/check result.status.
-_COMPLETED_STATUSES = {"completed"}
+COMPLETED_STATUSES = {"completed"}
+# Statuses Traffy will never move to "completed" from -- confirmed live: a
+# user's traffy count stayed stuck at 4 for 13+ minutes because "rejected"
+# items were neither "completed" nor absent from the response, so the old
+# dict[str, bool] contract (True only for "completed") had no way for a
+# caller to tell a terminal rejection apart from a genuinely still-pending
+# item. Same class of bug as FlyerHub's "unavailable", same fix: treated as
+# resolved so the wall stops blocking the user on it.
+TERMINAL_STATUSES = COMPLETED_STATUSES | {"rejected"}
 
 
 def _headers(api_key: str) -> dict:
@@ -99,13 +107,16 @@ async def check_traffy_tasks(
     api_key: str,
     user_id: int,
     assignment_ids: list[str],
-) -> dict[str, bool] | None:
-    """Check completion status for previously-issued assignment_ids.
+) -> dict[str, str] | None:
+    """Check status for previously-issued assignment_ids.
 
     Docs: POST /publisher/tasks/check
-    Returns {assignment_id: completed}, or None when the integration is
-    unavailable. Assignment ids the API doesn't recognize (expired/
-    not_found/telegram_id_mismatch) are reported as not completed.
+    Returns {assignment_id: raw status string} for every id Traffy's
+    response actually mentions, or None when the integration is
+    unavailable. An id Traffy no longer recognizes (expired/not_found/
+    telegram_id_mismatch) is simply omitted -- callers must treat a
+    missing key as resolved (see TERMINAL_STATUSES), not as still
+    pending, or the wall would block the user on it forever.
     """
     if not api_key or not assignment_ids:
         return {}
@@ -135,21 +146,18 @@ async def check_traffy_tasks(
                     if not isinstance(results, list):
                         logger.warning("Traffy check_tasks returned invalid results")
                         return None
-                    statuses: dict[str, bool] = {}
-                    raw: dict[str, str] = {}
+                    statuses: dict[str, str] = {}
                     for item in results:
                         if not isinstance(item, dict):
                             continue
                         assignment_id = str(item.get("assignment_id", ""))
                         if not assignment_id:
                             continue
-                        status = str(item.get("status", ""))
-                        raw[assignment_id] = status
-                        statuses[assignment_id] = status in _COMPLETED_STATUSES
-                    missing = [aid for aid in assignment_ids if aid not in raw]
+                        statuses[assignment_id] = str(item.get("status", ""))
+                    missing = [aid for aid in assignment_ids if aid not in statuses]
                     logger.info(
                         "Traffy check_tasks raw statuses: %s; missing from response: %s",
-                        raw, missing,
+                        statuses, missing,
                     )
                     return statuses
         except Exception as e:
