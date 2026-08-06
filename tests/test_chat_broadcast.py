@@ -459,6 +459,37 @@ class SchedulerTests(ChatModelsTestCase):
         kb = bot.send_message.await_args.kwargs["reply_markup"]
         self.assertEqual(kb.inline_keyboard[0][0].url, "https://example.com")
 
+    async def test_album_success_with_failed_buttons_followup_still_advances(self) -> None:
+        """Regression: if the album itself sends fine but the buttons
+        follow-up message fails, the round must still be marked sent —
+        otherwise the whole album gets resent next pass over a missing
+        button."""
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=60,
+            ))
+            await session.commit()
+            await ChatBroadcastRepository(session).add_message(
+                -1, "caption", photo_file_ids=["p1", "p2"],
+                buttons=[{"text": "Go", "url": "https://example.com"}],
+            )
+
+        bot = SimpleNamespace(
+            send_media_group=AsyncMock(),
+            send_message=AsyncMock(side_effect=Exception("rate limited")),
+        )
+        now = datetime.utcnow()
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+            await _send_one(bot, session, chat, now)
+
+        bot.send_media_group.assert_awaited_once()  # album still went out
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+        # Marked as sent, not stuck retrying forever over the missing button.
+        self.assertEqual(chat.custom_broadcast_last_sent_at, now)
+
     async def test_send_one_disables_broadcast_when_no_texts_left(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(

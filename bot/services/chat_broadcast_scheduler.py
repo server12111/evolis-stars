@@ -70,7 +70,13 @@ async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> No
     ]
     await bot.send_media_group(chat_id, media)
     if kb:
-        await bot.send_message(chat_id, "🔗", reply_markup=kb)
+        try:
+            await bot.send_message(chat_id, "🔗", reply_markup=kb)
+        except Exception as exc:
+            # The album itself already went out successfully — a failure
+            # here must not make _send_one treat the whole round as failed
+            # and resend the entire album next pass over a missing button.
+            logger.warning("Custom broadcast: album sent but buttons follow-up failed in chat %s: %s", chat_id, exc)
 
 
 async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
