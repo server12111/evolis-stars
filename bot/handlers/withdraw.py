@@ -24,6 +24,7 @@ from bot.keyboards.withdraw import (
     withdraw_recipient_choice_kb,
 )
 from bot.services.captcha import generate_captcha
+from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough
 from bot.states.withdraw import WithdrawStates
 
 router = Router()
@@ -359,11 +360,26 @@ async def msg_captcha(
 
     await state.clear()
 
-    # Deduct RP⭐️ and create withdrawal in the same transaction.
-    db_user.stars_balance = round(float(db_user.stars_balance) - float(rp_needed), 2)
+    # Atomic conditional debit, committed immediately on its own — NOT a
+    # Python-side `db_user.stars_balance = ...` held in memory until the
+    # final commit below. This handler makes two Telegram API calls
+    # (channel posts) before that final commit, a real async window in
+    # which a concurrent credit/debit to this same user (a referral
+    # reward, another chat's charge, etc.) could land and commit in its
+    # own session — a literal overwrite here would silently erase it.
+    # Captured now, not re-read off db_user after a possible rollback below
+    # — session.rollback() expires the WHOLE identity map, and accessing
+    # an expired attribute outside an active await triggers a lazy-load
+    # that crashes (MissingGreenlet) on an async session.
+    user_id = db_user.user_id
+
+    if not await debit_stars_if_enough(session, user_id, rp_needed):
+        await message.answer("❌ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
+        return
+
     w_repo = WithdrawalRepository(session)
     withdrawal = await w_repo.create(
-        db_user.user_id, float(amount), recipient_username, withdrawal_method, rp_needed,
+        user_id, float(amount), recipient_username, withdrawal_method, rp_needed,
     )
 
     username_display = f"@{escape(recipient_username)}"
@@ -416,6 +432,11 @@ async def msg_captcha(
         except Exception as e:
             _logger.warning("Cannot send to admin channel %s: %s", admin_channel_id, e)
             await session.rollback()
+            # The debit above was its own already-committed transaction —
+            # rollback() only discards the still-pending Withdrawal row,
+            # not that. Must be refunded explicitly or the RP⭐️ vanishes
+            # with no withdrawal ever created for it.
+            await credit_stars(session, user_id, rp_needed)
             if ch_msg_id and payments_channel_id:
                 try:
                     await bot.delete_message(
