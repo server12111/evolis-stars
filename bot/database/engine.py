@@ -236,6 +236,16 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chat_broadcast_messages ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'approved'")
         )
+    if "text_is_html" not in broadcast_msg_columns:
+        # Existing rows were captured as raw plain text before premium-
+        # emoji/formatting support existed -- SQLite backfills the DEFAULT
+        # into every pre-existing row on ADD COLUMN, so they all correctly
+        # land on 0 (must keep sending with parse_mode=None). New rows use
+        # the model's own default=False too unless a caller explicitly
+        # opts in (see ChatBroadcastRepository.add_message).
+        connection.execute(
+            text("ALTER TABLE chat_broadcast_messages ADD COLUMN text_is_html BOOLEAN NOT NULL DEFAULT 0")
+        )
     if "moderation_channel_message_id" not in broadcast_msg_columns:
         connection.execute(
             text("ALTER TABLE chat_broadcast_messages ADD COLUMN moderation_channel_message_id INTEGER")

@@ -17,6 +17,7 @@ from bot.database.repositories.chat_broadcast import (
 )
 from bot.handlers.admin_channel import cb_broadcast_mod_approve, cb_broadcast_mod_reject
 from bot.handlers.mychats import (
+    _plain_text_preview,
     _post_broadcast_for_moderation,
     cb_custom_broadcast_add_start,
     cb_custom_broadcast_buttons_no,
@@ -57,9 +58,14 @@ def _callback(user_id: int, data: str, bot=None):
     )
 
 
-def _text_message(user_id: int, text: str, bot=None):
+def _text_message(user_id: int, text: str, bot=None, html_text=None):
     return SimpleNamespace(
-        text=text, from_user=SimpleNamespace(id=user_id), photo=None, answer=AsyncMock(), bot=bot or _bot(),
+        text=text,
+        # Real aiogram Message objects always expose html_text (plain
+        # segments HTML-escaped, real entities serialized to tags) --
+        # mychats.py's owner-text capture reads this, not .text.
+        html_text=text if html_text is None else html_text,
+        from_user=SimpleNamespace(id=user_id), photo=None, answer=AsyncMock(), bot=bot or _bot(),
     )
 
 
@@ -324,6 +330,32 @@ class HandlerAccessControlTests(ChatModelsTestCase):
             messages = await ChatBroadcastRepository(session).list_messages(-1)
         self.assertEqual([m.text for m in messages], ["Join our giveaway!"])
         self.assertEqual(messages[0].status, "pending")
+        # Captured via html_text, so this is flagged safe to send with
+        # parse_mode="HTML" later (see test_send_one_sends_html_flagged_
+        # message_with_parse_mode_html).
+        self.assertTrue(messages[0].text_is_html)
+
+    async def test_premium_emoji_in_owner_text_is_preserved_via_html_text(self) -> None:
+        """Regression: an owner inserting a real premium emoji in Telegram
+        (or, equivalently here, a message whose html_text already contains
+        a <tg-emoji> tag from a genuine custom-emoji entity) must have that
+        tag saved as-is, not flattened to plain text the way reading
+        message.text would."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(ChatOwnerBroadcastStates.enter_text)
+        await state.update_data(chat_id=-1)
+
+        decorated = '<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> Заработай VC!'
+        msg = _text_message(1, "unused-plain-fallback", html_text=decorated)
+        async with self.sessions() as session:
+            await msg_custom_broadcast_text(msg, session, state)
+
+        data = await state.get_data()
+        self.assertEqual(data["pending_text"], decorated)
 
     async def test_add_text_flow_with_photos_and_buttons(self) -> None:
         async with self.sessions() as session:
@@ -817,6 +849,37 @@ class ModerationDecisionTests(ChatModelsTestCase):
         second.bot.send_message.assert_not_awaited()
 
 
+class PlainTextPreviewTests(unittest.TestCase):
+    def test_html_flagged_text_has_tags_stripped_and_entities_decoded(self) -> None:
+        message = SimpleNamespace(
+            text='<tg-emoji emoji-id="123">⭐️</tg-emoji> Заработай &amp; выводи VC!',
+            text_is_html=True,
+        )
+        self.assertEqual(_plain_text_preview(message, 100), "⭐️ Заработай &amp; выводи VC!")
+
+    def test_truncation_never_splits_a_tag_in_half(self) -> None:
+        """A naive char-count slice of the raw html_text could cut a
+        <tg-emoji ...> tag mid-attribute, leaving a dangling opening tag
+        that breaks the panel message's own HTML parse. Tags must be
+        stripped BEFORE truncating, not after."""
+        message = SimpleNamespace(
+            text='<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> ' + ("x" * 100),
+            text_is_html=True,
+        )
+        preview = _plain_text_preview(message, 10)
+        self.assertNotIn("<", preview)
+        self.assertNotIn(">", preview)
+
+    def test_legacy_plain_text_is_still_escaped_before_embedding(self) -> None:
+        """Regression: pre-existing (text_is_html=False) rows were never
+        escaped before being spliced into the owner's panel message, which
+        is itself sent with parse_mode="HTML" -- a literal "<" or "&" in
+        old raw text would have broken that render."""
+        message = SimpleNamespace(text="цена < 100 & сюрприз", text_is_html=False)
+        preview = _plain_text_preview(message, 100)
+        self.assertEqual(preview, "цена &lt; 100 &amp; сюрприз")
+
+
 class SchedulerTests(ChatModelsTestCase):
     async def test_send_one_rotates_and_advances_index(self) -> None:
         async with self.sessions() as session:
@@ -847,6 +910,26 @@ class SchedulerTests(ChatModelsTestCase):
             chat = await session.get(Chat, -1)
             await _send_one(bot2, session, chat, now)
         bot2.send_message.assert_awaited_once_with(-1, "second", parse_mode=None, reply_markup=None)
+
+    async def test_html_flagged_message_sends_with_parse_mode_html(self) -> None:
+        """A message captured via html_text (text_is_html=True) must go
+        out with parse_mode="HTML" -- that's what actually renders a
+        <tg-emoji> tag as the premium emoji instead of literal markup."""
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=60,
+            ))
+            await session.commit()
+        decorated = '<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> Заработай VC!'
+        await self._add_approved_message(-1, decorated, text_is_html=True)
+
+        bot = SimpleNamespace(send_message=AsyncMock())
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+            await _send_one(bot, session, chat, datetime.utcnow())
+
+        bot.send_message.assert_awaited_once_with(-1, decorated, parse_mode="HTML", reply_markup=None)
 
     async def test_pending_only_message_is_not_sent_and_does_not_disable(self) -> None:
         async with self.sessions() as session:

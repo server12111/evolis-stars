@@ -53,20 +53,26 @@ async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> No
     photos = load_photo_ids(message)
     kb = _buttons_markup(load_buttons(message))
 
-    # message.text is the owner's raw, unescaped free text — only ever
-    # checked for length/emptiness/banned words, never for HTML safety.
-    # The bot has a global parse_mode=HTML default, so leaving parse_mode
-    # unset here would make Telegram try to parse it as HTML: an entirely
-    # ordinary message containing a bare "<", ">" or "&" (e.g. "цена <
-    # 100⭐") raises "can't parse entities" and permanently fails to send
-    # (retried every pass, same error every time). This text was never
-    # meant to be formatted, so parse_mode is explicitly off.
+    # message.text_is_html distinguishes the two shapes text can be in:
+    # - True: aiogram's html_text serialization (mychats.py's owner-text
+    #   capture) — real formatting/premium-emoji entities are valid <tag>s
+    #   and any literal "<"/">"/"&" the owner typed as plain characters
+    #   were already escaped, so parse_mode="HTML" is always safe AND is
+    #   what actually renders the premium emoji.
+    # - False (rows from before this existed): raw, unescaped free text.
+    #   The bot has a global parse_mode=HTML default, so leaving parse_mode
+    #   unset here would make Telegram try to parse it as HTML: an
+    #   entirely ordinary message containing a bare "<", ">" or "&" (e.g.
+    #   "цена < 100⭐") raises "can't parse entities" and permanently fails
+    #   to send. This text was never meant to be formatted, so parse_mode
+    #   is explicitly off.
+    parse_mode = "HTML" if message.text_is_html else None
     if not photos:
-        await bot.send_message(chat_id, message.text, parse_mode=None, reply_markup=kb)
+        await bot.send_message(chat_id, message.text, parse_mode=parse_mode, reply_markup=kb)
         return
 
     if len(photos) == 1:
-        await bot.send_photo(chat_id, photos[0], caption=message.text, parse_mode=None, reply_markup=kb)
+        await bot.send_photo(chat_id, photos[0], caption=message.text, parse_mode=parse_mode, reply_markup=kb)
         return
 
     # sendMediaGroup doesn't support reply_markup at all — if there are
@@ -74,7 +80,7 @@ async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> No
     # after the album, since Telegram gives no way to attach them to the
     # album itself.
     media = [
-        InputMediaPhoto(media=file_id, caption=message.text if i == 0 else None, parse_mode=None)
+        InputMediaPhoto(media=file_id, caption=message.text if i == 0 else None, parse_mode=parse_mode)
         for i, file_id in enumerate(photos)
     ]
     await bot.send_media_group(chat_id, media)

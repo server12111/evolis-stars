@@ -1,5 +1,6 @@
 import logging
-from html import escape
+import re
+from html import escape, unescape
 from urllib.parse import urlparse
 
 from aiogram import Bot, F, Router
@@ -317,6 +318,22 @@ async def cb_mychats_bonus_start(callback: CallbackQuery, session: AsyncSession,
     await start_bonus_creation(callback, state, chat_id)
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _plain_text_preview(message: ChatBroadcastMessage, limit: int) -> str:
+    """Short, HTML-safe preview of a stored broadcast text for the owner's
+    own panel (which is itself sent with parse_mode="HTML"). Stripping
+    tags and decoding entities BEFORE truncating avoids slicing a valid
+    <tg-emoji ...> tag in half at the character limit (which would leave a
+    dangling "<tg-emo" fragment and break the whole panel message's HTML
+    parse); the plain result is then escaped fresh so it can never smuggle
+    real markup into a message it wasn't meant to format."""
+    plain = unescape(_TAG_RE.sub("", message.text)) if message.text_is_html else message.text
+    truncated = plain if len(plain) <= limit else plain[: limit - 3] + "..."
+    return escape(truncated)
+
+
 async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[str, object]:
     messages = await ChatBroadcastRepository(session).list_messages(chat.chat_id)
     min_interval = await SettingsRepository(session).get_int("broadcast_min_interval_seconds", 300)
@@ -332,7 +349,7 @@ async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[s
         lines.append("\nТексты:")
         status_icons = {"pending": "⏳ на модерации", "approved": "✅ одобрен"}
         for i, message in enumerate(messages, start=1):
-            preview = message.text if len(message.text) <= 60 else message.text[:57] + "..."
+            preview = _plain_text_preview(message, 60)
             extras = []
             photo_count = len(load_photo_ids(message))
             if photo_count:
@@ -433,7 +450,13 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
         return
     chat_id = chat.chat_id
 
-    body = (message.text or "").strip()
+    # html_text serializes any real Telegram formatting/premium-emoji
+    # entities into valid <tag>s and escapes literal "<"/">"/"&" in plain
+    # portions -- always safe to send later with parse_mode="HTML" (see
+    # ChatBroadcastMessage.text_is_html), and lets an owner include actual
+    # premium emoji by inserting them normally in Telegram, not typing
+    # raw markup.
+    body = (message.html_text or "").strip()
     if not body:
         await message.answer("❌ Отправь текстовое сообщение:", reply_markup=custom_broadcast_cancel_kb(chat_id))
         return
@@ -612,7 +635,7 @@ async def _save_pending_broadcast(bot: Bot, session: AsyncSession, state: FSMCon
     photos = data.get("pending_photos") or []
     buttons = data.get("pending_buttons") or []
     broadcast_msg = await ChatBroadcastRepository(session).add_message(
-        chat.chat_id, body, photos or None, buttons or None,
+        chat.chat_id, body, photos or None, buttons or None, text_is_html=True,
     )
     await state.clear()
     await _post_broadcast_for_moderation(bot, session, chat, broadcast_msg)

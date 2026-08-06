@@ -74,10 +74,12 @@ class ChatBroadcastRepository(BaseRepository):
         text: str,
         photo_file_ids: list[str] | None = None,
         buttons: list[dict] | None = None,
+        text_is_html: bool = False,
     ) -> ChatBroadcastMessage:
         message = ChatBroadcastMessage(
             chat_id=chat_id,
             text=text,
+            text_is_html=text_is_html,
             photo_file_ids=json.dumps(photo_file_ids[:MAX_BROADCAST_PHOTOS]) if photo_file_ids else None,
             buttons_json=json.dumps(buttons[:MAX_BROADCAST_BUTTONS]) if buttons else None,
             status="pending",

@@ -636,6 +636,16 @@ class ChatBroadcastMessage(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
     text: Mapped[str] = mapped_column(Text)
+    # True means `text` is aiogram's html_text serialization -- real
+    # formatting/premium-emoji entities became valid <tag>s, and any
+    # literal "<"/">"/"&" the owner typed as plain characters were escaped
+    # -- so it's always safe to send with parse_mode="HTML". Defaults to
+    # False (matching every row before this existed, backfilled by the
+    # migration): plain, possibly-unescaped text that must keep going out
+    # with parse_mode=None, or a literal "<"/"&" in it would crash the
+    # send with an entity-parse error. Only mychats.py's chat-owner
+    # broadcast flow currently opts in explicitly.
+    text_is_html: Mapped[bool] = mapped_column(Boolean, default=False)
     # JSON list of up to 5 Telegram photo file_ids, sent as an album
     # (or a single photo with the text as caption) alongside the text.
     photo_file_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
