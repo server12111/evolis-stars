@@ -219,7 +219,11 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
                 await callback.message.answer(text, parse_mode="HTML", reply_markup=tower_over_kb(True))
         else:
             await state.update_data(level=new_level, history=history)
-            coeff = await _get_coeff(session, new_level)
+            # Must match what tower:cashout actually pays for this exact
+            # state (_get_coeff(level - 1) there, once `level` becomes
+            # new_level) — using new_level here instead of the pre-increment
+            # level would show/promise one tier higher than cashout pays.
+            coeff = await _get_coeff(session, level)
             payout = round(bet * coeff, 2)
 
             text = (

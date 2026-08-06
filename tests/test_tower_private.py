@@ -125,6 +125,47 @@ class PrivateTowerTests(ChatModelsTestCase):
         self.assertEqual(total_bet, 10.0)
         self.assertEqual(total_payout, 10.5)
 
+    async def test_displayed_coeff_after_pick_matches_what_cashout_actually_pays(self) -> None:
+        """Regression test: the coefficient/payout shown after a successful
+        pick — including the number printed right on the "Забрать" button —
+        must be exactly what tower:cashout pays if pressed immediately
+        after. They were off by one tier before this fix."""
+        async with self.sessions() as session:
+            session.add(User(user_id=5, first_name="U", stars_balance=Decimal("100")))
+            await session.commit()
+
+        state = _state()
+        with patch("bot.handlers.tower.random.sample", return_value=[2]):
+            cb = _callback("tower:bet:10")
+            async with self.sessions() as session:
+                db_user = await session.get(User, 5)
+                await cb_tower_bet(cb, state, session, db_user)
+
+            pick_cb = _callback("tower:pick:0")
+            async with self.sessions() as session:
+                db_user = await session.get(User, 5)
+                await cb_tower_pick(pick_cb, state, session, db_user)
+
+        rendered = pick_cb.message.edit_text.await_args.args[0]
+        self.assertIn("×1.05", rendered)
+        self.assertIn("10.50 RP⭐️", rendered)
+
+        kb = pick_cb.message.edit_text.await_args.kwargs["reply_markup"]
+        cashout_button = next(
+            b for row in kb.inline_keyboard for b in row if b.callback_data == "tower:cashout"
+        )
+        self.assertIn("10.50 RP⭐️", cashout_button.text)
+        self.assertIn("×1.05", cashout_button.text)
+
+        cashout_cb = _callback("tower:cashout")
+        async with self.sessions() as session:
+            db_user = await session.get(User, 5)
+            await cb_tower_cashout(cashout_cb, state, session, db_user)
+
+        async with self.sessions() as session:
+            user = await session.get(User, 5)
+        self.assertEqual(user.stars_balance, Decimal("90.00") + Decimal("10.50"))
+
 
 if __name__ == "__main__":
     unittest.main()
