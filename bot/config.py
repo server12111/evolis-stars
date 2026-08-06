@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite+aiosqlite:///{_DATA_DIR / 'bot.db'}"
     redis_url: str = ""
     instance_lock_path: str = str(_DATA_DIR / ".bot-instance.lock")
+    log_file_path: str = str(_DATA_DIR / "bot.log")
 
     admin_channel_id: str = ""
     payments_channel_id: str = ""

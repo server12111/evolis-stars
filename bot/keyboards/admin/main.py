@@ -26,6 +26,7 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="💬 Список чатов", callback_data="admin:chatslist"),
+        InlineKeyboardButton(text="📄 Логи", callback_data="admin:logs"),
     )
     return builder.as_markup()
 

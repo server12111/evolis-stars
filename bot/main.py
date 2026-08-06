@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -35,9 +36,21 @@ from bot.services.lottery_scheduler import lottery_time_check_loop
 from bot.services.premium_emoji import PremiumEmojiMiddleware
 from bot.services.sponsor_recheck_scheduler import sponsor_recheck_loop
 
+_log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+_log_stream_handler = logging.StreamHandler()
+_log_stream_handler.setFormatter(_log_formatter)
+# Console/docker-logs output was the only place logs ever went before this --
+# also persist to a rotating file so the admin panel's "Логи" section (see
+# bot/handlers/admin/logs.py) has something to read and send back on demand,
+# instead of needing someone to manually copy-paste from the server console
+# every time a user reports the sponsor wall misbehaving.
+_log_file_handler = RotatingFileHandler(
+    settings.log_file_path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8",
+)
+_log_file_handler.setFormatter(_log_formatter)
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    handlers=[_log_stream_handler, _log_file_handler],
 )
 logger = logging.getLogger(__name__)
 

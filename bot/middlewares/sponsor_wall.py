@@ -434,12 +434,14 @@ async def _evaluate_wave_state(
         flyerhub_result = []
 
     logger.info(
-        "WALL uid=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s",
+        "WALL uid=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s blocked_urls=%s blocked_domains=%s",
         db_user.user_id,
         _describe_result(tgrass_result),
         _describe_result(botohub_result),
         _describe_result(traffy_result),
         _describe_result(flyerhub_result),
+        sorted(blocked_urls) or None,
+        sorted(blocked_domains) or None,
     )
 
     if all_configured_integrations_failed(
@@ -510,6 +512,11 @@ async def run_sponsor_wall_check(
         await _show_retry(inner)
         return False
     if wave_state.status == "pending":
+        logger.info(
+            "WALL uid=%s shown=%s",
+            db_user.user_id,
+            [(item.get("provider"), item.get("url")) for item in (wave_state.items or [])],
+        )
         await _show_wave(
             inner,
             wave=wave_state.wave,
