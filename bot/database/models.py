@@ -300,14 +300,23 @@ class OwnSponsorCompletion(Base):
 # sponsor wall — a sponsor a provider keeps offering but whose own
 # subscribe/check flow is broken gets pasted here by URL and is dropped from
 # every future wave across all four providers, regardless of which one(s)
-# report it.
+# report it. match_type="domain" entries (host only, e.g.
+# "api.flyerpartners.com") exist because some providers (FlyerHub "follow
+# link" tasks in particular) hand out a fresh uniquely-signed tracking URL
+# every time the same underlying sponsor is offered (?sign=...) — an exact
+# "url" block would never match twice, so the admin can block the whole
+# host instead.
 
 class BlockedSponsorUrl(Base):
     __tablename__ = "blocked_sponsor_urls"
+    __table_args__ = (
+        UniqueConstraint("match_type", "url_key", name="uq_blocked_sponsor_urls_type_key"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    match_type: Mapped[str] = mapped_column(String(16), default="url")  # "url" | "domain"
     url: Mapped[str] = mapped_column(Text)  # as pasted by the admin, for display
-    url_key: Mapped[str] = mapped_column(String(512), unique=True)  # normalized, for fast lookup
+    url_key: Mapped[str] = mapped_column(String(512))  # normalized url, or bare host for "domain"
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

@@ -350,7 +350,9 @@ async def _evaluate_wave_state(
 
     from bot.database.repositories.blocked_sponsor import BlockedSponsorRepository
 
-    blocked_urls = frozenset(await BlockedSponsorRepository(session).url_key_set())
+    blocked_sponsor_repo = BlockedSponsorRepository(session)
+    blocked_urls = frozenset(await blocked_sponsor_repo.url_key_set())
+    blocked_domains = frozenset(await blocked_sponsor_repo.domain_key_set())
 
     tgrass_result, botohub_result = await asyncio.gather(
         check_tgrass(
@@ -473,6 +475,7 @@ async def _evaluate_wave_state(
         wave_size=wave_size,
         top_up=top_up,
         blocked_urls=blocked_urls,
+        blocked_domains=blocked_domains,
     )
     await session.commit()
     return wave_state

@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -38,6 +39,28 @@ def normalize_sponsor_url(url: str) -> str:
 
 def _url_key(item: dict) -> str:
     return normalize_sponsor_url(item.get("url", ""))
+
+
+def extract_host(url: str) -> str:
+    """Bare lowercase hostname, e.g. "api.flyerpartners.com" -- used for
+    domain-level blocklist entries. Some providers (FlyerHub "follow link"
+    tasks in particular) hand out a freshly-signed tracking URL
+    (?sign=...) every single time the same underlying sponsor is offered,
+    so an exact-URL block can never match twice; blocking by host covers
+    every signed variant at once."""
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    return (parsed.hostname or "").lower()
+
+
+def is_sponsor_blocked(url: str, blocked_urls: frozenset[str], blocked_domains: frozenset[str]) -> bool:
+    if not blocked_urls and not blocked_domains:
+        return False
+    if normalize_sponsor_url(url) in blocked_urls:
+        return True
+    return bool(blocked_domains) and extract_host(url) in blocked_domains
 
 
 def classify_sponsor_type(url: str) -> Literal["tg", "web"]:
@@ -123,6 +146,7 @@ def initialize_waves(
     flyerhub_result: ProviderResult = None,
     wave_size: int | None = None,
     blocked_urls: frozenset[str] = frozenset(),
+    blocked_domains: frozenset[str] = frozenset(),
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves.
 
@@ -132,9 +156,9 @@ def initialize_waves(
     Telegram-resource sponsors are still sorted before web/other ones
     regardless of provider (see the sort below).
 
-    blocked_urls (normalized via normalize_sponsor_url) are dropped before
-    the wave_size trim -- an admin-blocked sponsor a provider keeps
-    offering must never get frozen into a wave in the first place."""
+    blocked_urls/blocked_domains are dropped before the wave_size trim --
+    an admin-blocked sponsor a provider keeps offering must never get
+    frozen into a wave in the first place. See is_sponsor_blocked."""
     if user.sponsor_wave in {1, 2}:
         return
 
@@ -155,7 +179,7 @@ def initialize_waves(
     seen_urls: set[str] = set()
     for item in combined:
         url_key = _url_key(item)
-        if not url_key or url_key in seen_urls or url_key in blocked_urls:
+        if not url_key or url_key in seen_urls or is_sponsor_blocked(url_key, blocked_urls, blocked_domains):
             continue
         seen_urls.add(url_key)
         item["type"] = classify_sponsor_type(url_key)
@@ -186,6 +210,7 @@ def evaluate_waves(
     wave_size: int | None = None,
     top_up: bool = True,
     blocked_urls: frozenset[str] = frozenset(),
+    blocked_domains: frozenset[str] = frozenset(),
 ) -> SponsorWaveState:
     """Check only saved sponsors and advance through both waves in order.
 
@@ -222,6 +247,7 @@ def evaluate_waves(
         flyerhub_result=flyerhub_result,
         wave_size=wave_size,
         blocked_urls=blocked_urls,
+        blocked_domains=blocked_domains,
     )
 
     results: dict[str, ProviderResult] = {
@@ -242,7 +268,8 @@ def evaluate_waves(
         # for a sponsor an admin blocked after this wave was already frozen.
         saved = [
             item for item in _current_items(user)
-            if str(item.get("provider", "")) != "piarflow" and _url_key(item) not in blocked_urls
+            if str(item.get("provider", "")) != "piarflow"
+            and not is_sponsor_blocked(item.get("url", ""), blocked_urls, blocked_domains)
         ]
         if not saved:
             if wave == 1 and _load(user.sponsor_wave_two):
@@ -302,7 +329,12 @@ def evaluate_waves(
                     if len(remaining) >= wave_size:
                         break
                     url_key = _url_key(candidate)
-                    if not url_key or url_key in already_shown or url_key in picked or url_key in blocked_urls:
+                    if (
+                        not url_key
+                        or url_key in already_shown
+                        or url_key in picked
+                        or is_sponsor_blocked(url_key, blocked_urls, blocked_domains)
+                    ):
                         continue
                     new_candidates.append(candidate)
                     remaining.append(candidate)

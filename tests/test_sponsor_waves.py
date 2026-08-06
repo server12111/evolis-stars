@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 from bot.services.sponsor_waves import (
     evaluate_waves,
+    extract_host,
+    is_sponsor_blocked,
     sponsor_wave_markup,
     sponsor_wave_text,
 )
@@ -426,6 +428,101 @@ class BlockedSponsorFilterTests(unittest.TestCase):
         shown_urls = {item["url"] for item in state.items or []}
         self.assertNotIn("https://t.me/tg2", shown_urls)
         self.assertEqual(shown_urls, {"https://t.me/tg1"})
+
+    def test_blocked_domain_never_enters_a_fresh_wave(self) -> None:
+        """The reported case: every offer from this domain carries a
+        different one-time signed token, so an exact-url block would
+        never match twice -- domain-level blocking must catch all of
+        them regardless of the query string."""
+        current = user()
+        signed = [
+            {"name": "S1", "url": "https://api.flyerpartners.com/search?sign=aaa"},
+            {"name": "S2", "url": "https://api.flyerpartners.com/search?sign=bbb"},
+        ]
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 2),
+            botohub_result=[],
+            traffy_result=signed,
+            traffy_configured=True,
+            blocked_domains=frozenset({"api.flyerpartners.com"}),
+        )
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertFalse(any("flyerpartners" in url for url in shown_urls))
+        self.assertEqual(shown_urls, {"https://t.me/tg0", "https://t.me/tg1"})
+
+    def test_blocked_domain_auto_resolves_an_already_frozen_item(self) -> None:
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://api.flyerpartners.com/search?sign=aaa"}],
+            traffy_configured=True,
+        )
+        state = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://api.flyerpartners.com/search?sign=zzz"}],
+            traffy_configured=True,
+            blocked_domains=frozenset({"api.flyerpartners.com"}),
+        )
+        self.assertEqual(state.status, "complete")
+
+    def test_blocked_domain_candidate_is_never_offered_as_a_top_up_replacement(self) -> None:
+        current = user()
+        evaluate_waves(current, tgrass_result=offers("tg", 1), botohub_result=[])
+
+        state = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://api.flyerpartners.com/search?sign=new"}],
+            traffy_configured=True,
+            blocked_domains=frozenset({"api.flyerpartners.com"}),
+        )
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertFalse(any("flyerpartners" in url for url in shown_urls))
+
+
+class ExtractHostAndBlockPredicateTests(unittest.TestCase):
+    def test_extract_host_lowercases_and_ignores_path_query(self) -> None:
+        self.assertEqual(
+            extract_host("https://API.Flyerpartners.com/search?sign=abc"),
+            "api.flyerpartners.com",
+        )
+
+    def test_extract_host_handles_bare_domain_without_scheme(self) -> None:
+        self.assertEqual(extract_host("api.flyerpartners.com"), "api.flyerpartners.com")
+
+    def test_extract_host_empty_for_empty_input(self) -> None:
+        self.assertEqual(extract_host(""), "")
+        self.assertEqual(extract_host(None), "")
+
+    def test_is_sponsor_blocked_matches_exact_url(self) -> None:
+        self.assertTrue(is_sponsor_blocked(
+            "https://t.me/foo/", frozenset({"https://t.me/foo"}), frozenset(),
+        ))
+
+    def test_is_sponsor_blocked_matches_by_domain_regardless_of_query(self) -> None:
+        self.assertTrue(is_sponsor_blocked(
+            "https://api.flyerpartners.com/search?sign=one",
+            frozenset(), frozenset({"api.flyerpartners.com"}),
+        ))
+        self.assertTrue(is_sponsor_blocked(
+            "https://api.flyerpartners.com/search?sign=two",
+            frozenset(), frozenset({"api.flyerpartners.com"}),
+        ))
+
+    def test_is_sponsor_blocked_false_when_neither_matches(self) -> None:
+        self.assertFalse(is_sponsor_blocked(
+            "https://t.me/unrelated",
+            frozenset({"https://t.me/foo"}), frozenset({"api.flyerpartners.com"}),
+        ))
+
+    def test_is_sponsor_blocked_false_with_no_blocklists(self) -> None:
+        self.assertFalse(is_sponsor_blocked("https://t.me/foo", frozenset(), frozenset()))
 
 
 if __name__ == "__main__":

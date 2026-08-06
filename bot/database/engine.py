@@ -217,6 +217,13 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chat_broadcast_messages ADD COLUMN moderation_channel_message_id INTEGER")
         )
+    blocked_sponsor_columns = {
+        column["name"] for column in inspect(connection).get_columns("blocked_sponsor_urls")
+    }
+    if "match_type" not in blocked_sponsor_columns:
+        connection.execute(
+            text("ALTER TABLE blocked_sponsor_urls ADD COLUMN match_type VARCHAR(16) NOT NULL DEFAULT 'url'")
+        )
     _ensure_integrity_indexes(connection)
 
 

@@ -356,6 +356,38 @@ class BlockedSponsorWiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("https://t.me/tg0", shown_urls)
         self.assertEqual(shown_urls, {"https://t.me/tg1"})
 
+    async def test_blocked_domain_is_loaded_from_the_repository_and_excluded(self) -> None:
+        """Same as the url-blocklist wiring test above, but for a
+        domain-level block -- must actually query
+        BlockedSponsorRepository.domain_key_set(), not just accept a
+        blocked_domains kwarg in isolation."""
+        session = fake_session()
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", "traffy-key"),
+            patch.object(settings, "flyerhub_op_key", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch(
+                "bot.database.repositories.blocked_sponsor.BlockedSponsorRepository.domain_key_set",
+                AsyncMock(return_value={"api.flyerpartners.com"}),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch(
+                "bot.services.traffy.get_traffy_tasks",
+                AsyncMock(return_value=[
+                    {"name": "S1", "url": "https://api.flyerpartners.com/search?sign=aaa"},
+                    {"name": "S2", "url": "https://t.me/keepme"},
+                ]),
+            ),
+        ):
+            state = await _evaluate_wave_state(inner(), user(), session)
+
+        shown_urls = {item["url"] for item in state.items or []}
+        self.assertFalse(any("flyerpartners" in url for url in shown_urls))
+        self.assertEqual(shown_urls, {"https://t.me/keepme"})
+
 
 if __name__ == "__main__":
     unittest.main()

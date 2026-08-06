@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import BlockedSponsorUrl
 from bot.database.repositories.base import BaseRepository
-from bot.services.sponsor_waves import normalize_sponsor_url
+from bot.services.sponsor_waves import extract_host, normalize_sponsor_url
 
 
 class BlockedSponsorRepository(BaseRepository):
@@ -17,21 +17,38 @@ class BlockedSponsorRepository(BaseRepository):
         return await self.session.get(BlockedSponsorUrl, entry_id)
 
     async def url_key_set(self) -> set[str]:
-        result = await self.session.execute(select(BlockedSponsorUrl.url_key))
+        result = await self.session.execute(
+            select(BlockedSponsorUrl.url_key).where(BlockedSponsorUrl.match_type == "url")
+        )
         return set(result.scalars().all())
 
-    async def create(self, url: str) -> BlockedSponsorUrl:
-        """Idempotent: pasting an already-blocked URL again just returns
-        the existing row instead of erroring or duplicating it."""
-        url_key = normalize_sponsor_url(url)
+    async def domain_key_set(self) -> set[str]:
+        result = await self.session.execute(
+            select(BlockedSponsorUrl.url_key).where(BlockedSponsorUrl.match_type == "domain")
+        )
+        return set(result.scalars().all())
+
+    async def create(self, url: str, match_type: str = "url") -> BlockedSponsorUrl:
+        """Idempotent: pasting an already-blocked url/domain again just
+        returns the existing row instead of erroring or duplicating it.
+
+        match_type="domain" stores just the bare host (extract_host) --
+        some providers (FlyerHub "follow link" tasks in particular) hand
+        out a freshly-signed tracking URL every time the same underlying
+        sponsor is offered, so an exact-url block can never match twice;
+        blocking the host covers every signed variant at once."""
+        url_key = extract_host(url) if match_type == "domain" else normalize_sponsor_url(url)
         existing = await self.session.execute(
-            select(BlockedSponsorUrl).where(BlockedSponsorUrl.url_key == url_key)
+            select(BlockedSponsorUrl).where(
+                BlockedSponsorUrl.match_type == match_type,
+                BlockedSponsorUrl.url_key == url_key,
+            )
         )
         found = existing.scalar_one_or_none()
         if found:
             return found
 
-        entry = BlockedSponsorUrl(url=url, url_key=url_key)
+        entry = BlockedSponsorUrl(url=url, url_key=url_key, match_type=match_type)
         self.session.add(entry)
         try:
             await self.session.commit()
@@ -39,7 +56,10 @@ class BlockedSponsorRepository(BaseRepository):
             # Lost a create/create race -- the other write already exists.
             await self.session.rollback()
             existing = await self.session.execute(
-                select(BlockedSponsorUrl).where(BlockedSponsorUrl.url_key == url_key)
+                select(BlockedSponsorUrl).where(
+                    BlockedSponsorUrl.match_type == match_type,
+                    BlockedSponsorUrl.url_key == url_key,
+                )
             )
             return existing.scalar_one()
         return entry
