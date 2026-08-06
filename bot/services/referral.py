@@ -317,9 +317,32 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                     pass
         return
 
+    # Atomically claim this referred user's reward slot before paying the
+    # referrer anything. The plain `if user.referral_reward_given: return`
+    # guard at the top of this function only reflects the in-memory state
+    # of the ORM object THIS call happened to load — aiogram can process
+    # two updates for the same user concurrently (e.g. a double-tap on "Я
+    # подписался на все каналы", one message + one callback arriving close
+    # together), each with its own session/its own stale copy of `user`,
+    # so both could pass that check and both pay the referrer before
+    # either commits. This WHERE-guarded UPDATE mirrors the same
+    # optimistic-concurrency pattern used below for referrer.referrals_count
+    # — only one concurrent call can ever flip referral_reward_given from
+    # False to True, so only one can proceed past this point.
+    claim = await session.execute(
+        update(User)
+        .where(User.user_id == referred_user_id, User.referral_reward_given.is_(False))
+        .values(referral_reward_given=True)
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount != 1:
+        await session.rollback()
+        return
+
     user_repo = UserRepository(session)
     referrer = await user_repo.get(referrer_id)
     if not referrer:
+        await session.commit()
         return
 
     reward = await get_referral_reward(session, total, is_premium=referred_is_premium)
