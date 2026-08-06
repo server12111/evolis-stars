@@ -329,6 +329,16 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     # optimistic-concurrency pattern used below for referrer.referrals_count
     # — only one concurrent call can ever flip referral_reward_given from
     # False to True, so only one can proceed past this point.
+    #
+    # Committed immediately (not left pending alongside the referrer-payment
+    # retry loop below): that loop's own conflict-recovery rollback() would
+    # otherwise silently undo this claim mid-loop, reopening a window where
+    # a second concurrent call could win its own claim and pay the referrer
+    # again while this call's retry loop is still in flight — the exact
+    # double payment this claim exists to prevent, just shifted one step
+    # later. Every early-return after this point must explicitly undo the
+    # claim (see _unclaim below) so a referrer who never actually got paid
+    # doesn't leave the referred user permanently stuck "rewarded".
     claim = await session.execute(
         update(User)
         .where(User.user_id == referred_user_id, User.referral_reward_given.is_(False))
@@ -338,11 +348,21 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if claim.rowcount != 1:
         await session.rollback()
         return
+    await session.commit()
+
+    async def _unclaim() -> None:
+        await session.execute(
+            update(User)
+            .where(User.user_id == referred_user_id)
+            .values(referral_reward_given=False)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
 
     user_repo = UserRepository(session)
     referrer = await user_repo.get(referrer_id)
     if not referrer:
-        await session.commit()
+        await _unclaim()
         return
 
     reward = await get_referral_reward(session, total, is_premium=referred_is_premium)
@@ -381,12 +401,14 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         await session.rollback()
         referrer = await user_repo.get(referrer_id)
         if not referrer:
+            await _unclaim()
             return
     else:
         logger.warning(
             "REFERRAL outcome=conflict referred_uid=%s referrer_uid=%s — gave up after retries",
             referred_user_id, referrer_id,
         )
+        await _unclaim()
         return
 
     user.referral_counted = True

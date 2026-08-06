@@ -96,6 +96,46 @@ class ReferralDoublePaymentRaceTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 960)
         self.assertEqual(float(saved_referrer.stars_balance), 4.0)
 
+    async def test_unclaims_when_referrer_no_longer_exists(self) -> None:
+        """The atomic claim on the referred user commits before the
+        referrer lookup/payment even starts. If the referrer turns out
+        not to exist, the claim must be rolled back (not left stuck
+        True forever with no referrer ever actually paid) -- and a later
+        retry (e.g. once the referrer row exists) must still succeed."""
+        async with self.sessions() as session:
+            session.add(BotSettings(key="referral_reward", value="4"))
+            referred = User(
+                user_id=971,
+                first_name="Referred",
+                referrer_id=9999999,  # no such referrer yet
+                sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            )
+            session.add(referred)
+            await session.commit()
+
+            await check_referral_reward(referred, session)
+
+        async with self.sessions() as session:
+            saved = await session.get(User, 971)
+        self.assertFalse(saved.referral_reward_given)
+        self.assertFalse(saved.referral_counted)
+
+        # Referrer shows up later; a fresh retry must still be able to
+        # claim and pay -- the earlier failed attempt must not have
+        # permanently burned the claim.
+        async with self.sessions() as session:
+            session.add(User(user_id=9999999, first_name="Referrer", stars_balance=Decimal(0)))
+            await session.commit()
+            fresh_referred = await session.get(User, 971)
+            await check_referral_reward(fresh_referred, session)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 9999999)
+            saved_referred = await session.get(User, 971)
+        self.assertEqual(float(saved_referrer.stars_balance), 4.0)
+        self.assertTrue(saved_referred.referral_reward_given)
+
 
 if __name__ == "__main__":
     unittest.main()

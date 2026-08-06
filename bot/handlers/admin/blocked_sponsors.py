@@ -1,3 +1,5 @@
+from html import escape
+
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -67,7 +69,7 @@ async def msg_blocked_sponsor_url(message: Message, state: FSMContext, session: 
     await state.clear()
     entry = await BlockedSponsorRepository(session).create(url)
     await message.answer(
-        f"✅ <b>Заблокировано</b>\n\n🔗 {entry.url}\n\n"
+        f"✅ <b>Заблокировано</b>\n\n🔗 {escape(entry.url)}\n\n"
         "Больше не будет показываться в стене ОП ни от одного провайдера.",
         parse_mode="HTML",
     )
@@ -92,7 +94,7 @@ async def cb_blocked_sponsor_del(callback: CallbackQuery, db_user: User, session
         await callback.answer("❌ Не найдено.", show_alert=True)
         return
     await callback.message.answer(
-        f"🗑 Убрать из блок-листа?\n\n🔗 {entry.url}\n\n"
+        f"🗑 Убрать из блок-листа?\n\n🔗 {escape(entry.url)}\n\n"
         "Спонсор сможет снова появляться в стене ОП, если провайдер продолжает его предлагать.",
         reply_markup=blocked_sponsor_delete_confirm_kb(entry_id),
     )
