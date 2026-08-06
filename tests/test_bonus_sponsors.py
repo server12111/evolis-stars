@@ -13,6 +13,7 @@ from bot.database.repositories.chat_bonus import (
     ChatBonusSponsorRepository,
 )
 from bot.handlers.group.chat_bonus import (
+    cb_bonus_add_sponsor_reuse,
     cb_bonus_add_sponsor_start,
     cb_bonus_check_sponsors,
     cb_bonus_sponsors_done,
@@ -148,7 +149,8 @@ class AddSponsorFlowTests(ChatModelsTestCase):
             {"chat_id": -102, "type": "channel", "title": "C", "username": "c"},
         ]})
         cb = _callback(-1, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb, state, _bot())
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, _bot())
         cb.answer.assert_awaited_once()
         self.assertTrue(cb.answer.await_args.kwargs.get("show_alert"))
         cb.message.answer.assert_not_awaited()
@@ -157,7 +159,8 @@ class AddSponsorFlowTests(ChatModelsTestCase):
         state = _fsm_state({"chat_id": -1, "sponsors": []})
         bot = SimpleNamespace(id=777)
         cb = _callback(-1, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb, state, bot)
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, bot)
 
         cb.message.answer.assert_awaited_once()
         pending = _pending_sponsor_state(state.storage, bot.id, 42)
@@ -178,12 +181,14 @@ class AddSponsorFlowTests(ChatModelsTestCase):
         state_x = _fsm_state({"chat_id": -1, "sponsors": []})
         state_x.storage = storage
         cb_x = _callback(-1, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb_x, state_x, bot)
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb_x, state_x, session, bot)
 
         state_y = _fsm_state({"chat_id": -2, "sponsors": []})
         state_y.storage = storage
         cb_y = _callback(-2, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb_y, state_y, bot)
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb_y, state_y, session, bot)
 
         cb_y.answer.assert_awaited_once()
         self.assertTrue(cb_y.answer.await_args.kwargs.get("show_alert"))
@@ -201,7 +206,8 @@ class AddSponsorFlowTests(ChatModelsTestCase):
         state_x = _fsm_state({"chat_id": -1, "sponsors": []})
         state_x.storage = storage
         cb_x = _callback(-1, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb_x, state_x, bot)
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb_x, state_x, session, bot)
 
         pending = _pending_sponsor_state(storage, bot.id, 42)
         stale_data = await pending.get_data()
@@ -211,11 +217,180 @@ class AddSponsorFlowTests(ChatModelsTestCase):
         state_y = _fsm_state({"chat_id": -2, "sponsors": []})
         state_y.storage = storage
         cb_y = _callback(-2, 42, "chatbonus:addsponsor:channel")
-        await cb_bonus_add_sponsor_start(cb_y, state_y, bot)
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb_y, state_y, session, bot)
 
         cb_y.message.answer.assert_awaited_once()  # not blocked this time
         data = await pending.get_data()
         self.assertEqual(data["origin_chat_id"], -2)  # overwritten as before
+
+
+class SponsorReuseTests(ChatModelsTestCase):
+    """A channel/chat already used as a sponsor in one of the owner's
+    earlier bonuses has the bot admin in it already -- Telegram's
+    "promote to admin" deep link fires no my_chat_member event (no status
+    change) in that case, so the old flow would silently do nothing. The
+    reuse list lets the owner pick it directly instead."""
+
+    async def _seed_past_sponsor(self, owner_id: int, sponsor_chat_id: int, sponsor_type: str = "channel") -> None:
+        bonus = await self._make_bonus(-1, owner_id, code=f"PAST{sponsor_chat_id}")
+        async with self.sessions() as session:
+            await ChatBonusSponsorRepository(session).add(
+                bonus.id, sponsor_chat_id, sponsor_type, "Past Sponsor", "pastsponsor",
+            )
+
+    async def test_reusable_sponsor_offered_instead_of_deeplink(self) -> None:
+        await self._seed_past_sponsor(42, -900)
+        state = _fsm_state({"chat_id": -1, "sponsors": []})
+        bot = SimpleNamespace(id=777)
+        cb = _callback(-1, 42, "chatbonus:addsponsor:channel")
+
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, bot)
+
+        cb.message.answer.assert_awaited_once()
+        kb = cb.message.answer.await_args.kwargs["reply_markup"]
+        callback_datas = [btn.callback_data for row in kb.inline_keyboard for btn in row]
+        self.assertIn("chatbonus:reuse:channel:-900", callback_datas)
+        self.assertIn("chatbonus:addsponsor:new:channel", callback_datas)
+        # Must NOT have armed the deep-link pending flow.
+        pending = _pending_sponsor_state(state.storage, bot.id, 42)
+        self.assertIsNone(await pending.get_state())
+
+    async def test_reusable_list_excludes_sponsor_already_in_this_bonus(self) -> None:
+        await self._seed_past_sponsor(42, -900)
+        state = _fsm_state({
+            "chat_id": -1,
+            "sponsors": [{"chat_id": -900, "type": "channel", "title": "X", "username": "x"}],
+        })
+        bot = SimpleNamespace(id=777)
+        cb = _callback(-1, 42, "chatbonus:addsponsor:channel")
+
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, bot)
+
+        # Nothing left to reuse -> straight to the deep-link flow.
+        cb.message.answer.assert_awaited_once()
+        pending = _pending_sponsor_state(state.storage, bot.id, 42)
+        self.assertEqual(await pending.get_state(), PendingSponsorAddStates.awaiting_add)
+
+    async def test_new_button_skips_reuse_list_even_when_history_exists(self) -> None:
+        await self._seed_past_sponsor(42, -900)
+        state = _fsm_state({"chat_id": -1, "sponsors": []})
+        bot = SimpleNamespace(id=777)
+        cb = _callback(-1, 42, "chatbonus:addsponsor:new:channel")
+
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, bot)
+
+        pending = _pending_sponsor_state(state.storage, bot.id, 42)
+        self.assertEqual(await pending.get_state(), PendingSponsorAddStates.awaiting_add)
+
+    async def test_another_owners_sponsor_is_not_offered(self) -> None:
+        await self._seed_past_sponsor(99, -900)
+        state = _fsm_state({"chat_id": -1, "sponsors": []})
+        bot = SimpleNamespace(id=777)
+        cb = _callback(-1, 42, "chatbonus:addsponsor:channel")
+
+        async with self.sessions() as session:
+            await cb_bonus_add_sponsor_start(cb, state, session, bot)
+
+        pending = _pending_sponsor_state(state.storage, bot.id, 42)
+        self.assertEqual(await pending.get_state(), PendingSponsorAddStates.awaiting_add)
+
+    async def test_reuse_adds_sponsor_when_bot_still_admin(self) -> None:
+        state = _fsm_state({"chat_id": -1, "sponsors": []})
+        bot = _bot()
+        bot.get_chat_member.return_value = SimpleNamespace(status="administrator")
+        bot.get_chat.return_value = SimpleNamespace(title="Past Sponsor", username="pastsponsor")
+        cb = _callback(-1, 42, "chatbonus:reuse:channel:-900")
+
+        await cb_bonus_add_sponsor_reuse(cb, state, bot)
+
+        state.update_data.assert_awaited_once_with(sponsors=[
+            {"chat_id": -900, "type": "channel", "title": "Past Sponsor", "username": "pastsponsor"},
+        ])
+        cb.message.answer.assert_awaited_once()
+        self.assertIn("добавлен", cb.message.answer.await_args.args[0])
+
+    async def test_reuse_rejected_when_bot_no_longer_admin(self) -> None:
+        state = _fsm_state({"chat_id": -1, "sponsors": []})
+        bot = _bot()
+        bot.get_chat_member.return_value = SimpleNamespace(status="left")
+        cb = _callback(-1, 42, "chatbonus:reuse:channel:-900")
+
+        await cb_bonus_add_sponsor_reuse(cb, state, bot)
+
+        state.update_data.assert_not_awaited()
+        cb.answer.assert_awaited_once()
+        self.assertTrue(cb.answer.await_args.kwargs.get("show_alert"))
+
+    async def test_reuse_rejected_when_already_added_to_this_bonus(self) -> None:
+        state = _fsm_state({
+            "chat_id": -1,
+            "sponsors": [{"chat_id": -900, "type": "channel", "title": "X", "username": "x"}],
+        })
+        bot = _bot()
+        cb = _callback(-1, 42, "chatbonus:reuse:channel:-900")
+
+        await cb_bonus_add_sponsor_reuse(cb, state, bot)
+
+        state.update_data.assert_not_awaited()
+        bot.get_chat_member.assert_not_awaited()
+
+    async def test_reuse_rejected_at_cap(self) -> None:
+        state = _fsm_state({"chat_id": -1, "sponsors": [
+            {"chat_id": -1, "type": "channel", "title": "A", "username": "a"},
+            {"chat_id": -2, "type": "channel", "title": "B", "username": "b"},
+            {"chat_id": -3, "type": "channel", "title": "C", "username": "c"},
+        ]})
+        bot = _bot()
+        cb = _callback(-1, 42, "chatbonus:reuse:channel:-900")
+
+        await cb_bonus_add_sponsor_reuse(cb, state, bot)
+
+        state.update_data.assert_not_awaited()
+        self.assertTrue(cb.answer.await_args.kwargs.get("show_alert"))
+
+
+class ListPreviouslyUsedSponsorsTests(ChatModelsTestCase):
+    async def test_dedupes_across_bonuses_keeping_most_recent(self) -> None:
+        first = await self._make_bonus(-1, 42, code="A")
+        second = await self._make_bonus(-1, 42, code="B")
+        async with self.sessions() as session:
+            repo = ChatBonusSponsorRepository(session)
+            await repo.add(first.id, -900, "channel", "Old Title", "old")
+            await repo.add(second.id, -900, "channel", "New Title", "new")
+
+        async with self.sessions() as session:
+            result = await ChatBonusSponsorRepository(session).list_previously_used_by_owner(42, "channel")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].title, "New Title")
+
+    async def test_filters_by_sponsor_type(self) -> None:
+        bonus = await self._make_bonus(-1, 42, code="A")
+        async with self.sessions() as session:
+            repo = ChatBonusSponsorRepository(session)
+            await repo.add(bonus.id, -900, "channel", "Ch", "ch")
+            await repo.add(bonus.id, -901, "chat", "Grp", None)
+
+        async with self.sessions() as session:
+            channels = await ChatBonusSponsorRepository(session).list_previously_used_by_owner(42, "channel")
+            chats = await ChatBonusSponsorRepository(session).list_previously_used_by_owner(42, "chat")
+
+        self.assertEqual([s.sponsor_chat_id for s in channels], [-900])
+        self.assertEqual([s.sponsor_chat_id for s in chats], [-901])
+
+    async def test_filters_by_owner(self) -> None:
+        bonus = await self._make_bonus(-1, 42, code="A")
+        async with self.sessions() as session:
+            await ChatBonusSponsorRepository(session).add(bonus.id, -900, "channel", "Ch", "ch")
+
+        async with self.sessions() as session:
+            result = await ChatBonusSponsorRepository(session).list_previously_used_by_owner(99, "channel")
+
+        self.assertEqual(result, [])
 
 
 class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):

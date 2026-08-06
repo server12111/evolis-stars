@@ -16,6 +16,29 @@ class ChatBonusSponsorRepository(BaseRepository):
         )
         return list(result.scalars().all())
 
+    async def list_previously_used_by_owner(self, owner_user_id: int, sponsor_type: str) -> list[ChatBonusSponsor]:
+        """Distinct past sponsors (across any of this owner's bonuses) —
+        lets a new bonus reuse one without repeating the "promote the bot
+        to admin" flow, whose deep link fires no my_chat_member event (so
+        silently does nothing) when the bot is already an admin there."""
+        result = await self.session.execute(
+            select(ChatBonusSponsor)
+            .join(ChatBonusCode, ChatBonusCode.id == ChatBonusSponsor.bonus_id)
+            .where(
+                ChatBonusCode.created_by == owner_user_id,
+                ChatBonusSponsor.sponsor_type == sponsor_type,
+            )
+            .order_by(ChatBonusSponsor.id.desc())
+        )
+        seen: set[int] = set()
+        sponsors: list[ChatBonusSponsor] = []
+        for sponsor in result.scalars().all():
+            if sponsor.sponsor_chat_id in seen:
+                continue
+            seen.add(sponsor.sponsor_chat_id)
+            sponsors.append(sponsor)
+        return sponsors
+
     async def add(
         self, bonus_id: int, sponsor_chat_id: int, sponsor_type: str, title: str, username: str | None,
     ) -> ChatBonusSponsor | None:

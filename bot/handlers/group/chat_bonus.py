@@ -18,7 +18,13 @@ from bot.database.repositories.chat_bonus import (
     ChatBonusSponsorRepository,
 )
 from bot.database.repositories.settings import SettingsRepository
-from bot.keyboards.group.chat_bonus import bonus_mode_kb, bonus_sponsor_deeplink_kb, bonus_sponsors_kb, bonus_subscribe_kb
+from bot.keyboards.group.chat_bonus import (
+    bonus_mode_kb,
+    bonus_sponsor_deeplink_kb,
+    bonus_sponsor_reuse_kb,
+    bonus_sponsors_kb,
+    bonus_subscribe_kb,
+)
 from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough, eligibility_reason
 from bot.services.telegram_chat import is_subscribed
@@ -167,16 +173,10 @@ async def cb_bonus_mode(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(ChatOwnerBonusStates.choose_sponsors, F.data.startswith("chatbonus:addsponsor:"))
-async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    if callback.message is None or callback.from_user is None:
-        await callback.answer()
-        return
-    sponsor_type = callback.data.split(":")[-1]
-    if sponsor_type not in ("channel", "chat"):
-        await callback.answer()
-        return
-
+async def _start_new_sponsor_flow(callback: CallbackQuery, state: FSMContext, bot: Bot, sponsor_type: str) -> None:
+    """Arms the "waiting for the owner to promote the bot" flow and sends
+    the deep link — the only way to add a channel/chat the bot isn't
+    already an admin in yet."""
     data = await state.get_data()
     sponsors = data.get("sponsors") or []
     if len(sponsors) >= MAX_BONUS_SPONSORS:
@@ -223,6 +223,117 @@ async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext,
         f"необходимые для проверки подписки участников. Как только вы это сделаете, спонсор "
         f"автоматически появится в этом списке.",
         reply_markup=bonus_sponsor_deeplink_kb(settings.bot_username, sponsor_type),
+    )
+    await callback.answer()
+
+
+@router.callback_query(ChatOwnerBonusStates.choose_sponsors, F.data.startswith("chatbonus:addsponsor:"))
+async def cb_bonus_add_sponsor_start(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot,
+) -> None:
+    if callback.message is None or callback.from_user is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+
+    # "chatbonus:addsponsor:new:<type>" — the "add a brand-new channel/chat"
+    # button on the reuse-list screen below, always goes straight to the
+    # deep-link flow without re-showing that same list.
+    if len(parts) == 4 and parts[2] == "new":
+        sponsor_type = parts[3]
+        if sponsor_type not in ("channel", "chat"):
+            await callback.answer()
+            return
+        await _start_new_sponsor_flow(callback, state, bot, sponsor_type)
+        return
+
+    sponsor_type = parts[-1]
+    if sponsor_type not in ("channel", "chat"):
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    sponsors = data.get("sponsors") or []
+    if len(sponsors) >= MAX_BONUS_SPONSORS:
+        await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+        return
+
+    # A channel/chat already used as a sponsor in one of this owner's
+    # earlier bonuses has the bot admin in it already — Telegram's
+    # "promote to admin" deep link fires no my_chat_member event (no
+    # status change) when the bot is already an admin there, so that flow
+    # would silently do nothing. Offer to reuse it directly instead.
+    already_added = {s["chat_id"] for s in sponsors}
+    reusable = [
+        sponsor
+        for sponsor in await ChatBonusSponsorRepository(session).list_previously_used_by_owner(
+            callback.from_user.id, sponsor_type,
+        )
+        if sponsor.sponsor_chat_id not in already_added
+    ]
+    if reusable:
+        label = "каналов" if sponsor_type == "channel" else "чатов"
+        await callback.message.answer(
+            f"У вас уже есть добавленные {label} (из других бонусов) — выберите один "
+            f"из них или добавьте новый:",
+            reply_markup=bonus_sponsor_reuse_kb(reusable, sponsor_type),
+        )
+        await callback.answer()
+        return
+
+    await _start_new_sponsor_flow(callback, state, bot, sponsor_type)
+
+
+@router.callback_query(ChatOwnerBonusStates.choose_sponsors, F.data.startswith("chatbonus:reuse:"))
+async def cb_bonus_add_sponsor_reuse(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    if callback.message is None or callback.from_user is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 4:
+        await callback.answer()
+        return
+    sponsor_type = parts[2]
+    try:
+        chat_id = int(parts[3])
+    except ValueError:
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    sponsors = data.get("sponsors") or []
+    if len(sponsors) >= MAX_BONUS_SPONSORS:
+        await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+        return
+    if any(s["chat_id"] == chat_id for s in sponsors):
+        await callback.answer("⚠️ Этот чат уже добавлен как спонсор.", show_alert=True)
+        return
+
+    # The bot could have been removed/demoted there since it was last used
+    # as a sponsor — re-verify live rather than trusting the saved row.
+    try:
+        member = await bot.get_chat_member(chat_id, bot.id)
+    except Exception:
+        member = None
+    if member is None or member.status != "administrator":
+        await callback.answer(
+            "⚠️ Бот больше не администратор там — добавьте заново кнопкой «Новый канал/чат».",
+            show_alert=True,
+        )
+        return
+
+    try:
+        chat = await bot.get_chat(chat_id)
+        title = chat.title or chat.username or ""
+        username = chat.username
+    except Exception:
+        title, username = "", None
+
+    sponsors.append({"chat_id": chat_id, "type": sponsor_type, "title": title, "username": username})
+    await state.update_data(sponsors=sponsors)
+    await callback.message.answer(
+        f"✅ Спонсор «{title or chat_id}» добавлен ({len(sponsors)}/{MAX_BONUS_SPONSORS}).",
+        reply_markup=bonus_sponsors_kb(len(sponsors)),
     )
     await callback.answer()
 

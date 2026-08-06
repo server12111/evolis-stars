@@ -29,6 +29,7 @@ from bot.database.repositories.game import GameRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.handlers.group.chat_bonus import (
+    cb_bonus_add_sponsor_reuse,
     cb_bonus_add_sponsor_start,
     cb_bonus_mode,
     cb_bonus_sponsors_done,
@@ -892,6 +893,9 @@ router.message.register(msg_bonus_limit, ChatOwnerBonusStates.enter_limit)
 router.callback_query.register(cb_bonus_mode, ChatOwnerBonusStates.choose_mode, F.data.startswith("chatbonus:mode:"))
 router.callback_query.register(
     cb_bonus_add_sponsor_start, ChatOwnerBonusStates.choose_sponsors, F.data.startswith("chatbonus:addsponsor:"),
+)
+router.callback_query.register(
+    cb_bonus_add_sponsor_reuse, ChatOwnerBonusStates.choose_sponsors, F.data.startswith("chatbonus:reuse:"),
 )
 router.callback_query.register(
     cb_bonus_sponsors_done, ChatOwnerBonusStates.choose_sponsors, F.data == "chatbonus:sponsors:done",

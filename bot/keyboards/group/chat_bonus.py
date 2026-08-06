@@ -34,6 +34,18 @@ _CHANNEL_SPONSOR_ADMIN_RIGHTS = (
 _CHAT_SPONSOR_ADMIN_RIGHTS = "delete_messages+invite_users+pin_messages+manage_tags+anonymous"
 
 
+def bonus_sponsor_reuse_kb(reusable: list[ChatBonusSponsor], sponsor_type: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for sponsor in reusable:
+        label = f"✅ {sponsor.title or sponsor.username or 'Спонсор'}"
+        builder.row(InlineKeyboardButton(
+            text=label, callback_data=f"chatbonus:reuse:{sponsor_type}:{sponsor.sponsor_chat_id}",
+        ))
+    new_label = "➕ Новый канал" if sponsor_type == "channel" else "➕ Новый чат"
+    builder.row(InlineKeyboardButton(text=new_label, callback_data=f"chatbonus:addsponsor:new:{sponsor_type}"))
+    return builder.as_markup()
+
+
 def bonus_sponsor_deeplink_kb(bot_username: str, sponsor_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     param = "startchannel" if sponsor_type == "channel" else "startgroup"
