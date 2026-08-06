@@ -23,6 +23,16 @@ from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+
+def any_sponsor_provider_configured() -> bool:
+    return bool(
+        settings.tgrass_code
+        or settings.botohub_key
+        or settings.traffy_key
+        or settings.flyerhub_op_key
+    )
+
+
 _BYPASS_PREFIXES = (
     "/start",
     "/admin",
@@ -154,6 +164,13 @@ async def _drop_confirmed_subscriptions(
         return provider_result
 
     async def _check(item: dict) -> dict | None:
+        if item.get("kind") == "trust":
+            # Not a real Telegram membership (e.g. FlyerHub "give boost" /
+            # "follow link" / "perform action") -- get_chat_member can't
+            # tell whether the actual action happened, only whether the
+            # user is a chat member, so never let it override the
+            # provider's own completion verdict for these.
+            return item
         chat_id = telegram_chat_id(item.get("url") or item.get("link"))
         if chat_id is None:
             return item
@@ -211,6 +228,49 @@ async def _reinstate_expired_pinned_sponsors(
         # mentioning it, with the user never having subscribed to anything.
         if subscribed is not True:
             provider_result.append(item)
+
+
+async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list[dict] | None:
+    """Re-check previously-issued Traffy assignment_ids by id -- NOT by
+    re-fetching a fresh /tasks batch, which would hand out brand-new
+    assignment_ids and silently grow/replace the frozen wave every time
+    the user presses "check"."""
+    from bot.services.traffy import check_traffy_tasks
+
+    refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
+    if not refs:
+        return []
+    statuses = await check_traffy_tasks(api_key, user_id, refs)
+    if statuses is None:
+        return None
+    return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]
+
+
+async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | None:
+    """Re-check previously-issued FlyerHub signatures by signature (same
+    non-re-fetch reasoning as _recheck_traffy above). fh_check_task has no
+    batch form, so signatures are checked concurrently one call each; a
+    signature whose call itself fails is left pending rather than treated
+    as complete, but doesn't abort the whole recheck unless every single
+    one fails."""
+    from bot.services.flyerhub import fh_check_task
+
+    refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
+    if not refs:
+        return []
+    outcomes = await asyncio.gather(
+        *(fh_check_task(api_key, ref) for ref in refs), return_exceptions=True,
+    )
+    statuses: dict[str, bool] = {}
+    any_resolved = False
+    for ref, outcome in zip(refs, outcomes):
+        if isinstance(outcome, BaseException) or outcome is None:
+            continue
+        any_resolved = True
+        statuses[ref] = outcome == "complete"
+    if not any_resolved:
+        return None
+    return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]
 
 
 async def get_pending_sponsor_items(
@@ -273,11 +333,20 @@ async def _evaluate_wave_state(
 
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
-    from bot.services.piarflow import get_sponsors, check_sponsors
-    from bot.services.sponsor_waves import _current_items, _url_key
-    from bot.services.referral import get_min_sponsors_for_reward
+    from bot.services.traffy import get_traffy_tasks
+    from bot.services.flyerhub import fh_get_tasks, fh_task_to_sponsor_item
+    from bot.services.sponsor_waves import _current_items
 
     membership_cache: dict = {}
+    wave_frozen = db_user.sponsor_wave in (1, 2)
+
+    wave_size = min(
+        20,
+        max(1, await SettingsRepository(session).get_int(
+            "sponsor_max_channels",
+            10,
+        )),
+    )
 
     tgrass_result, botohub_result = await asyncio.gather(
         check_tgrass(
@@ -301,87 +370,71 @@ async def _evaluate_wave_state(
         _drop_confirmed_subscriptions(bot, db_user.user_id, botohub_result, membership_cache),
     )
 
-    piarflow_needed = False
-    piarflow_result: list[dict] | None = None
-
-    if settings.piarflow_key:
-        if db_user.sponsor_wave in (1, 2):
-            # Wave already frozen — only re-check PiarFlow if it actually
-            # contributed a sponsor to the currently active wave.
-            saved_items = _current_items(db_user)
-            piarflow_links = [
-                str(item.get("url", "")) for item in saved_items
-                if str(item.get("provider", "")) == "piarflow" and item.get("url")
+    # Traffy and FlyerHub are both "get once, re-check by id" providers
+    # (assignment_id / signature) rather than tgrass/botohub's stateless
+    # "get = current unsubscribed list" model — re-fetching a fresh batch
+    # from either on every "check" press would hand out brand-new ids and
+    # silently grow/replace an already-frozen wave. Once the wave is
+    # frozen, only the saved ids for that provider are re-checked; a fresh
+    # batch is only pulled while the wave is still being assembled.
+    if settings.traffy_key:
+        if wave_frozen:
+            saved_traffy = [
+                item for item in _current_items(db_user)
+                if str(item.get("provider", "")) == "traffy"
             ]
-            piarflow_needed = bool(piarflow_links)
-            if piarflow_needed:
-                # check_sponsors is the authoritative per-link subscription
-                # verdict from PiarFlow. Trust it directly instead of
-                # re-fetching a fresh batch via get_sponsors() — that's a
-                # different endpoint for handing out NEW sponsor tasks, and
-                # its contents don't reliably mean "still unsubscribed": an
-                # empty/different response there let unsubscribed users
-                # through the wave regardless of their real check_sponsors
-                # status.
-                all_subscribed = await check_sponsors(
-                    settings.piarflow_key,
-                    db_user.user_id,
-                    piarflow_links,
-                )
-                piarflow_result = [] if all_subscribed else [
-                    item for item in saved_items
-                    if str(item.get("provider", "")) == "piarflow"
-                ]
-                # check_sponsors only returns one aggregate bool for the whole
-                # batch, so a single stale/lagging PiarFlow verdict marks
-                # EVERY piarflow sponsor in the wave as unsubscribed — with
-                # no per-link signal to tell which one actually failed.
-                # Independently re-check each via our own bot the same way
-                # tgrass/botohub results already are, so a user who is
-                # genuinely subscribed to everything isn't stuck because of
-                # one provider-side false negative.
-                piarflow_result = await _drop_confirmed_subscriptions(
-                    bot, db_user.user_id, piarflow_result, membership_cache,
-                )
+            traffy_result = await _recheck_traffy(settings.traffy_key, db_user.user_id, saved_traffy)
         else:
-            # Not yet frozen — top PiarFlow up only far enough to cover the
-            # reward-eligibility minimum that tgrass+botohub didn't reach.
-            free_urls: set[str] = set()
-            for provider_result in (tgrass_result, botohub_result):
-                if isinstance(provider_result, list):
-                    free_urls.update(
-                        url_key
-                        for item in provider_result
-                        if (url_key := _url_key(item))
-                    )
-            gap = await get_min_sponsors_for_reward(session) - len(free_urls)
-            piarflow_needed = gap > 0
-            if piarflow_needed:
-                piarflow_result = await get_sponsors(
-                    settings.piarflow_key,
-                    db_user.user_id,
-                    db_user.user_id,
-                    max_sponsors=min(20, gap),
-                )
-                # Same false-negative correction tgrass/botohub already get
-                # above — without it, a sponsor PiarFlow wrongly claims is
-                # unsubscribed could get frozen into a brand-new wave even
-                # though the user is already a member, forcing them to
-                # "subscribe" to something they're already in.
-                piarflow_result = await _drop_confirmed_subscriptions(
-                    bot, db_user.user_id, piarflow_result, membership_cache,
-                )
+            traffy_result = await get_traffy_tasks(
+                settings.traffy_key,
+                db_user.user_id,
+                limit=wave_size,
+                first_name=(inner.from_user.first_name if inner.from_user else None),
+                username=(inner.from_user.username if inner.from_user else None),
+                language_code=(inner.from_user.language_code if inner.from_user else None),
+            )
+        traffy_result = await _drop_confirmed_subscriptions(
+            bot, db_user.user_id, traffy_result, membership_cache,
+        )
+    else:
+        traffy_result = []
 
-    if not piarflow_needed:
-        piarflow_result = []
+    if settings.flyerhub_op_key:
+        if wave_frozen:
+            saved_flyerhub = [
+                item for item in _current_items(db_user)
+                if str(item.get("provider", "")) == "flyerhub"
+            ]
+            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, saved_flyerhub)
+        else:
+            raw_tasks = await fh_get_tasks(
+                settings.flyerhub_op_key,
+                db_user.user_id,
+                db_user.user_id,
+                limit=min(10, wave_size),
+            )
+            if raw_tasks is None:
+                flyerhub_result = None
+            else:
+                flyerhub_result = [
+                    item for raw in raw_tasks
+                    if isinstance(raw, dict) and (item := fh_task_to_sponsor_item(raw)) is not None
+                ]
+        # kind="trust" items (boosts/links/actions) are left untouched by
+        # this — see _drop_confirmed_subscriptions' own check.
+        flyerhub_result = await _drop_confirmed_subscriptions(
+            bot, db_user.user_id, flyerhub_result, membership_cache,
+        )
+    else:
+        flyerhub_result = []
 
     logger.info(
-        "WALL uid=%s tgrass=%s botohub=%s piarflow_needed=%s piarflow=%s",
+        "WALL uid=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s",
         db_user.user_id,
         _describe_result(tgrass_result),
         _describe_result(botohub_result),
-        piarflow_needed,
-        _describe_result(piarflow_result),
+        _describe_result(traffy_result),
+        _describe_result(flyerhub_result),
     )
 
     if all_configured_integrations_failed(
@@ -389,29 +442,31 @@ async def _evaluate_wave_state(
         tgrass_result=tgrass_result,
         botohub_configured=bool(settings.botohub_key),
         botohub_result=botohub_result,
-        piarflow_configured=piarflow_needed,
-        piarflow_result=piarflow_result,
+        traffy_configured=bool(settings.traffy_key),
+        traffy_result=traffy_result,
+        flyerhub_configured=bool(settings.flyerhub_op_key),
+        flyerhub_result=flyerhub_result,
     ):
         return SponsorWaveState("unavailable")
 
+    # Traffy/FlyerHub are deliberately excluded here — the reinstate
+    # concern only applies to tgrass/botohub's rotating "fresh batch"
+    # model (see _reinstate_expired_pinned_sponsors' own docstring); a
+    # saved Traffy/FlyerHub item is always re-checked by its own id above,
+    # so it can never "silently disappear" the way a rotated batch can.
     await _reinstate_expired_pinned_sponsors(
-        bot, db_user, {"tgrass": tgrass_result, "botohub": botohub_result, "piarflow": piarflow_result},
+        bot, db_user, {"tgrass": tgrass_result, "botohub": botohub_result},
         membership_cache,
     )
 
-    wave_size = min(
-        20,
-        max(1, await SettingsRepository(session).get_int(
-            "sponsor_max_channels",
-            10,
-        )),
-    )
     wave_state = evaluate_waves(
         db_user,
         tgrass_result=tgrass_result,
         botohub_result=botohub_result,
-        piarflow_result=piarflow_result,
-        piarflow_configured=piarflow_needed,
+        traffy_result=traffy_result,
+        flyerhub_result=flyerhub_result,
+        traffy_configured=bool(settings.traffy_key),
+        flyerhub_configured=bool(settings.flyerhub_op_key),
         wave_size=wave_size,
         top_up=top_up,
     )
@@ -491,7 +546,7 @@ class SponsorWallMiddleware(BaseMiddleware):
         if db_user.sponsors_verified:
             return await handler(event, data)
 
-        if not settings.tgrass_code and not settings.botohub_key:
+        if not any_sponsor_provider_configured():
             # No providers configured — cannot verify subscriptions.
             # In normal flow this branch is only hit if a leftover
             # "sponsor_check" button is pressed after providers were removed

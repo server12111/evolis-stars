@@ -38,7 +38,14 @@ class Settings(BaseSettings):
     piarflow_key: str = ""
     flyerhub_key: str = ""
     flyerhub_webapp_url: str = ""
+    # Separate FlyerHub bot key used only for the mandatory-subscription wall
+    # (/get_tasks + /check_task). Must NOT be a "webapp"-type key -- those
+    # reject both methods ("Prohibited method for a bot type"), which is
+    # exactly why flyerhub_key above can't be reused here whenever
+    # flyerhub_webapp_url is set.
+    flyerhub_op_key: str = ""
     linkni_code: str = ""
+    traffy_key: str = ""
 
     bot_username: str = ""
 

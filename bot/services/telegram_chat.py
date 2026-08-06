@@ -6,6 +6,13 @@ from aiogram import Bot
 
 _PUBLIC_USERNAME = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 _TELEGRAM_HOSTS = {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}
+# Reserved t.me path prefixes that are NOT a channel/group username -- e.g.
+# a folder invite link (t.me/addlist/<slug>) or a boost link
+# (t.me/boost/<username>). Without this exclusion the first path segment
+# would be misread as a literal channel username and get_chat_member would
+# be called against a chat that doesn't exist (or, in the worst case, one
+# that coincidentally does).
+_RESERVED_PATH_SEGMENTS = {"joinchat", "c", "addlist", "boost", "s", "iv", "share", "proxy"}
 
 
 def _is_bot_username(username: str) -> bool:
@@ -44,7 +51,7 @@ def telegram_chat_id(value: str | int | None) -> str | int | None:
         username = parsed.path.strip("/").split("/", 1)[0]
         if (
             username
-            and username not in ("joinchat", "c")
+            and username.lower() not in _RESERVED_PATH_SEGMENTS
             and not username.startswith("+")
             and _PUBLIC_USERNAME.fullmatch(username)
             and not _is_bot_username(username)

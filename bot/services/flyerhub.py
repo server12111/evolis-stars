@@ -8,6 +8,33 @@ logger = logging.getLogger(__name__)
 FLYERHUB_API = "https://api.flyerhubs.com"
 _RETRY_DELAYS = [1.0, 2.0]
 
+# Per https://api.flyerhubs.com/redoc — /get_tasks "task" field. Only
+# "subscribe channel" is a real Telegram membership our own bot can
+# independently re-verify via get_chat_member; the rest (bot starts,
+# boosts, generic links, arbitrary actions, post views) have no membership
+# equivalent, so their completion must be trusted from FlyerHub's own
+# /check_task verdict alone.
+_VERIFIABLE_TASK_TYPES = {"subscribe channel"}
+
+
+def fh_task_to_sponsor_item(task: dict) -> dict | None:
+    """Adapt a raw /get_tasks (or /max/get_tasks) item into the
+    {name, url, ref, kind} shape the sponsor wall merges across providers.
+    Returns None for a task with no usable link or signature."""
+    links = task.get("links")
+    url = str(links[0]) if isinstance(links, list) and links else ""
+    signature = str(task.get("signature", ""))
+    if not url or not signature:
+        return None
+    item = {
+        "name": str(task.get("name") or "Спонсор"),
+        "url": url,
+        "ref": signature,
+    }
+    if str(task.get("task", "")) not in _VERIFIABLE_TASK_TYPES:
+        item["kind"] = "trust"
+    return item
+
 
 async def fh_get_tasks(
     api_key: str,

@@ -29,7 +29,10 @@ class SponsorNotifyGuardTests(ChatModelsTestCase):
         message = SimpleNamespace(answer=AsyncMock(), answer_photo=AsyncMock())
         with (
             patch("bot.handlers.start._send_main_menu", AsyncMock()),
-            patch("bot.handlers.start.settings", SimpleNamespace(tgrass_code=None, botohub_key=None)),
+            patch(
+                "bot.handlers.start.settings",
+                SimpleNamespace(tgrass_code=None, botohub_key=None, traffy_key=None, flyerhub_op_key=None),
+            ),
             patch("bot.handlers.start.notify_user_sponsors_verified", AsyncMock()) as notify,
             patch("bot.handlers.start.check_referral_reward", AsyncMock()) as reward,
         ):

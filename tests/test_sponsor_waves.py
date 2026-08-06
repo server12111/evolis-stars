@@ -287,5 +287,99 @@ class SponsorWaveTests(unittest.TestCase):
         )
 
 
+@patch("bot.services.sponsor_waves.WAVE_SIZE", 12)
+class TraffyFlyerhubMergeTests(unittest.TestCase):
+    def test_traffy_and_flyerhub_mix_into_one_wave_up_to_the_cap(self) -> None:
+        """10 from Traffy + 2 from FlyerHub should fill a 12-sponsor wave,
+        with TgRass/Botohub not even needed to reach the cap."""
+        current = user()
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 10),
+            botohub_result=offers("bh", 10),
+            traffy_result=offers("traffy", 10),
+            flyerhub_result=offers("fh", 10),
+        )
+        self.assertEqual(len(state.items or []), 12)
+        shown_urls = {item["url"] for item in state.items or []}
+        traffy_urls = {f"https://t.me/traffy{i}" for i in range(10)}
+        flyerhub_urls = {f"https://t.me/fh{i}" for i in range(2)}
+        self.assertTrue(traffy_urls.issubset(shown_urls))
+        self.assertTrue(flyerhub_urls.issubset(shown_urls))
+        self.assertFalse(shown_urls & {f"https://t.me/tg{i}" for i in range(10)})
+        self.assertFalse(shown_urls & {f"https://t.me/bh{i}" for i in range(10)})
+
+    def test_ref_and_kind_survive_into_the_frozen_wave(self) -> None:
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://t.me/s1", "ref": "assign-1"}],
+            flyerhub_result=[{"name": "S2", "url": "https://t.me/s2", "ref": "sig-1", "kind": "trust"}],
+        )
+        saved = json.loads(current.sponsor_wave_one)
+        by_url = {item["url"]: item for item in saved}
+        self.assertEqual(by_url["https://t.me/s1"]["ref"], "assign-1")
+        self.assertEqual(by_url["https://t.me/s2"]["ref"], "sig-1")
+        self.assertEqual(by_url["https://t.me/s2"]["kind"], "trust")
+        self.assertNotIn("kind", by_url["https://t.me/s1"])
+
+    def test_traffy_recheck_result_resolves_the_wave(self) -> None:
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://t.me/s1", "ref": "assign-1"}],
+        )
+        # Caller (sponsor_wall.py) determined assign-1 is now completed and
+        # passes an empty traffy_result for the recheck round.
+        state = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[],
+            traffy_configured=True,
+        )
+        self.assertEqual(state.status, "complete")
+
+    def test_legacy_piarflow_item_in_frozen_wave_auto_resolves(self) -> None:
+        """Users whose wave was frozen back when PiarFlow still fed the ОП
+        wall must not get stuck on "unavailable" forever now that piarflow
+        never appears in `results` -- see evaluate_waves' own comment."""
+        current = SimpleNamespace(
+            sponsor_wave=1,
+            sponsor_wave_one=json.dumps([
+                {"provider": "piarflow", "url": "https://t.me/legacy", "name": "Legacy"},
+            ]),
+            sponsor_wave_two=None,
+        )
+        state = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+        )
+        self.assertEqual(state.status, "complete")
+        self.assertEqual(current.sponsor_wave, 3)
+
+    def test_legacy_piarflow_item_does_not_block_other_pending_sponsors(self) -> None:
+        current = SimpleNamespace(
+            sponsor_wave=1,
+            sponsor_wave_one=json.dumps([
+                {"provider": "piarflow", "url": "https://t.me/legacy", "name": "Legacy"},
+                {"provider": "tgrass", "url": "https://t.me/tg0", "name": "Channel 0"},
+            ]),
+            sponsor_wave_two=None,
+        )
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 1),
+            botohub_result=[],
+        )
+        self.assertEqual(state.status, "pending")
+        self.assertEqual([item["url"] for item in state.items or []], ["https://t.me/tg0"])
+
+
 if __name__ == "__main__":
     unittest.main()

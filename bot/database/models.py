@@ -266,8 +266,8 @@ class TaskCompletion(Base):
 
 # ─── OwnSponsor ───────────────────────────────────────────────────────────────
 # Admin-curated cross-promotion (own channels/chats/bots), gated in front of
-# the daily bonus claim — distinct from the paid tgrass/botohub/piarflow
-# sponsor wall and unrelated to referral rewards.
+# the daily bonus claim — distinct from the paid tgrass/botohub/traffy/
+# flyerhub sponsor wall and unrelated to referral rewards.
 
 class OwnSponsor(Base):
     __tablename__ = "own_sponsors"

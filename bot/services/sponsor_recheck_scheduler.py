@@ -15,7 +15,7 @@ async def sponsor_recheck_loop(bot: Bot) -> None:
     """Every ~10 minutes, re-open the sponsor wall for already-verified users.
 
     This only flips `sponsors_verified` back to False in bulk — it never
-    calls tgrass/botohub/piarflow itself. The next time each user interacts
+    calls tgrass/botohub/traffy/flyerhub itself. The next time each user interacts
     with the bot, SponsorWallMiddleware transparently re-runs the existing
     (already tested) initialize_waves/evaluate_waves check against fresh
     provider data. If nothing changed, evaluate_waves resolves back to

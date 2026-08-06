@@ -144,8 +144,8 @@ def _current_sponsor_urls(user: User) -> tuple[list[str], list[str]]:
 async def _verify_tg_subscriptions(bot: Bot, user_id: int, urls: list[str]) -> list[str]:
     """Independently confirm TG sponsor subscriptions via the bot's own Bot
     API, instead of trusting a possibly stale/incorrect provider report.
-    Most sponsor channels come from rotating ad networks (PiarFlow/BotoHub/
-    tgrass) our bot was never added to, and some use private invite links
+    Most sponsor channels come from ad networks (Traffy/BotoHub/tgrass/
+    FlyerHub) our bot was never added to, and some use private invite links
     that never resolve to a chat id — for those we simply CAN'T verify
     independently, so an unresolvable/failed check falls back to trusting
     the provider (which already confirmed the subscription before the wall

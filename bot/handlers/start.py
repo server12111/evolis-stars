@@ -47,7 +47,16 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
-
+def _any_sponsor_provider_configured() -> bool:
+    # Reads this module's own `settings` binding (not sponsor_wall's) so
+    # that tests patching `bot.handlers.start.settings` wholesale keep
+    # full control over this check.
+    return bool(
+        settings.tgrass_code
+        or settings.botohub_key
+        or settings.traffy_key
+        or settings.flyerhub_op_key
+    )
 
 
 async def _send_main_menu(message: Message, user: User, session: AsyncSession) -> None:
@@ -86,7 +95,7 @@ async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSess
     """Runs once tos_accepted is guaranteed True — the sponsor wall (if any
     providers are configured) is the next gate, then the main menu."""
     was_verified = db_user.sponsors_verified
-    if not db_user.sponsors_verified and (settings.tgrass_code or settings.botohub_key):
+    if not db_user.sponsors_verified and _any_sponsor_provider_configured():
         if not await run_sponsor_wall_check(message, db_user, session, bot):
             return
     db_user.sponsors_verified = True
@@ -232,7 +241,7 @@ async def cb_sponsor_check(
     # IMPORTANT: If no providers are configured at all, this button should not
     # be functional — we cannot verify subscriptions without a provider.
     # Silently passing the user through would allow referral fraud.
-    if not settings.tgrass_code and not settings.botohub_key:
+    if not _any_sponsor_provider_configured():
         await callback.answer(
             "⚠️ Проверка подписок временно недоступна. Попробуйте позже.",
             show_alert=True,
@@ -267,7 +276,7 @@ async def cb_sponsor_check(
 
 @router.callback_query(lambda c: c.data == "sponsor_skip")
 async def cb_sponsor_skip(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
-    if not settings.tgrass_code and not settings.botohub_key:
+    if not _any_sponsor_provider_configured():
         await callback.answer(
             "⚠️ Проверка подписок временно недоступна. Попробуйте позже.",
             show_alert=True,

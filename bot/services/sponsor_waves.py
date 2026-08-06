@@ -47,13 +47,27 @@ def _decorate(items: list[dict], provider: str) -> list[dict]:
         url = str(item.get("url", "")).strip()
         if not url:
             continue
-        result.append(
-            {
-                "provider": provider,
-                "url": url,
-                "name": str(item.get("name", "")).strip(),
-            }
-        )
+        decorated = {
+            "provider": provider,
+            "url": url,
+            "name": str(item.get("name", "")).strip(),
+        }
+        # ref: an opaque provider-side id (Traffy's assignment_id, FlyerHub's
+        # signature) needed to re-check this exact item later instead of
+        # diffing a freshly re-fetched batch -- see sponsor_wall.py's
+        # traffy/flyerhub recheck path.
+        ref = str(item.get("ref", "")).strip()
+        if ref:
+            decorated["ref"] = ref
+        # kind="trust" marks an item our own bot must NEVER independently
+        # clear via get_chat_member (e.g. a FlyerHub "give boost"/"follow
+        # link" task) -- membership doesn't mean the actual action was
+        # done, so only the provider's own check verdict may resolve it.
+        # Default ("verify", implicit when absent) is a real channel
+        # subscription, eligible for the usual live cross-check.
+        if str(item.get("kind", "")) == "trust":
+            decorated["kind"] = "trust"
+        result.append(decorated)
     return result
 
 
@@ -98,10 +112,17 @@ def initialize_waves(
     *,
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
-    piarflow_result: ProviderResult = None,
+    traffy_result: ProviderResult = None,
+    flyerhub_result: ProviderResult = None,
     wave_size: int | None = None,
 ) -> None:
-    """Freeze at most twelve sponsors into two restart-safe waves."""
+    """Freeze at most twelve sponsors into two restart-safe waves.
+
+    Provider priority when trimming to wave_size * MAX_WAVES: Traffy,
+    FlyerHub, TgRass, Botohub -- e.g. Traffy contributing 10 and FlyerHub 2
+    fills a 12-sponsor wave before TgRass/Botohub are even considered.
+    Telegram-resource sponsors are still sorted before web/other ones
+    regardless of provider (see the sort below)."""
     if user.sponsor_wave in {1, 2}:
         return
 
@@ -109,12 +130,14 @@ def initialize_waves(
         wave_size = WAVE_SIZE
     wave_size = max(1, min(MAX_WAVE_SIZE, wave_size))
     combined: list[dict] = []
-    if isinstance(botohub_result, list):
-        combined.extend(_decorate(botohub_result, "botohub"))
+    if isinstance(traffy_result, list):
+        combined.extend(_decorate(traffy_result, "traffy"))
+    if isinstance(flyerhub_result, list):
+        combined.extend(_decorate(flyerhub_result, "flyerhub"))
     if isinstance(tgrass_result, list):
         combined.extend(_decorate(tgrass_result, "tgrass"))
-    if isinstance(piarflow_result, list):
-        combined.extend(_decorate(piarflow_result, "piarflow"))
+    if isinstance(botohub_result, list):
+        combined.extend(_decorate(botohub_result, "botohub"))
 
     unique: list[dict] = []
     seen_urls: set[str] = set()
@@ -144,8 +167,10 @@ def evaluate_waves(
     *,
     tgrass_result: ProviderResult,
     botohub_result: ProviderResult,
-    piarflow_result: ProviderResult = None,
-    piarflow_configured: bool = False,
+    traffy_result: ProviderResult = None,
+    flyerhub_result: ProviderResult = None,
+    traffy_configured: bool = False,
+    flyerhub_configured: bool = False,
     wave_size: int | None = None,
     top_up: bool = True,
 ) -> SponsorWaveState:
@@ -165,7 +190,8 @@ def evaluate_waves(
     if user.sponsor_wave not in {1, 2, 3} and (
         not isinstance(tgrass_result, list)
         or not isinstance(botohub_result, list)
-        or (piarflow_configured and not isinstance(piarflow_result, list))
+        or (traffy_configured and not isinstance(traffy_result, list))
+        or (flyerhub_configured and not isinstance(flyerhub_result, list))
     ):
         return SponsorWaveState("unavailable")
 
@@ -173,19 +199,27 @@ def evaluate_waves(
         user,
         tgrass_result=tgrass_result,
         botohub_result=botohub_result,
-        piarflow_result=piarflow_result,
+        traffy_result=traffy_result,
+        flyerhub_result=flyerhub_result,
         wave_size=wave_size,
     )
 
     results: dict[str, ProviderResult] = {
         "tgrass": tgrass_result,
         "botohub": botohub_result,
-        "piarflow": piarflow_result,
+        "traffy": traffy_result,
+        "flyerhub": flyerhub_result,
     }
 
     while user.sponsor_wave in {1, 2}:
         wave = user.sponsor_wave
-        saved = _current_items(user)
+        # "piarflow" is a retired ОП provider (kept only for the separate
+        # "Задания" feature, see tasks.py) -- it will never again appear in
+        # `results` above. A user whose wave was frozen with a piarflow
+        # sponsor before this change must not get stuck returning
+        # "unavailable" forever; auto-resolve any leftover piarflow items
+        # instead, same as if the user had finished them.
+        saved = [item for item in _current_items(user) if str(item.get("provider", "")) != "piarflow"]
         if not saved:
             if wave == 1 and _load(user.sponsor_wave_two):
                 user.sponsor_wave = 2

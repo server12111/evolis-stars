@@ -26,6 +26,19 @@ class TelegramChatTests(unittest.TestCase):
         # A channel whose name merely contains "bot" mid-word is fine.
         self.assertEqual(telegram_chat_id("https://t.me/robotics_channel"), "@robotics_channel")
 
+    def test_folder_invite_link_is_not_misidentified_as_a_channel(self) -> None:
+        # t.me/addlist/<slug> is a Telegram *folder* invite, not a chat --
+        # without the reserved-segment exclusion "addlist" would be read as
+        # a literal channel username and passed to get_chat_member.
+        self.assertIsNone(telegram_chat_id("https://t.me/addlist/AbCdEf123456"))
+        self.assertIsNone(telegram_chat_id("t.me/addlist/AbCdEf123456"))
+
+    def test_boost_link_is_not_misidentified_as_a_channel(self) -> None:
+        # t.me/boost/<username> boosts a channel -- membership there isn't
+        # the same as having given the boost, so this must resolve to None
+        # (unverifiable via get_chat_member) rather than "@boost".
+        self.assertIsNone(telegram_chat_id("https://t.me/boost/example_channel"))
+
     def test_restricted_non_member_is_not_subscribed(self) -> None:
         self.assertFalse(is_subscribed(SimpleNamespace(status="restricted", is_member=False)))
         self.assertTrue(is_subscribed(SimpleNamespace(status="restricted", is_member=True)))
