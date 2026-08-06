@@ -815,23 +815,32 @@ async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         await _show_tasks_exhausted_screen(callback, db_user)
         return
 
-    if status in ("complete", "waiting"):
+    if status == "complete":
         await s_repo.set(key, "1")
         db_user.stars_balance = round(float(db_user.stars_balance) + tasks_reward, 2)
         db_user.tasks_completed_count += 1
         await session.commit()
         await check_referral_reward(db_user, session, bot)
-        
+
         try:
             await callback.answer("✅ Задание выполнено!", show_alert=True)
         except Exception:
             pass
-            
+
         try:
             await callback.message.edit_text("✅ Задание подтверждено! Загружаем следующее...", parse_mode="HTML")
         except Exception:
             pass
 
+        await _show_fh_task(callback, db_user, session)
+    elif status == "waiting":
+        # A distinct anti-fraud hold, not a confirmed completion — must
+        # NOT pay or set fh_done, or the hold is defeated by just tapping
+        # "check" once instead of actually finishing the sponsor's task.
+        try:
+            await callback.answer("⏳ Выполнение проверяется, попробуйте через минуту.", show_alert=True)
+        except Exception:
+            pass
         await _show_fh_task(callback, db_user, session)
     elif status == "unavailable":
         try:
