@@ -452,6 +452,7 @@ async def _evaluate_wave_state(
         flyerhub_configured=bool(settings.flyerhub_op_key),
         flyerhub_result=flyerhub_result,
     ):
+        logger.info("WALL uid=%s unavailable reason=all_configured_failed", db_user.user_id)
         return SponsorWaveState("unavailable")
 
     # Traffy/FlyerHub are deliberately excluded here — the reinstate
@@ -477,6 +478,16 @@ async def _evaluate_wave_state(
         blocked_urls=blocked_urls,
         blocked_domains=blocked_domains,
     )
+    if wave_state.status == "unavailable":
+        logger.info(
+            "WALL uid=%s unavailable reason=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s",
+            db_user.user_id,
+            "recheck_required_provider_failed" if wave_frozen else "first_freeze_provider_failed",
+            _describe_result(tgrass_result),
+            _describe_result(botohub_result),
+            _describe_result(traffy_result),
+            _describe_result(flyerhub_result),
+        )
     await session.commit()
     return wave_state
 

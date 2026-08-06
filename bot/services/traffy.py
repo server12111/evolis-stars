@@ -87,8 +87,11 @@ async def get_traffy_tasks(
                     logger.info("Traffy get_tasks user_id=%d → %d tasks", user_id, len(result))
                     return result
         except Exception as e:
-            logger.warning("Traffy get_tasks error: %s", e)
-            return None
+            # Retry (not an immediate give-up) -- a one-off network blip
+            # must not read as "this provider is down" and cascade into
+            # an "unavailable" wall for anyone checking in that exact
+            # moment, same as the HTTP 429 branch above already does.
+            logger.warning("Traffy get_tasks error (attempt %d): %s", attempt + 1, e)
     return None
 
 
@@ -142,6 +145,6 @@ async def check_traffy_tasks(
                         statuses[assignment_id] = str(item.get("status", "")) in _COMPLETED_STATUSES
                     return statuses
         except Exception as e:
-            logger.warning("Traffy check_tasks error: %s", e)
-            return None
+            # Retry -- same reasoning as get_traffy_tasks above.
+            logger.warning("Traffy check_tasks error (attempt %d): %s", attempt + 1, e)
     return None

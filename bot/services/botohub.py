@@ -59,8 +59,11 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
                     logger.info("BotoHub check_botohub user_id=%d → %d offers", user_id, len(result))
                     return result
         except Exception as e:
-            logger.warning("BotoHub check error: %s", e)
-            return None
+            # Retry (not an immediate give-up) -- a one-off network blip
+            # must not read as "this provider is down" and cascade into
+            # an "unavailable" wall for anyone checking in that exact
+            # moment, same as the HTTP 429 branch above already does.
+            logger.warning("BotoHub check error (attempt %d): %s", attempt + 1, e)
     return None
 
 

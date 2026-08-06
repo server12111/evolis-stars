@@ -78,6 +78,10 @@ async def check_tgrass(
                     logger.info("TGrass check_tgrass user_id=%d status=%s → %d offers", user_id, status, len(result))
                     return result
         except Exception as e:
-            logger.warning("TGrass check error: %s", e)
-            return None
+            # Retry (not an immediate give-up) -- a one-off network blip
+            # (timeout, connection reset) must not read as "this provider
+            # is down" and cascade into an "unavailable" wall for anyone
+            # checking in that exact moment, same as the HTTP 429 branch
+            # above already does.
+            logger.warning("TGrass check error (attempt %d): %s", attempt + 1, e)
     return None
