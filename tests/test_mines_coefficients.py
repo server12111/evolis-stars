@@ -64,6 +64,27 @@ class MinesCoeffTableUnitTests(unittest.TestCase):
         for mines in (3, 5, 10, 15):
             self.assertEqual(mines_coeff(mines, 0), 1.0)
 
+    def test_punish_edge_actually_tightens_curated_table_payouts(self) -> None:
+        """Regression: MINES_COEFF_TABLES (3/5/15 mines) used to ignore
+        house_edge entirely, so recovery mode (mines_house_edge_punish)
+        had zero effect on the mine counts players actually pick most —
+        only the 10-mine formula fallback was ever punished."""
+        for mines, opened in ((3, 5), (5, 5), (15, 3)):
+            with self.subTest(mines=mines):
+                normal = mines_coeff(mines, opened, house_edge=0.20)
+                punished = mines_coeff(mines, opened, house_edge=0.45)
+                self.assertLess(punished, normal)
+                # Scaling is proportional to (1 - edge), relative to the
+                # 0.20 baseline the tables are curated at.
+                expected = round(normal * (1 - 0.45) / (1 - 0.20), 4)
+                self.assertEqual(punished, expected)
+
+    def test_default_edge_matches_curated_table_unchanged(self) -> None:
+        # house_edge=0.20 is the tables' own baseline, so it must be a
+        # pure passthrough — the normal (non-recovery) game is unaffected.
+        self.assertEqual(mines_coeff(3, 5, house_edge=0.20), 1.30)
+        self.assertEqual(mines_coeff(15, 3, house_edge=0.20), 3.00)
+
     def test_10_mines_still_uses_the_formula_not_a_table(self) -> None:
         self.assertNotIn(10, MINES_COEFF_TABLES)
         # Formula-based: coeff = (1/prob) * (1 - house_edge), prob = 15/25 for opened=1.

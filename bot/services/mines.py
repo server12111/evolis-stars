@@ -6,6 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Board is always 5x5 = 25 cells, so len(table) == 25 - mines for each key.
 # Mine counts not listed here (currently just 10) fall back to the
 # fair-odds formula below, unaffected by these tables.
+#
+# These entries are curated at _TABLE_BASELINE_EDGE — mines_coeff() scales
+# them by the caller's actual house_edge relative to that baseline, so a
+# non-default `mines_house_edge` (and critically, recovery-mode
+# `mines_house_edge_punish`) actually changes payouts for 3/5/15-mine
+# games too, not just the formula-driven 10-mine fallback.
+_TABLE_BASELINE_EDGE = 0.20
+
 MINES_COEFF_TABLES: dict[int, list[float]] = {
     3: [
         0.80, 0.99, 1.20, 1.25, 1.30, 1.35, 1.45, 1.60, 1.70, 1.75,
@@ -27,7 +35,12 @@ def mines_coeff(mines: int, opened: int, house_edge: float = 0.20, max_coeff: fl
     if table is not None:
         # opened is always <= len(table) in practice (can't open more cells
         # than there are safe ones), but clamp defensively.
-        return table[min(opened, len(table)) - 1]
+        base = table[min(opened, len(table)) - 1]
+        # Unlike the formula fallback below, the curated tables are never
+        # clamped to max_coeff — their top entries (e.g. 32.00 for 15
+        # mines) intentionally exceed the 10.0 default on purpose.
+        scale = (1 - house_edge) / (1 - _TABLE_BASELINE_EDGE)
+        return round(base * scale, 4)
     prob = 1.0
     for i in range(opened):
         prob *= (25 - mines - i) / (25 - i)
