@@ -58,13 +58,14 @@ def _callback(user_id: int, data: str, bot=None):
     )
 
 
-def _text_message(user_id: int, text: str, bot=None, html_text=None):
+def _text_message(user_id: int, text: str, bot=None, html_text=None, entities=None):
     return SimpleNamespace(
         text=text,
         # Real aiogram Message objects always expose html_text (plain
         # segments HTML-escaped, real entities serialized to tags) --
         # mychats.py's owner-text capture reads this, not .text.
         html_text=text if html_text is None else html_text,
+        entities=entities,
         from_user=SimpleNamespace(id=user_id), photo=None, answer=AsyncMock(), bot=bot or _bot(),
     )
 
@@ -251,6 +252,76 @@ class KeywordFilterTests(ChatModelsTestCase):
             await msg_custom_broadcast_text(msg, session, state)
 
         self.assertIn("запрещённый контент", msg.answer.await_args.args[0])
+
+    async def test_formatting_entity_mid_word_does_not_evade_the_filter(self) -> None:
+        """Regression: html_text serializes a formatting entity (bold,
+        italic, etc.) placed on a single letter as an inline <tag>, e.g.
+        "порно" -> "пор<b>н</b>о" -- trivial for any user to produce from
+        a stock Telegram client (select one letter, tap Bold). The filter
+        must be checked against the plain reading of the text, not the
+        html_text with tags still embedded, or this splits the banned word
+        into fragments that never match."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(ChatOwnerBroadcastStates.enter_text)
+        await state.update_data(chat_id=-1)
+
+        msg = _text_message(
+            1, "заходи, у нас порно видео",
+            html_text="заходи, у нас пор<b>н</b>о видео",
+        )
+        async with self.sessions() as session:
+            await msg_custom_broadcast_text(msg, session, state)
+
+        self.assertIn("запрещённый контент", msg.answer.await_args.args[0])
+        async with self.sessions() as session:
+            self.assertEqual(await ChatBroadcastRepository(session).count(-1), 0)
+
+    async def test_text_link_with_unsafe_characters_is_rejected(self) -> None:
+        """Regression: aiogram's html_text splices a text_link entity's own
+        url straight into href="..." WITHOUT escaping it (unlike every
+        other part of html_text, which is properly escaped) -- a url
+        containing a literal '"' or bare '<'/'>' would break out of the
+        attribute and could inject unintended markup into the sent
+        message. Must be rejected at input time rather than trusted."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(ChatOwnerBroadcastStates.enter_text)
+        await state.update_data(chat_id=-1)
+
+        entity = SimpleNamespace(type="text_link", url='https://evil.com/"><script>')
+        msg = _text_message(1, "click here", entities=[entity])
+        async with self.sessions() as session:
+            await msg_custom_broadcast_text(msg, session, state)
+
+        self.assertIn("недопустимые символы", msg.answer.await_args.args[0])
+        async with self.sessions() as session:
+            self.assertEqual(await ChatBroadcastRepository(session).count(-1), 0)
+
+    async def test_text_link_with_a_clean_url_is_accepted(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        state = _state()
+        await state.set_state(ChatOwnerBroadcastStates.enter_text)
+        await state.update_data(chat_id=-1)
+
+        entity = SimpleNamespace(type="text_link", url="https://example.com/promo")
+        msg = _text_message(
+            1, "click here", entities=[entity],
+            html_text='<a href="https://example.com/promo">click here</a>',
+        )
+        async with self.sessions() as session:
+            await msg_custom_broadcast_text(msg, session, state)
+
+        self.assertEqual(await state.get_state(), ChatOwnerBroadcastStates.enter_photos)
 
     async def test_ordinary_promotional_text_passes(self) -> None:
         async with self.sessions() as session:
@@ -1109,6 +1180,45 @@ class SchedulerTests(ChatModelsTestCase):
         # keeps rotating on subsequent passes instead of getting disabled.
         self.assertNotIn(bad.id, [m.id for m in remaining])
         self.assertTrue(chat.custom_broadcast_enabled)
+
+    async def test_transient_permission_error_does_not_delete_the_message(self) -> None:
+        """Regression: TelegramBadRequest also covers CHAT_WRITE_FORBIDDEN
+        /"not enough rights" -- about the chat's CURRENT permission state
+        (slow mode, a muted bot, rights not yet granted), not this
+        message's content. That can resolve itself on a later pass, so
+        deleting the owner's content over it (like the bad-URL case
+        correctly does) would be a real, permanent content loss for a
+        temporary condition."""
+        from aiogram.exceptions import TelegramBadRequest
+
+        async with self.sessions() as session:
+            session.add(User(user_id=1, first_name="Owner"))
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=60,
+            ))
+            await session.commit()
+        kept = await self._add_approved_message(-1, "buy now")
+
+        error = TelegramBadRequest(
+            method=SimpleNamespace(),
+            message="Bad Request: not enough rights to send text messages to the chat",
+        )
+        bot = SimpleNamespace(send_message=AsyncMock(side_effect=error))
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -1)
+            await _send_one(bot, session, chat, datetime.utcnow())
+
+        # No owner DM -- this isn't treated as a permanent content failure.
+        self.assertEqual(bot.send_message.await_count, 1)
+        async with self.sessions() as session:
+            remaining = await ChatBroadcastRepository(session).list_approved(-1)
+            chat = await session.get(Chat, -1)
+        self.assertIn(kept.id, [m.id for m in remaining])
+        self.assertTrue(chat.custom_broadcast_enabled)
+        # Rotation index untouched -- the same message is retried once
+        # posting rights come back, not skipped over.
+        self.assertEqual(chat.custom_broadcast_next_index, 0)
 
     async def test_run_pass_only_sends_to_due_chats(self) -> None:
         now = datetime.utcnow()

@@ -21,6 +21,27 @@ logger = logging.getLogger(__name__)
 # often.
 _PASS_INTERVAL_SECONDS = 30
 
+# Substrings of a TelegramBadRequest's message that mean the CONTENT itself
+# is unsendable (bad URL, unparseable entities, etc.) and will fail on
+# every future pass too -- as opposed to e.g. CHAT_WRITE_FORBIDDEN/"not
+# enough rights", which is about the chat's current permission state and
+# can resolve itself. Deliberately an allowlist (fail closed, i.e. default
+# to NOT deleting content) rather than trying to enumerate every transient
+# error Telegram might return.
+_PERMANENT_CONTENT_ERROR_MARKERS = (
+    "wrong http url",
+    "button_url_invalid",
+    "can't parse entities",
+    "message is too long",
+    "message_too_long",
+    "text is empty",
+)
+
+
+def _is_permanent_content_error(exc: TelegramBadRequest) -> bool:
+    error_text = str(exc).lower()
+    return any(marker in error_text for marker in _PERMANENT_CONTENT_ERROR_MARKERS)
+
 
 async def chat_broadcast_loop(bot: Bot) -> None:
     while True:
@@ -57,8 +78,11 @@ async def _dispatch(bot: Bot, chat_id: int, message: ChatBroadcastMessage) -> No
     # - True: aiogram's html_text serialization (mychats.py's owner-text
     #   capture) — real formatting/premium-emoji entities are valid <tag>s
     #   and any literal "<"/">"/"&" the owner typed as plain characters
-    #   were already escaped, so parse_mode="HTML" is always safe AND is
-    #   what actually renders the premium emoji.
+    #   were already escaped, so parse_mode="HTML" renders the premium
+    #   emoji as intended. mychats.py separately rejects text_link
+    #   entities with an unsafe url before they ever reach this table (see
+    #   its own comment) — aiogram's html_text does NOT escape a link's
+    #   own url when splicing it into href="...".
     # - False (rows from before this existed): raw, unescaped free text.
     #   The bot has a global parse_mode=HTML default, so leaving parse_mode
     #   unset here would make Telegram try to parse it as HTML: an
@@ -111,8 +135,18 @@ async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
     try:
         await _dispatch(bot, chat.chat_id, message)
     except TelegramBadRequest as exc:
-        # A malformed button URL, banned content, etc. -- Telegram will
-        # reject this exact same message on every future pass too, so
+        if not _is_permanent_content_error(exc):
+            # TelegramBadRequest also covers things like CHAT_WRITE_FORBIDDEN
+            # /"not enough rights" -- about the CHAT's current permissions,
+            # not this message, and can resolve itself (slow mode lifted,
+            # admin restores posting rights). Deleting the owner's content
+            # over a transient state like that would be a permanent loss
+            # for a temporary condition -- log and retry next pass instead,
+            # same as any other non-fatal error.
+            logger.warning("Cannot send custom broadcast into chat %s: %s", chat.chat_id, exc)
+            return
+        # A malformed button URL, unparseable entities, etc. -- Telegram
+        # will reject this exact same message on every future pass too, so
         # retrying it forever (the old behaviour) would spam an identical
         # warning every 30s and starve every other message in this chat's
         # rotation. Drop it and tell the owner why, same as a moderator

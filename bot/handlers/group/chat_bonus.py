@@ -43,7 +43,7 @@ async def _is_owner(session: AsyncSession, chat_id: int, user_id: int) -> bool:
 _GLOBAL_USER_STATE_CHAT_ID = 0  # never a real Telegram chat id — a private chat's id always equals the user's own id, which chat_id=user_id here would collide with
 # How long a single "Add sponsor" click blocks a second one before it's
 # treated as abandoned rather than still in progress.
-_PENDING_SPONSOR_TIMEOUT_SECONDS = 600
+_PENDING_SPONSOR_TIMEOUT_SECONDS = 180
 
 
 def _pending_sponsor_state(storage: BaseStorage, bot_id: int, user_id: int) -> FSMContext:
@@ -200,7 +200,7 @@ async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext,
         if time.time() - armed_at < _PENDING_SPONSOR_TIMEOUT_SECONDS:
             await callback.answer(
                 "⚠️ Сначала завершите добавление предыдущего спонсора "
-                "(назначьте бота администратором там) или подождите пару минут.",
+                "(назначьте бота администратором там) или подождите 3 минуты.",
                 show_alert=True,
             )
             return

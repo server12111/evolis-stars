@@ -205,7 +205,7 @@ class AddSponsorFlowTests(ChatModelsTestCase):
 
         pending = _pending_sponsor_state(storage, bot.id, 42)
         stale_data = await pending.get_data()
-        stale_data["armed_at"] -= 700  # older than the 600s timeout
+        stale_data["armed_at"] -= 200  # older than the 180s timeout
         await pending.set_data(stale_data)
 
         state_y = _fsm_state({"chat_id": -2, "sponsors": []})

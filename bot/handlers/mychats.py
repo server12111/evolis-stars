@@ -321,6 +321,18 @@ async def cb_mychats_bonus_start(callback: CallbackQuery, session: AsyncSession,
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
+def _html_to_plain(html_text: str) -> str:
+    """Strips tags and decodes entities from an html_text string, back to
+    the plain characters a human actually reads. Used both for a safe
+    preview and for running the banned-word filter -- an html_text value
+    is NOT what it should be checked against directly, since a single
+    bold/italic/etc. entity placed on one letter of a banned word (trivial
+    to do from a stock Telegram client -- select a letter, tap Bold)
+    inserts a tag in the middle of it, e.g. "порно" -> "пор<b>н</b>о",
+    which splits it into fragments that never match the word-based filter."""
+    return unescape(_TAG_RE.sub("", html_text))
+
+
 def _plain_text_preview(message: ChatBroadcastMessage, limit: int) -> str:
     """Short, HTML-safe preview of a stored broadcast text for the owner's
     own panel (which is itself sent with parse_mode="HTML"). Stripping
@@ -329,7 +341,7 @@ def _plain_text_preview(message: ChatBroadcastMessage, limit: int) -> str:
     dangling "<tg-emo" fragment and break the whole panel message's HTML
     parse); the plain result is then escaped fresh so it can never smuggle
     real markup into a message it wasn't meant to format."""
-    plain = unescape(_TAG_RE.sub("", message.text)) if message.text_is_html else message.text
+    plain = _html_to_plain(message.text) if message.text_is_html else message.text
     truncated = plain if len(plain) <= limit else plain[: limit - 3] + "..."
     return escape(truncated)
 
@@ -452,10 +464,22 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
 
     # html_text serializes any real Telegram formatting/premium-emoji
     # entities into valid <tag>s and escapes literal "<"/">"/"&" in plain
-    # portions -- always safe to send later with parse_mode="HTML" (see
-    # ChatBroadcastMessage.text_is_html), and lets an owner include actual
-    # premium emoji by inserting them normally in Telegram, not typing
-    # raw markup.
+    # portions, so it's safe to send later with parse_mode="HTML" (see
+    # ChatBroadcastMessage.text_is_html) for everything EXCEPT one entity
+    # kind aiogram doesn't escape into: a text_link's own url is spliced
+    # straight into href="..." unescaped, so a link containing '"' or a
+    # bare '<'/'>' would break out of the attribute — reject those before
+    # they ever get this far. Lets an owner include actual premium emoji
+    # by inserting them normally in Telegram, not typing raw markup.
+    if any(
+        entity.type == "text_link" and entity.url and any(ch in entity.url for ch in ('"', "<", ">"))
+        for entity in (message.entities or [])
+    ):
+        await message.answer(
+            "❌ Ссылка в тексте содержит недопустимые символы. Отправь другой текст:",
+            reply_markup=custom_broadcast_cancel_kb(chat_id),
+        )
+        return
     body = (message.html_text or "").strip()
     if not body:
         await message.answer("❌ Отправь текстовое сообщение:", reply_markup=custom_broadcast_cancel_kb(chat_id))
@@ -466,7 +490,11 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
-    if find_banned_term(body):
+    # Checked against the PLAIN reading of the text, not the html_text with
+    # its <tag>s still in -- formatting entities split words apart in
+    # html_text (see _html_to_plain's own docstring) and would otherwise
+    # let a single Bold tap on one letter evade the filter entirely.
+    if find_banned_term(_html_to_plain(body)):
         logger.warning(
             "MYCHATS broadcast text rejected (banned content) chat=%s user=%s",
             chat_id, message.from_user.id,
