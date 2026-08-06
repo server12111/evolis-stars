@@ -170,12 +170,18 @@ async def cb_broadcast_mod_approve(callback: CallbackQuery, session: AsyncSessio
 
     chat = await ChatRepository(session).get(broadcast_msg.chat_id)
     if chat:
+        # custom_broadcast_enabled can already be True here if this text
+        # replaced a previously-approved one that was already live — in
+        # that case approval genuinely resumes sending immediately, not
+        # just "queues it up" (the owner still has to flip the toggle
+        # themselves for a first-time setup).
+        owner_text = (
+            "✅ <b>Ваш текст прошёл проверку, рассылка запущена!</b>"
+            if chat.custom_broadcast_enabled
+            else "✅ <b>Ваш текст прошёл проверку!</b>\n\nВключите рассылку в панели чата, чтобы она заработала."
+        )
         try:
-            await callback.bot.send_message(
-                chat.owner_user_id,
-                "✅ <b>Твой текст для рассылки одобрен!</b>\n\nОн добавлен в ротацию.",
-                parse_mode="HTML",
-            )
+            await callback.bot.send_message(chat.owner_user_id, owner_text, parse_mode="HTML")
         except Exception:
             pass
     await callback.answer("✅ Одобрено")
@@ -209,7 +215,7 @@ async def cb_broadcast_mod_reject(callback: CallbackQuery, session: AsyncSession
         try:
             await callback.bot.send_message(
                 chat.owner_user_id,
-                "❌ <b>Твой текст для рассылки отклонён модератором.</b>\n\nМожешь отправить другой.",
+                "❌ <b>Вашему тексту для рассылки отказано.</b>\n\nПопробуйте отправить другой текст.",
                 parse_mode="HTML",
             )
         except Exception:

@@ -622,8 +622,37 @@ class ModerationDecisionTests(ChatModelsTestCase):
         self.assertEqual(stored.status, "approved")
         admin_bot.send_message.assert_awaited_once()
         self.assertEqual(admin_bot.send_message.await_args.args[0], 1)  # DM to owner
+        self.assertIn("прошёл проверку", admin_bot.send_message.await_args.args[1])
+        self.assertIn("Включите рассылку", admin_bot.send_message.await_args.args[1])
         cb.message.edit_text.assert_awaited_once()
         self.assertIn("Одобрено", cb.message.edit_text.await_args.args[0])
+
+    async def test_approve_tells_owner_broadcast_already_resumed_if_enabled(self) -> None:
+        """If the chat was already actively broadcasting (this text
+        replaced a previously-approved, already-toggled-on one), approval
+        genuinely resumes sending right away — the DM should say so
+        instead of asking the owner to flip a toggle that's already on."""
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=-1, title="T", status="active", owner_user_id=1,
+                custom_broadcast_enabled=True, custom_broadcast_interval_seconds=300,
+            ))
+            await session.commit()
+            msg = await ChatBroadcastRepository(session).add_message(-1, "hello")
+
+        admin_bot = AsyncMock()
+        cb = SimpleNamespace(
+            data=f"broadcast_mod:approve:{msg.id}",
+            from_user=SimpleNamespace(id=1),
+            message=SimpleNamespace(edit_text=AsyncMock(), text="original post"),
+            bot=admin_bot,
+            answer=AsyncMock(),
+        )
+        with patch("bot.handlers.admin_channel.settings.admin_ids", "1"):
+            async with self.sessions() as session:
+                await cb_broadcast_mod_approve(cb, session)
+
+        self.assertIn("рассылка запущена", admin_bot.send_message.await_args.args[1])
 
     async def test_reject_deletes_message_and_notifies_owner(self) -> None:
         async with self.sessions() as session:
@@ -647,6 +676,7 @@ class ModerationDecisionTests(ChatModelsTestCase):
             self.assertIsNone(await ChatBroadcastRepository(session).get(msg.id))
         admin_bot.send_message.assert_awaited_once()
         self.assertEqual(admin_bot.send_message.await_args.args[0], 1)
+        self.assertIn("отказано", admin_bot.send_message.await_args.args[1])
         self.assertIn("Отклонено", cb.message.edit_text.await_args.args[0])
 
     async def test_non_admin_cannot_approve(self) -> None:
