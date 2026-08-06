@@ -221,9 +221,36 @@ def _add_missing_user_columns(connection) -> None:
         column["name"] for column in inspect(connection).get_columns("blocked_sponsor_urls")
     }
     if "match_type" not in blocked_sponsor_columns:
-        connection.execute(
-            text("ALTER TABLE blocked_sponsor_urls ADD COLUMN match_type VARCHAR(16) NOT NULL DEFAULT 'url'")
-        )
+        # A plain ADD COLUMN isn't enough here: the table predates the
+        # domain-blocklist feature and still carries the original
+        # single-column UNIQUE(url_key) constraint from its very first
+        # CREATE TABLE. SQLite can't ALTER/DROP a constraint directly, so
+        # that old constraint would stay live forever -- and it collides
+        # across match_type: blocking the bare domain "example.com" after
+        # someone already blocked the exact link "example.com" (no path)
+        # hits the old constraint on INSERT, which the repository's
+        # IntegrityError recovery doesn't expect (it re-queries scoped by
+        # the new compound key, finds nothing, and raises). Rebuild the
+        # table with the correct compound UNIQUE(match_type, url_key)
+        # instead -- the standard SQLite way to change a constraint.
+        # Every pre-existing row predates the domain feature entirely, so
+        # they're always match_type='url'.
+        connection.execute(text("""
+            CREATE TABLE blocked_sponsor_urls_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_type VARCHAR(16) NOT NULL DEFAULT 'url',
+                url TEXT NOT NULL,
+                url_key VARCHAR(512) NOT NULL,
+                created_at DATETIME,
+                UNIQUE (match_type, url_key)
+            )
+        """))
+        connection.execute(text("""
+            INSERT INTO blocked_sponsor_urls_new (id, match_type, url, url_key, created_at)
+            SELECT id, 'url', url, url_key, created_at FROM blocked_sponsor_urls
+        """))
+        connection.execute(text("DROP TABLE blocked_sponsor_urls"))
+        connection.execute(text("ALTER TABLE blocked_sponsor_urls_new RENAME TO blocked_sponsor_urls"))
     _ensure_integrity_indexes(connection)
 
 
