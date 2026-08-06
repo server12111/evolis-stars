@@ -202,7 +202,11 @@ async def get_pending_sponsor_items(
     the "skip sponsors" flow so the price always matches what's actually on
     screen (the frozen wave's full size is NOT the right count once the
     user has already subscribed to some of it)."""
-    wave_state = await _evaluate_wave_state(inner, db_user, session, bot)
+    # skip_when_complete=True: a stale "sponsor_skip" button pressed after
+    # the user already finished normally must report nothing left to skip
+    # instead of hitting every provider again — see the parameter's own
+    # docstring below for why this must NOT apply to the periodic recheck.
+    wave_state = await _evaluate_wave_state(inner, db_user, session, bot, skip_when_complete=True)
     if wave_state.status != "pending":
         return []
     return wave_state.items or []
@@ -213,19 +217,27 @@ async def _evaluate_wave_state(
     db_user: User,
     session: AsyncSession,
     bot: Bot | None = None,
+    skip_when_complete: bool = False,
 ) -> SponsorWaveState:
     """Checks every configured sponsor provider fresh and evaluates the
     current wave against it — the shared core behind both
     run_sponsor_wall_check (which also renders/commits) and
-    get_pending_sponsor_items (which only needs the resulting item list)."""
-    if db_user.sponsor_wave == 3:
-        # Already fully complete — must not re-initialize a fresh wave from
-        # scratch (initialize_waves() only skips that for wave 1/2). This
-        # path is reachable here specifically because "sponsor_skip" is
-        # exempt from SponsorWallMiddleware's own sponsors_verified check
-        # (see _BYPASS_PREFIXES), so a stale skip button pressed after the
-        # user already finished normally must report nothing left to skip
-        # instead of hitting every provider again.
+    get_pending_sponsor_items (which only needs the resulting item list).
+
+    skip_when_complete short-circuits to "complete" immediately for a
+    sponsor_wave==3 user, with no provider calls at all — correct for
+    get_pending_sponsor_items (sponsor_skip is exempt from
+    SponsorWallMiddleware's own sponsors_verified check, so a stale skip
+    button pressed after the user already finished normally must not
+    re-hit every provider just to report nothing left to skip). It must
+    stay False for run_sponsor_wall_check's normal path: sponsor_recheck_
+    scheduler periodically flips sponsors_verified back to False for
+    already-complete users specifically so the NEXT interaction re-checks
+    providers for sponsors that weren't there before — short-circuiting
+    here too would make that recheck a permanent no-op forever after the
+    first time a user ever reaches wave 3, silently defeating it.
+    """
+    if db_user.sponsor_wave == 3 and skip_when_complete:
         return SponsorWaveState("complete")
 
     from bot.services.botohub import check_botohub

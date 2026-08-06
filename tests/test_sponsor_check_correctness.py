@@ -212,5 +212,55 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         bot.get_chat_member.assert_awaited_once()
 
 
+class SponsorRecheckAfterCompleteTests(unittest.IsolatedAsyncioTestCase):
+    """sponsor_recheck_scheduler periodically flips sponsors_verified back
+    to False for already-complete (wave==3) users specifically so the
+    next interaction re-checks providers for sponsors that weren't there
+    before. The wave==3 shortcut must only apply to the sponsor_skip
+    path, never to this general recheck path — otherwise the recheck
+    scheduler becomes a permanent no-op the moment a user first reaches
+    wave 3."""
+
+    async def test_periodic_recheck_offers_a_new_sponsor_after_wave_3(self) -> None:
+        session = SimpleNamespace(commit=AsyncMock())
+        complete_user = user(sponsor_wave=3)
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=offers("new", 1))),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            passed = await run_sponsor_wall_check(inner(), complete_user, session)
+
+        # A new sponsor wave is shown, not silently passed through.
+        self.assertFalse(passed)
+        self.assertEqual(complete_user.sponsor_wave, 1)
+
+    async def test_sponsor_skip_still_skips_provider_calls_for_wave_3(self) -> None:
+        """The stale-button performance guard must still hold — sponsor_
+        skip must never re-query providers for an already-complete user."""
+        from bot.middlewares.sponsor_wall import get_pending_sponsor_items
+
+        session = SimpleNamespace(commit=AsyncMock())
+        complete_user = user(sponsor_wave=3)
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock()) as check_tgrass,
+            patch("bot.services.botohub.check_botohub", AsyncMock()) as check_botohub,
+        ):
+            items = await get_pending_sponsor_items(inner(), complete_user, session)
+
+        self.assertEqual(items, [])
+        check_tgrass.assert_not_awaited()
+        check_botohub.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()
