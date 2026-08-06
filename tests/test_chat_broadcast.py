@@ -121,6 +121,33 @@ class RepositoryTests(ChatModelsTestCase):
             self.assertIsNone(await repo.get(msg2.id))  # rejected rows are deleted
             self.assertIsNone(await repo.reject(msg2.id))  # already gone
 
+    async def test_reject_cannot_delete_an_already_approved_message(self) -> None:
+        """Regression: reject() used to read status, then unconditionally
+        delete — if approve() committed in between (two admins racing on
+        the same message), the plain delete would still remove the row
+        even though it was no longer pending, silently un-approving a
+        message that had just gone live and double-notifying the owner
+        with contradictory decisions. The delete must be conditioned on
+        status='pending' in the same statement."""
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))
+            await session.commit()
+            msg = await ChatBroadcastRepository(session).add_message(-1, "hello")
+
+        async with self.sessions() as session:
+            repo = ChatBroadcastRepository(session)
+            await repo.approve(msg.id)  # another admin approved it first
+
+        async with self.sessions() as session:
+            repo = ChatBroadcastRepository(session)
+            result = await repo.reject(msg.id)
+
+        self.assertIsNone(result)
+        async with self.sessions() as session:
+            stored = await ChatBroadcastRepository(session).get(msg.id)
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.status, "approved")
+
     async def test_delete_message(self) -> None:
         async with self.sessions() as session:
             session.add(Chat(chat_id=-1, title="T", status="active", owner_user_id=1))

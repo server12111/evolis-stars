@@ -11,25 +11,41 @@ _HOMOGLYPH_FOLD = str.maketrans({
     "a": "а", "e": "е", "o": "о", "p": "р", "c": "с", "x": "х", "y": "у",
 })
 
-_STRIP_RE = re.compile(r"[^a-zа-яё0-9]+")
+_WORD_CHARS = "a-zа-яё0-9"
+
+# A run of 3+ single alphanumeric characters, each separated by exactly one
+# space/dot/dash/underscore — the signature shape of "p o r n o" /
+# "п.о.р.н.о" / "с-е-к-с" evasion. Collapsing ONLY this specific pattern
+# (not every separator in the text) means ordinary multi-letter words stay
+# separated by their normal spaces — "на канал" stays two real words,
+# while "п о р н о" collapses into the single token "порно".
+_SPACED_LETTERS_RE = re.compile(
+    rf"(?<![{_WORD_CHARS}])([{_WORD_CHARS}](?:[\s.\-_]+[{_WORD_CHARS}]){{2,}})(?![{_WORD_CHARS}])",
+    re.IGNORECASE,
+)
+_WORD_RE = re.compile(f"[{_WORD_CHARS}]+")
 
 
-def _normalize(text: str) -> str:
-    """Lowercases, drops every non-alphanumeric character (collapsing
-    spaced-out or dotted/dashed evasion like "п.о.р.н.о" / "с-е-к-с" /
-    "п о р н о" into one token), then folds Latin/Cyrillic homoglyphs onto
-    one canonical form. Applied identically to the keyword list (once, at
-    import time) and to every submitted text (at check time), so matching
-    stays correct regardless of which alphabet/spacing a sender used."""
-    return _STRIP_RE.sub("", text.lower()).translate(_HOMOGLYPH_FOLD)
+def _words(text: str) -> list[str]:
+    """Lowercases, collapses spaced/dotted/dashed single-letter evasion
+    into single tokens, folds Latin/Cyrillic homoglyphs, then splits into
+    real words. Ordinary multi-letter words are never merged with their
+    neighbors, so a short banned stem can never accidentally match across
+    a word boundary (only within a single word, which is what inflected-
+    form stems like "дроч" are meant to catch)."""
+    lowered = text.lower()
+    collapsed = _SPACED_LETTERS_RE.sub(
+        lambda m: re.sub(r"[\s.\-_]+", "", m.group(1)), lowered,
+    )
+    folded = collapsed.translate(_HOMOGLYPH_FOLD)
+    return _WORD_RE.findall(folded)
 
 
 # Grouped by category for maintainability — the actual check flattens this
-# into one set. Kept as normalized-then-deduplicated stems rather than every
-# literal spelling variant, since _normalize() already collapses spacing/
-# punctuation and folds the common look-alike letters; only genuinely
-# distinct spellings (different letters, not just different separators)
-# need their own entry.
+# into one set. Kept as stems rather than every literal spelling variant,
+# since _words() already collapses spacing/punctuation evasion and folds
+# the common look-alike letters; only genuinely distinct spellings (real
+# alphabet/digit substitutions, not just separators) need their own entry.
 #
 # Deliberately excluded despite being common slang for prohibited content:
 # "соль" (salt — an extremely common word on its own), bare "клад"
@@ -78,39 +94,43 @@ _BANNED_TERMS: dict[str, list[str]] = {
     ],
 }
 
-_NORMALIZED_BANNED_TERMS: frozenset[str] = frozenset(
-    _normalize(term) for terms in _BANNED_TERMS.values() for term in terms
+def _normalize_term(term: str) -> str:
+    return " ".join(_words(term))
+
+
+# Short, common-English-word-shaped terms whose obvious "safe" superset
+# words (skill, analytics/анализ, moral/coral/floral) are far more likely
+# in ordinary broadcast text than the explicit term itself — these are
+# matched as a WHOLE word only, never as a substring of a longer word.
+# Every other term is intentionally substring-matched (within a single
+# word — never across a word boundary) so inflected Russian forms like
+# "дрочить"/"дрочу" still get caught from the "дроч" stem.
+# Normalized the exact same way as the main term list below, so the
+# homoglyph fold's mixed-alphabet output (e.g. "anal" -> "анаl", with a
+# Latin "l") still compares equal on both sides.
+_WHOLE_WORD_ONLY: frozenset[str] = frozenset(
+    _normalize_term(t) for t in ("kill", "anal", "oral", "анал", "орал")
 )
 
-# A few short stems are substrings of common, unrelated words — plain
-# substring matching alone would reject completely innocent text. Each
-# gets a narrow regex instead of the default substring check.
-# "анал" ⊂ "канал" ("channel") — a word that comes up constantly in a bot
-# whose entire domain is managing Telegram channels/chats. Excluding just
-# a "к" immediately before it removes that one collision without
-# reopening the door to deliberately spaced-out evasion ("а н а л" still
-# collapses to "анал" with nothing in front of it).
-_TERM_OVERRIDES: dict[str, re.Pattern] = {
-    "анал": re.compile(r"(?<!к)анал"),
-}
+_NORMALIZED_BANNED_TERMS: frozenset[str] = frozenset(
+    _normalize_term(term) for terms in _BANNED_TERMS.values() for term in terms
+)
 
 
 def find_banned_term(text: str) -> str | None:
-    """Returns the matched banned term (normalized form) if `text` contains
-    prohibited content, else None. Intended for short promotional texts
-    (chat broadcasts, button labels) — not general prose, where the
-    aggressive separator-stripping this relies on would be more likely to
-    produce false positives."""
+    """Returns the matched banned term if `text` contains prohibited
+    content, else None. Intended for short promotional texts (chat
+    broadcasts, button labels) — not general prose."""
     if not text:
         return None
-    normalized = _normalize(text)
+    words = _words(text)
+    word_set = set(words)
     for term in _NORMALIZED_BANNED_TERMS:
         if not term:
             continue
-        override = _TERM_OVERRIDES.get(term)
-        if override is not None:
-            if override.search(normalized):
+        if term in _WHOLE_WORD_ONLY:
+            if term in word_set:
                 return term
-        elif term in normalized:
+        elif any(term in word for word in words):
             return term
     return None

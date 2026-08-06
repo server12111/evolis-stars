@@ -110,12 +110,25 @@ class ChatBroadcastRepository(BaseRepository):
 
     async def reject(self, message_id: int) -> tuple[int, str] | None:
         """Deletes the pending row and returns its (chat_id, text) for the
-        owner notification, or None if it was already decided."""
+        owner notification, or None if it was already decided. The delete
+        is conditioned on status='pending' in the same statement (not a
+        separate read-then-delete) so two admins tapping reject/approve on
+        the same message at the same moment can't both "win" — without
+        this, a plain read-then-delete could delete a row an approve()
+        had just committed a moment earlier, double-notifying the owner
+        with contradictory decisions."""
         message = await self.session.get(ChatBroadcastMessage, message_id)
-        if message is None or message.status != "pending":
+        if message is None:
             return None
         chat_id, text = message.chat_id, message.text
-        await self.session.delete(message)
+        result = await self.session.execute(
+            delete(ChatBroadcastMessage).where(
+                ChatBroadcastMessage.id == message_id, ChatBroadcastMessage.status == "pending",
+            )
+        )
+        if result.rowcount != 1:
+            await self.session.rollback()
+            return None
         await self.session.commit()
         return chat_id, text
 
