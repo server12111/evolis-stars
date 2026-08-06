@@ -271,7 +271,16 @@ async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | Non
         if isinstance(outcome, BaseException) or outcome is None:
             continue
         any_resolved = True
-        statuses[ref] = outcome == "complete"
+        # "unavailable" means FlyerHub itself has pulled/can no longer
+        # verify this specific offer (expired, advertiser cancelled it,
+        # etc.) -- confirmed live: one user's saved signature came back
+        # "unavailable" on every single recheck for 2+ minutes straight,
+        # since nothing the user does can ever turn that into "complete".
+        # Treating it like still-incomplete (the old behaviour) traps them
+        # on the wall forever over an offer that's gone. Drop it like a
+        # completed item instead, same as a rotated-out tgrass/botohub
+        # offer is trusted once the provider stops offering it.
+        statuses[ref] = outcome in ("complete", "unavailable")
     if not any_resolved:
         return None
     return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]

@@ -263,6 +263,33 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(state.status, "complete")
 
+    async def test_unavailable_flyerhub_offer_resolves_instead_of_trapping_the_user(self) -> None:
+        """Regression: a live user got stuck pressing "check" ~15 times in
+        under 2 minutes because a saved FlyerHub signature kept coming back
+        "unavailable" (the offer itself was pulled/expired on FlyerHub's
+        side) on every single recheck. "unavailable" is a real, documented
+        fh_check_task_op outcome distinct from "complete"/"incomplete" --
+        treating it as still-incomplete traps the user forever on an offer
+        that can never turn into "complete" no matter what they do."""
+        session = fake_session()
+        frozen = frozen_user([{
+            "provider": "flyerhub", "url": "https://t.me/gonechan", "name": "Gone",
+            "ref": "sig-gone",
+        }])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="unavailable")),
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        self.assertEqual(state.status, "complete")
+
 
 class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_when_every_configured_provider_fails(self) -> None:
