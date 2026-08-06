@@ -166,6 +166,57 @@ class AddSponsorFlowTests(ChatModelsTestCase):
         self.assertEqual(data["sponsor_type"], "channel")
         self.assertEqual(data["origin_chat_id"], -1)
 
+    async def test_second_add_sponsor_click_from_different_chat_is_blocked(self) -> None:
+        """The pending-sponsor slot is global per user, not per bonus flow
+        — a second "Add sponsor" click (even from a completely different
+        chat's bonus) while the first is still unresolved must be
+        blocked, not silently overwrite origin_chat_id and misattribute
+        the eventual promotion event to the wrong bonus."""
+        bot = SimpleNamespace(id=777)
+        storage = MemoryStorage()
+
+        state_x = _fsm_state({"chat_id": -1, "sponsors": []})
+        state_x.storage = storage
+        cb_x = _callback(-1, 42, "chatbonus:addsponsor:channel")
+        await cb_bonus_add_sponsor_start(cb_x, state_x, bot)
+
+        state_y = _fsm_state({"chat_id": -2, "sponsors": []})
+        state_y.storage = storage
+        cb_y = _callback(-2, 42, "chatbonus:addsponsor:channel")
+        await cb_bonus_add_sponsor_start(cb_y, state_y, bot)
+
+        cb_y.answer.assert_awaited_once()
+        self.assertTrue(cb_y.answer.await_args.kwargs.get("show_alert"))
+        cb_y.message.answer.assert_not_awaited()
+
+        # The original pending entry (chat X) must be untouched.
+        pending = _pending_sponsor_state(storage, bot.id, 42)
+        data = await pending.get_data()
+        self.assertEqual(data["origin_chat_id"], -1)
+
+    async def test_second_click_allowed_after_the_first_goes_stale(self) -> None:
+        bot = SimpleNamespace(id=777)
+        storage = MemoryStorage()
+
+        state_x = _fsm_state({"chat_id": -1, "sponsors": []})
+        state_x.storage = storage
+        cb_x = _callback(-1, 42, "chatbonus:addsponsor:channel")
+        await cb_bonus_add_sponsor_start(cb_x, state_x, bot)
+
+        pending = _pending_sponsor_state(storage, bot.id, 42)
+        stale_data = await pending.get_data()
+        stale_data["armed_at"] -= 700  # older than the 600s timeout
+        await pending.set_data(stale_data)
+
+        state_y = _fsm_state({"chat_id": -2, "sponsors": []})
+        state_y.storage = storage
+        cb_y = _callback(-2, 42, "chatbonus:addsponsor:channel")
+        await cb_bonus_add_sponsor_start(cb_y, state_y, bot)
+
+        cb_y.message.answer.assert_awaited_once()  # not blocked this time
+        data = await pending.get_data()
+        self.assertEqual(data["origin_chat_id"], -2)  # overwritten as before
+
 
 class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
     async def _seed_pending(self, storage, bot_id, user_id, sponsor_type, origin_chat_id):

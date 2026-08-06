@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from decimal import Decimal
 
 from aiogram import Bot, F, Router
@@ -40,6 +41,9 @@ async def _is_owner(session: AsyncSession, chat_id: int, user_id: int) -> bool:
 
 
 _GLOBAL_USER_STATE_CHAT_ID = 0  # never a real Telegram chat id — a private chat's id always equals the user's own id, which chat_id=user_id here would collide with
+# How long a single "Add sponsor" click blocks a second one before it's
+# treated as abandoned rather than still in progress.
+_PENDING_SPONSOR_TIMEOUT_SECONDS = 600
 
 
 def _pending_sponsor_state(storage: BaseStorage, bot_id: int, user_id: int) -> FSMContext:
@@ -180,6 +184,26 @@ async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext,
         return
 
     pending = _pending_sponsor_state(state.storage, bot.id, callback.from_user.id)
+    if await pending.get_state() == PendingSponsorAddStates.awaiting_add:
+        # This slot is GLOBAL per user (the my_chat_member confirmation
+        # fires in the sponsor's own chat, with no way to tell which of
+        # two simultaneous "Add sponsor" clicks it belongs to), so a
+        # second click here — even from a different bonus flow in a
+        # different chat — would silently overwrite the first one's
+        # origin_chat_id/sponsor_type. The first promotion that then
+        # arrives would get misattributed to the wrong bonus. Blocking
+        # the second click instead of overwriting removes the ambiguity.
+        # A timeout still lets a genuinely abandoned attempt (the owner
+        # never promoted the bot anywhere) unblock itself later.
+        pending_data = await pending.get_data()
+        armed_at = pending_data.get("armed_at", 0)
+        if time.time() - armed_at < _PENDING_SPONSOR_TIMEOUT_SECONDS:
+            await callback.answer(
+                "⚠️ Сначала завершите добавление предыдущего спонсора "
+                "(назначьте бота администратором там) или подождите пару минут.",
+                show_alert=True,
+            )
+            return
     await pending.set_state(PendingSponsorAddStates.awaiting_add)
     # origin_chat_id must be the chat this flow's own FSM state is keyed
     # under (wherever this button was actually pressed — the managed
@@ -189,7 +213,9 @@ async def cb_bonus_add_sponsor_start(callback: CallbackQuery, state: FSMContext,
     # for the group-triggered flow. Getting this wrong here means
     # try_link_pending_sponsor would write the confirmed sponsor into a
     # different FSM slot than cb_bonus_sponsors_done later reads from.
-    await pending.update_data(sponsor_type=sponsor_type, origin_chat_id=callback.message.chat.id)
+    await pending.update_data(
+        sponsor_type=sponsor_type, origin_chat_id=callback.message.chat.id, armed_at=time.time(),
+    )
 
     label = "канал" if sponsor_type == "channel" else "чат"
     await callback.message.answer(
