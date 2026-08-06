@@ -199,6 +199,22 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # ToS / privacy policy links (Telegraph pages)
     "tos_user_agreement_url": "https://telegra.ph/Polzovatelskoe-soglashenie-EvolisStars-08-03-2",
     "tos_privacy_policy_url": "https://telegra.ph/Politika-konfidencialnosti-EvolisStars-08-03",
+    # VC withdrawal -- a second withdrawal currency alongside Telegram
+    # Stars. Tiered by requested VC amount (see bot/handlers/vc_withdraw.py
+    # for the boundaries: 10k-25k/25k-50k/50k-100k/100k-300k/300k-500k),
+    # each tier its own admin-editable "1 RP⭐️ = N VC" rate -- bigger
+    # withdrawals convert at a better rate.
+    "withdraw_vc_enabled": "1",
+    "vc_min_withdrawal": "10000",
+    "vc_max_withdrawal": "500000",
+    "vc_rate_tier1": "1000",
+    "vc_rate_tier2": "1250",
+    "vc_rate_tier3": "1500",
+    "vc_rate_tier4": "2000",
+    "vc_rate_tier5": "2500",
+    # Mandatory-subscription gate shown right before a VC request is
+    # submitted (not the general sponsor wall) -- empty disables the gate.
+    "vc_mandatory_channel": "https://t.me/VirusikChat",
 }
 
 

@@ -11,6 +11,7 @@ from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
+from bot.database.repositories.vc_withdrawal import VcWithdrawalRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
 
 router = Router()
@@ -143,6 +144,66 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> 
     except Exception:
         pass
     await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌")
+    await callback.answer("❌ Отклонено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:vcwithdraw_approve:"))
+async def cb_vcwithdraw_approve(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    wid = int(callback.data.split(":")[2])
+    w = await VcWithdrawalRepository(session).approve(wid)
+    if not w:
+        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        return
+    try:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ <b>Принято</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    try:
+        await callback.bot.send_message(
+            w.user_id,
+            f"✅ <b>Заявка #{w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} VC</b>\nСкоро вы получите выплату.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await callback.answer("✅ Одобрено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:vcwithdraw_reject:"))
+async def cb_vcwithdraw_reject(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    wid = int(callback.data.split(":")[2])
+    w_repo = VcWithdrawalRepository(session)
+    w = await w_repo.reject(wid)
+    if not w:
+        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        return
+    await session.commit()
+
+    try:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n❌ <b>Отклонено</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    try:
+        await callback.bot.send_message(
+            w.user_id,
+            f"❌ <b>Заявка #{w.id} отклонена.</b>\n\n"
+            f"Списанные <b>{float(w.rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
     await callback.answer("❌ Отклонено")
 
 

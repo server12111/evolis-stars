@@ -19,6 +19,7 @@ from bot.keyboards.withdraw import (
     withdraw_amounts_kb,
     withdraw_captcha_kb,
     withdraw_confirm_kb,
+    withdraw_method_choice_kb,
     withdraw_method_kb,
     withdraw_recipient_cancel_kb,
     withdraw_recipient_choice_kb,
@@ -91,7 +92,22 @@ def _normalize_username(raw: str) -> str | None:
 
 
 @router.callback_query(lambda c: c.data == "menu:withdraw")
-async def cb_withdraw_menu(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
+async def cb_withdraw_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    """Top-level withdrawal entry — choose currency. Telegram Stars keeps
+    its exact original flow (see cb_withdraw_stars_menu below), untouched;
+    this is just a new screen in front of it. VC is a wholly separate
+    flow, see bot/handlers/vc_withdraw.py."""
+    await state.clear()
+    text = "💸 <b>Вывод средств</b>\n\nВыберите способ вывода:"
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=withdraw_method_choice_kb())
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=withdraw_method_choice_kb())
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "withdraw:choose:stars")
+async def cb_withdraw_stars_menu(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
     repo = SettingsRepository(session)
 

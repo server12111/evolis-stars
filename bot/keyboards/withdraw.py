@@ -2,6 +2,14 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
+def withdraw_method_choice_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="withdraw:choose:stars"))
+    builder.row(InlineKeyboardButton(text="💎 VC", callback_data="withdraw:choose:vc"))
+    builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
+    return builder.as_markup()
+
+
 def withdraw_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     buttons = [

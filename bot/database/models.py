@@ -204,6 +204,30 @@ class Withdrawal(Base):
     rp_debited: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
 
+# ─── VcWithdrawal ─────────────────────────────────────────────────────────────
+# A second, independent withdrawal currency (VC) alongside Telegram Stars
+# above — deliberately its own table rather than reusing Withdrawal, since
+# the two share almost no fields in common (no recipient_username/fragment-
+# or-gift method; a VC request instead snapshots the tiered RP->VC rate it
+# was created under).
+
+class VcWithdrawal(Base):
+    __tablename__ = "vc_withdrawals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    vc_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # RP->VC rate in effect when the request was created (1 RP⭐️ = `rate`
+    # VC) -- snapshotted so a later admin-panel rate change never silently
+    # changes what an already-submitted request is worth.
+    rate: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    rp_debited: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / approved / rejected
+    admin_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 # ─── PromoCode ────────────────────────────────────────────────────────────────
 
 class PromoCode(Base):

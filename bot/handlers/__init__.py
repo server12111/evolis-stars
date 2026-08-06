@@ -1,7 +1,7 @@
 from aiogram import F, Router
 
 from bot.handlers import (
-    start, earn, withdraw, bonus, tasks,
+    start, earn, withdraw, vc_withdraw, bonus, tasks,
     profile, top, games, duel, cases, wheel, lottery,
     casino, mines, tower, auction, random_game, mychats, exchange,
 )
@@ -23,6 +23,7 @@ router.callback_query.filter(lambda c: c.message is not None and c.message.chat.
 router.include_router(start.router)
 router.include_router(earn.router)
 router.include_router(withdraw.router)
+router.include_router(vc_withdraw.router)
 router.include_router(bonus.router)
 router.include_router(tasks.router)
 router.include_router(profile.router)

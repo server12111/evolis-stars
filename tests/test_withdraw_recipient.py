@@ -14,10 +14,10 @@ from bot.database.models import User, Withdrawal
 from bot.handlers.withdraw import (
     cb_withdraw_amount,
     cb_withdraw_confirm,
-    cb_withdraw_menu,
     cb_withdraw_method,
     cb_withdraw_recipient_other,
     cb_withdraw_recipient_self,
+    cb_withdraw_stars_menu,
     msg_captcha,
     msg_recipient_username,
 )
@@ -63,7 +63,7 @@ class MenuNoLongerGatedOnUsernameTests(ChatModelsTestCase):
         with _SETTINGS_PATCHES[0], _SETTINGS_PATCHES[1], _SETTINGS_PATCHES[2], \
                 patch("bot.handlers.withdraw.ContentRepository.get_photo", AsyncMock(return_value=None)):
             async with self.sessions() as session:
-                await cb_withdraw_menu(cb, db_user, session, state)
+                await cb_withdraw_stars_menu(cb, db_user, session, state)
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertNotIn("Username", rendered)

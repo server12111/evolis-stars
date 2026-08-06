@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from bot.handlers.games import cb_games_menu
 from bot.handlers.tasks import _show_next_task
 from bot.handlers.top import cb_top_menu
-from bot.handlers.withdraw import cb_withdraw_menu
+from bot.handlers.withdraw import cb_withdraw_stars_menu
 
 # Patching ContentRepository.get (not get_text) lets the real get_text()
 # fallback run, so these tests exercise the actual DEFAULT_TEXTS templates
@@ -57,7 +57,7 @@ class ContentRenderingTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.withdraw.SettingsRepository.get_float", AsyncMock(return_value=15.0)),
             patch("bot.handlers.withdraw.ContentRepository.get_photo", AsyncMock(return_value=None)),
         ):
-            await cb_withdraw_menu(cb, db_user, SimpleNamespace(), state)
+            await cb_withdraw_stars_menu(cb, db_user, SimpleNamespace(), state)
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertFalse(_LEFTOVER_PLACEHOLDER.search(rendered), rendered)

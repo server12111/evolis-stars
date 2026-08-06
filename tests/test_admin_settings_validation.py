@@ -131,5 +131,83 @@ class GameCoeffValidationTests(ChatModelsTestCase):
         self.assertEqual(saved, "150.0")
 
 
+class VcSettingsValidationTests(ChatModelsTestCase):
+    async def test_rate_tier_of_zero_is_rejected(self) -> None:
+        message = _message("0")
+        state = _state({"setting_key": "vc_rate_tier1"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_rate_tier1", "unset")
+        self.assertIn("больше 0", message.answer.await_args.args[0])
+        self.assertEqual(saved, "1000")  # untouched default
+
+    async def test_rate_tier_positive_is_accepted(self) -> None:
+        message = _message("1100")
+        state = _state({"setting_key": "vc_rate_tier1"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_rate_tier1", "unset")
+        self.assertEqual(saved, "1100.0")
+
+    async def test_min_withdrawal_above_max_is_rejected(self) -> None:
+        message = _message("600000")
+        state = _state({"setting_key": "vc_min_withdrawal"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_min_withdrawal", "unset")
+        self.assertIn("не может быть больше макс", message.answer.await_args.args[0])
+        self.assertEqual(saved, "10000")  # untouched default
+
+    async def test_min_withdrawal_requires_an_integer(self) -> None:
+        message = _message("10000.5")
+        state = _state({"setting_key": "vc_min_withdrawal"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_min_withdrawal", "unset")
+        self.assertIn("целое число", message.answer.await_args.args[0])
+        self.assertEqual(saved, "10000")
+
+    async def test_max_withdrawal_below_min_is_rejected(self) -> None:
+        message = _message("5000")
+        state = _state({"setting_key": "vc_max_withdrawal"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_max_withdrawal", "unset")
+        self.assertIn("не может быть меньше мин", message.answer.await_args.args[0])
+        self.assertEqual(saved, "500000")
+
+    async def test_mandatory_channel_text_setting_is_saved_verbatim(self) -> None:
+        message = _message("https://t.me/SomeOtherChat")
+        state = _state({"setting_key": "vc_mandatory_channel"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_mandatory_channel", "unset")
+        self.assertEqual(saved, "https://t.me/SomeOtherChat")
+        state.clear.assert_awaited_once()
+
+    async def test_mandatory_channel_rejects_non_url_text(self) -> None:
+        # Saved verbatim into an InlineKeyboardButton(url=...) later --
+        # a bare @username would make Telegram reject the button at send
+        # time, silently breaking the subscribe-gate prompt.
+        message = _message("@SomeOtherChat")
+        state = _state({"setting_key": "vc_mandatory_channel"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_mandatory_channel", "unset")
+        self.assertIn("полная ссылка", message.answer.await_args.args[0])
+        self.assertEqual(saved, "https://t.me/VirusikChat")  # untouched default
+        state.clear.assert_not_awaited()
+
+    async def test_mandatory_channel_rejects_empty_text(self) -> None:
+        message = _message("   ")
+        state = _state({"setting_key": "vc_mandatory_channel"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_mandatory_channel", "unset")
+        self.assertIn("непустое", message.answer.await_args.args[0])
+        self.assertEqual(saved, "https://t.me/VirusikChat")  # untouched default
+        state.clear.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,5 @@
 import math
+from html import escape
 
 from aiogram import Router
 from aiogram.fsm.context import FSMContext
@@ -60,6 +61,20 @@ SETTING_LABELS = {
     "door_coeff_8": ("🚪 Двери — множитель 8 уровня", "число"),
     "door_coeff_9": ("🚪 Двери — множитель 9 уровня", "число"),
     "door_coeff_10": ("🚪 Двери — множитель 10 уровня", "число"),
+    "vc_min_withdrawal": ("💎 Мин. вывод VC", "целое число, напр. 10000"),
+    "vc_max_withdrawal": ("💎 Макс. вывод VC", "целое число, напр. 500000"),
+    "vc_rate_tier1": ("💎 Курс VC (10к-25к) — VC за 1 RP⭐️", "число, напр. 1000"),
+    "vc_rate_tier2": ("💎 Курс VC (25к-50к) — VC за 1 RP⭐️", "число, напр. 1250"),
+    "vc_rate_tier3": ("💎 Курс VC (50к-100к) — VC за 1 RP⭐️", "число, напр. 1500"),
+    "vc_rate_tier4": ("💎 Курс VC (100к-300к) — VC за 1 RP⭐️", "число, напр. 2000"),
+    "vc_rate_tier5": ("💎 Курс VC (300к-500к) — VC за 1 RP⭐️", "число, напр. 2500"),
+}
+
+# Plain-text (non-numeric) admin settings -- msg_setting_value branches to a
+# simple non-empty-string check for these instead of the float parsing used
+# for everything in SETTING_LABELS.
+TEXT_SETTING_LABELS = {
+    "vc_mandatory_channel": ("💬 Обязательный чат для вывода VC", "ссылка, например https://t.me/VirusikChat"),
 }
 
 TOGGLE_SETTINGS = {
@@ -67,6 +82,7 @@ TOGGLE_SETTINGS = {
     "withdraw_enabled": "🌟 Вывод",
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
+    "withdraw_vc_enabled": "💎 Вывод VC",
 }
 
 
@@ -113,10 +129,10 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 async def cb_set_edit(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user): return
     key = callback.data.split(":", 2)[2]
-    if key not in SETTING_LABELS:
+    if key not in SETTING_LABELS and key not in TEXT_SETTING_LABELS:
         await callback.answer("❓ Неизвестная настройка.", show_alert=True)
         return
-    label, hint = SETTING_LABELS[key]
+    label, hint = (SETTING_LABELS.get(key) or TEXT_SETTING_LABELS.get(key))
     await state.set_state(AdminSettingsStates.enter_value)
     await state.update_data(setting_key=key)
     await callback.message.answer(f"✏️ <b>{label}</b>\n\nВведи новое значение ({hint}):", parse_mode="HTML", reply_markup=settings_cancel_kb())
@@ -128,6 +144,27 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
     if not _is_admin(db_user): return
     data = await state.get_data()
     key = data["setting_key"]
+
+    if key in TEXT_SETTING_LABELS:
+        raw = (message.text or "").strip()
+        if not raw:
+            await message.answer("❌ Введи непустое значение:", reply_markup=settings_cancel_kb())
+            return
+        if key == "vc_mandatory_channel" and not raw.startswith(("http://", "https://", "tg://")):
+            # Used as an InlineKeyboardButton(url=...) -- Telegram rejects
+            # non-http(s)/tg URLs at send time, which would otherwise crash
+            # every subscribe-gate prompt until an admin noticed.
+            await message.answer(
+                "❌ Нужна полная ссылка (https://t.me/... или tg://...), а не @username:",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
+        await state.clear()
+        await SettingsRepository(session).set(key, raw)
+        label, _ = TEXT_SETTING_LABELS[key]
+        await message.answer(f"✅ <b>{label}</b> = <b>{escape(raw)}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+        return
+
     text = (message.text or "").strip().replace(",", ".")
     try:
         val = float(text)
@@ -143,6 +180,8 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         "games_min_refs",
         "sponsor_max_channels",
         "min_sponsors_for_reward",
+        "vc_min_withdrawal",
+        "vc_max_withdrawal",
     }
     if key in integer_keys and not val.is_integer():
         await message.answer(
@@ -198,6 +237,28 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         if val < current_min:
             await message.answer(
                 f"❌ Макс. бонус не может быть меньше мин. ({current_min}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
+    if key.startswith("vc_rate_tier") and val <= 0:
+        await message.answer(
+            "❌ Курс VC должен быть больше 0:",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
+    if key == "vc_min_withdrawal":
+        current_max = await repo.get_int("vc_max_withdrawal", 500000)
+        if val > current_max:
+            await message.answer(
+                f"❌ Мин. вывод VC не может быть больше макс. ({current_max}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
+    if key == "vc_max_withdrawal":
+        current_min = await repo.get_int("vc_min_withdrawal", 10000)
+        if val < current_min:
+            await message.answer(
+                f"❌ Макс. вывод VC не может быть меньше мин. ({current_min}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
