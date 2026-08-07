@@ -311,6 +311,32 @@ class SponsorRecheckAfterCompleteTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(passed)
         self.assertEqual(complete_user.sponsor_wave, 1)
 
+    async def test_stale_sponsor_check_press_skips_providers_when_already_verified(self) -> None:
+        """Regression: a "sponsor_check" button never expires on an old
+        Telegram message, so a verified user can press one long after
+        passing. Unlike the periodic-recheck case above (sponsors_verified
+        freshly flipped False), sponsors_verified is still True here --
+        run_sponsor_wall_check must return True immediately without ever
+        re-querying providers or re-freezing a wave, since a real provider
+        (TGrass) has been observed flip-flopping status=ok/not_ok for the
+        same user within seconds, which would otherwise randomly reopen a
+        brand-new mandatory wall for someone who already got through."""
+        session = fake_session()
+        verified_user = user(sponsor_wave=3, sponsors_verified=True)
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", "cfg"),
+            patch.object(settings, "piarflow_key", ""),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock()) as check_tgrass,
+            patch("bot.services.botohub.check_botohub", AsyncMock()) as check_botohub,
+        ):
+            passed = await run_sponsor_wall_check(inner(), verified_user, session)
+
+        self.assertTrue(passed)
+        self.assertEqual(verified_user.sponsor_wave, 3)
+        check_tgrass.assert_not_awaited()
+        check_botohub.assert_not_awaited()
+
     async def test_sponsor_skip_still_skips_provider_calls_for_wave_3(self) -> None:
         """The stale-button performance guard must still hold — sponsor_
         skip must never re-query providers for an already-complete user."""

@@ -622,7 +622,23 @@ async def run_sponsor_wall_check(
     Assumes the caller already verified at least one provider is configured.
     Returns True when every wave is complete and the caller should proceed;
     False when a wave or a retry message was already sent to the user.
+
+    Short-circuits on an already-verified user without touching any
+    provider: cb_sponsor_check has no way to tell a fresh "sponsor_check"
+    press apart from a stale one on an old wave message still sitting in
+    the chat (Telegram never expires inline buttons on its own), so a
+    verified user can retrigger this. Without this guard that re-ran
+    _evaluate_wave_state -> evaluate_waves -> initialize_waves, which does
+    NOT skip a completed wave (sponsor_wave == 3, only 1/2 are skipped) --
+    it freezes a brand-new wave straight from whatever the providers
+    currently report. Confirmed live: TGrass flips between status="ok" (0
+    offers) and status="not_ok" (the same 2 offers) for the same user
+    within single-digit seconds, so that stale press could randomly shove
+    an already-passed user back behind a fresh mandatory sponsor wall.
     """
+    if getattr(db_user, "sponsors_verified", False):
+        return True
+
     wave_state = await _evaluate_wave_state(inner, db_user, session, bot)
 
     if wave_state.status == "unavailable":
