@@ -64,6 +64,15 @@ class User(Base):
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
     darts_bullseye_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    # "Вирус" game: when this user last attempted a "Вирус <ставка>" attack
+    # (successful or not) -- the 24h cooldown is measured from this,
+    # regardless of outcome, since the stake is charged before the roll.
+    virus_last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # One-time cooldown bypass earned by a successful ammo purchase after a
+    # failed attack -- consumed (reset to False) the next time "Вирус" is
+    # used, whether or not that use succeeds.
+    virus_bonus_attempt: Mapped[bool] = mapped_column(Boolean, default=False)
+
 
 class ReferralReactivation(Base):
     """Immutable ledger entry for a rewarded referral return."""
@@ -662,3 +671,23 @@ class ChatBroadcastMessage(Base):
     # handlers can edit it in place to show the decision.
     moderation_channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class VirusInfection(Base):
+    """A currently-active "Вирус" infection. infected_user_id is the PK --
+    at most one active infection per person at a time (enforced at the DB
+    level, matching the game's "не заражён ли выбранный пользователь"
+    rule), deleted on cure."""
+
+    __tablename__ = "virus_infections"
+
+    infected_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True,
+    )
+    infector_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    virus_type: Mapped[str] = mapped_column(String(16))  # light / normal / dangerous
+    infected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Advanced by virus_income_loop as it pays out whole elapsed hours to
+    # infector_user_id -- tracked per-infection (not just "now") so a
+    # restart or a slow tick never loses or double-pays a fractional hour.
+    last_payout_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

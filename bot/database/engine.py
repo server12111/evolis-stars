@@ -56,6 +56,8 @@ def _add_missing_user_columns(connection) -> None:
         "tos_gate_shown": "BOOLEAN NOT NULL DEFAULT 0",
         "last_random_at": "DATETIME",
         "rp_migrated": "BOOLEAN NOT NULL DEFAULT 0",
+        "virus_last_used_at": "DATETIME",
+        "virus_bonus_attempt": "BOOLEAN NOT NULL DEFAULT 0",
     }
     referral_counted_added = "referral_counted" not in columns
     for name, definition in additions.items():

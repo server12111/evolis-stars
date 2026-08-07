@@ -9,6 +9,7 @@ from bot.handlers.group import (
     games_maze,
     games_roulette,
     games_tower,
+    games_virus,
     info,
     membership,
     onboarding,
@@ -33,6 +34,7 @@ router.include_router(games_roulette.router)
 router.include_router(games_tower.router)
 router.include_router(games_maze.router)
 router.include_router(games_doors.router)
+router.include_router(games_virus.router)
 router.include_router(chat_leaderboard.router)
 router.include_router(balance.router)
 router.include_router(info.router)
