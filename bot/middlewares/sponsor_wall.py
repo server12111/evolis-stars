@@ -278,6 +278,11 @@ async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | Non
         "FlyerHub recheck raw outcomes: %s",
         {ref: (str(outcome) if not isinstance(outcome, BaseException) else f"ERR:{outcome}") for ref, outcome in zip(refs, outcomes)},
     )
+    if any(outcome == "waiting" for outcome in outcomes):
+        # A short grace pause before trusting "waiting" as done -- gives
+        # FlyerHub's own settlement a moment to flip to "complete" outright
+        # instead of resolving purely off the anti-fraud hold status.
+        await asyncio.sleep(30)
     statuses: dict[str, bool] = {}
     any_resolved = False
     for ref, outcome in zip(refs, outcomes):

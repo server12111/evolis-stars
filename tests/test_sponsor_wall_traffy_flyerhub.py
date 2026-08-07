@@ -365,7 +365,7 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(state.status, "complete")
 
-    async def test_waiting_flyerhub_offer_resolves_not_stays_pending(self) -> None:
+    async def test_waiting_flyerhub_offer_resolves_after_a_grace_pause(self) -> None:
         """Per FlyerHub's own /check_task docs, "waiting" means "task
         completed, awaiting payment in 24 hours" -- a hold on FlyerHub
         paying US, not on whether the user finished their end. The ОП
@@ -373,7 +373,9 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
         nothing to protect by continuing to block someone who has already
         done what was asked for up to 24h over FlyerHub's own internal
         settlement delay (unlike tasks.py's "Задания" reward flow, which
-        correctly withholds real RP⭐️ payment on this same status)."""
+        correctly withholds real RP⭐️ payment on this same status). A
+        short 30s grace pause is given first, in case it flips outright to
+        "complete" in the meantime."""
         session = fake_session()
         frozen = frozen_user([{
             "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
@@ -388,9 +390,33 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="waiting")),
+            patch("bot.middlewares.sponsor_wall.asyncio.sleep", AsyncMock()) as sleep,
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
 
+        sleep.assert_awaited_once_with(30)
+        self.assertEqual(state.status, "complete")
+
+    async def test_non_waiting_outcomes_do_not_trigger_the_grace_pause(self) -> None:
+        session = fake_session()
+        frozen = frozen_user([{
+            "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
+            "ref": "sig-complete",
+        }])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="complete")),
+            patch("bot.middlewares.sponsor_wall.asyncio.sleep", AsyncMock()) as sleep,
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        sleep.assert_not_awaited()
         self.assertEqual(state.status, "complete")
 
 
