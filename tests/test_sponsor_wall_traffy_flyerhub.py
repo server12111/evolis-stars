@@ -365,6 +365,34 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(state.status, "complete")
 
+    async def test_waiting_flyerhub_offer_resolves_not_stays_pending(self) -> None:
+        """Per FlyerHub's own /check_task docs, "waiting" means "task
+        completed, awaiting payment in 24 hours" -- a hold on FlyerHub
+        paying US, not on whether the user finished their end. The ОП
+        wall never pays anyone for a sponsor subscription, so there's
+        nothing to protect by continuing to block someone who has already
+        done what was asked for up to 24h over FlyerHub's own internal
+        settlement delay (unlike tasks.py's "Задания" reward flow, which
+        correctly withholds real RP⭐️ payment on this same status)."""
+        session = fake_session()
+        frozen = frozen_user([{
+            "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
+            "ref": "sig-waiting",
+        }])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="waiting")),
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        self.assertEqual(state.status, "complete")
+
 
 class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
     async def test_unavailable_when_every_configured_provider_fails(self) -> None:

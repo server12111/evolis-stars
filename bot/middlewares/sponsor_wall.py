@@ -284,16 +284,22 @@ async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | Non
         if isinstance(outcome, BaseException) or outcome is None:
             continue
         any_resolved = True
-        # "unavailable" means FlyerHub itself has pulled/can no longer
-        # verify this specific offer (expired, advertiser cancelled it,
-        # etc.) -- confirmed live: one user's saved signature came back
-        # "unavailable" on every single recheck for 2+ minutes straight,
-        # since nothing the user does can ever turn that into "complete".
-        # Treating it like still-incomplete (the old behaviour) traps them
-        # on the wall forever over an offer that's gone. Drop it like a
-        # completed item instead, same as a rotated-out tgrass/botohub
-        # offer is trusted once the provider stops offering it.
-        statuses[ref] = outcome in ("complete", "unavailable")
+        # Per FlyerHub's own /check_task docs, "waiting" means the task is
+        # genuinely done ("task completed, awaiting payment in 24 hours")
+        # -- a fraud-hold on FlyerHub paying US, not on whether the user
+        # finished their end. tasks.py's separate "Задания" reward flow
+        # correctly withholds payment on "waiting" (that anti-fraud hold
+        # matters when we're the ones paying real RP⭐️ for it), but the ОП
+        # wall never pays anyone for a sponsor subscription -- there's
+        # nothing to protect by continuing to block someone who has
+        # already done what was asked, for up to 24h, over FlyerHub's own
+        # internal settlement delay. "unavailable" ("resource is no longer
+        # relevant") is the same "nothing the user does can ever resolve
+        # this" case already fixed here before -- confirmed live, a saved
+        # signature stayed "unavailable" for 2+ minutes straight. Both are
+        # dropped like a completed item, same as a rotated-out tgrass/
+        # botohub offer is trusted once the provider stops offering it.
+        statuses[ref] = outcome in ("complete", "waiting", "unavailable")
     if not any_resolved:
         return None
     return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]

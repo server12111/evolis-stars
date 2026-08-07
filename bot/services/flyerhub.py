@@ -229,7 +229,21 @@ async def fh_get_tasks_op(
 
 async def fh_check_task_op(api_key: str, signature: str) -> str | None:
     """Same contract as fh_check_task, but calls the plain POST /check_task
-    instead of /max/check_task -- see fh_get_tasks_op's docstring."""
+    instead of /max/check_task -- see fh_get_tasks_op's docstring.
+
+    Per https://api.flyerhubs.com/redoc — /check_task result meanings:
+      - None (JSON null) -- task error
+      - "unavailable"    -- resource is no longer relevant
+      - "incomplete"     -- task was not completed
+      - "abort"          -- was completed before, not completed now (channels only)
+      - "waiting"        -- task COMPLETED, awaiting FlyerHub's payment in 24h
+      - "complete"       -- task completed and paid for
+    "waiting" means the user's side is already done -- it's a hold on
+    FlyerHub paying US, not on the user's action. Callers that pay a
+    reward for completion (tasks.py's fh_check_task) must still wait for
+    "complete"; callers that only gate access (the ОП wall's use of this
+    function) should treat "waiting" as resolved same as "complete", or
+    they'd block a user for up to 24h after they already finished."""
     if not api_key or not signature:
         return "incomplete"
 
