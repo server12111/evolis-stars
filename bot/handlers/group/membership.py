@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import Bot, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,8 +39,14 @@ def _just_joined(event: ChatMemberUpdated) -> bool:
 
 
 async def _send_welcome(bot: Bot, chat_id: int, user_id: int) -> None:
-    """Sent as an Ephemeral Message (Bot API 10.2, receiver_user_id) — visible
-    only to the newly-joined member, not the whole chat."""
+    """Tries an Ephemeral Message first (Bot API 10.2, receiver_user_id) —
+    visible only to the newly-joined member, not the whole chat. That
+    delivery channel needs Telegram to already have a resolvable peer for
+    the user, which a brand-new member who has never interacted with the
+    bot doesn't have yet — confirmed live: every single join event failed
+    with PEER_ID_INVALID, meaning new members never got welcomed at all.
+    Falls back to a normal (chat-visible) message so the welcome is never
+    silently lost, at the cost of no longer being private in that case."""
     try:
         await bot.send_message(
             chat_id,
@@ -48,8 +55,19 @@ async def _send_welcome(bot: Bot, chat_id: int, user_id: int) -> None:
             reply_markup=_welcome_kb(),
             receiver_user_id=user_id,
         )
+        return
+    except TelegramBadRequest as exc:
+        if "PEER_ID_INVALID" not in str(exc):
+            logger.warning("Could not send welcome message to user %s in chat %s", user_id, chat_id, exc_info=True)
+            return
     except Exception:
         logger.warning("Could not send welcome message to user %s in chat %s", user_id, chat_id, exc_info=True)
+        return
+
+    try:
+        await bot.send_message(chat_id, _WELCOME_TEXT, parse_mode="HTML", reply_markup=_welcome_kb())
+    except Exception:
+        logger.warning("Could not send fallback welcome message to user %s in chat %s", user_id, chat_id, exc_info=True)
 
 
 @router.chat_member()
