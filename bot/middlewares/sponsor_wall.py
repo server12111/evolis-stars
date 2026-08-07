@@ -204,7 +204,17 @@ async def _reinstate_expired_pinned_sponsors(
     don't-trust-a-rotating-batch-alone principle as
     _drop_confirmed_subscriptions, applied in the opposite direction) and
     put it back in that provider's unsubscribed list if the user still
-    isn't actually a member."""
+    isn't actually a member.
+
+    Only applies when the provider's fresh batch is non-empty (still has
+    OTHER offers) but just doesn't mention this particular saved item —
+    the genuinely ambiguous "rotated to a different batch" case. An
+    entirely empty batch is a different, unambiguous signal ("nothing
+    pending for this user at all right now") and is trusted outright
+    without a reinstate, or a saved sponsor the bot can never verify
+    (no admin access to most third-party channels) gets stuck reinstated
+    forever — confirmed live, one stayed reinstated for 2+ hours straight
+    even though the provider repeatedly reported zero offers."""
     if bot is None or db_user.sponsor_wave not in (1, 2):
         return
 
@@ -217,6 +227,8 @@ async def _reinstate_expired_pinned_sponsors(
             continue
         if _key(item) in {_key(decorated) for decorated in _decorate(provider_result, provider)}:
             continue  # provider already reports it as unsubscribed — nothing to do
+        if not provider_result:
+            continue  # provider reports zero offers outright — trust it, not a rotated batch
 
         chat_id = telegram_chat_id(item.get("url"))
         if chat_id is None:
