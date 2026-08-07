@@ -421,6 +421,42 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
         check_task.assert_not_awaited()
         self.assertEqual(state.status, "pending")
 
+    async def test_failed_check_stays_pending_even_when_another_item_is_mid_countdown(self) -> None:
+        """Regression: when every item actually re-checked this round
+        fails (network blip, timeout), _recheck_flyerhub must not drop it
+        from the pending list just because a DIFFERENT saved item happens
+        to be mid-countdown (still_counting_down non-empty) -- that
+        would let a never-actually-verified item quietly count as
+        resolved instead of staying pending."""
+        session = fake_session()
+        frozen = frozen_user([
+            {
+                "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
+                "ref": "sig-counting", "waiting_since": datetime.utcnow().isoformat(),
+            },
+            {
+                "provider": "flyerhub", "url": "https://t.me/failchan", "name": "Fail",
+                "ref": "sig-fails",
+            },
+        ])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(side_effect=Exception("boom"))),
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        self.assertEqual(state.status, "pending")
+        self.assertEqual(
+            {item["ref"] for item in (state.items or [])},
+            {"sig-counting", "sig-fails"},
+        )
+
     async def test_waiting_past_the_30s_window_resolves_without_another_api_call(self) -> None:
         session = fake_session()
         frozen = frozen_user([{

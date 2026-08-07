@@ -64,6 +64,21 @@ async def _execute_attack(
     roll. Shared by the original "Вирус <ставка>" command and the ammo-
     bonus retry (cb_virus_buy_ammo) -- they differ only in how target_id/
     stake were obtained and how the result gets sent."""
+    used_bonus_attempt = attacker.virus_bonus_attempt
+    if used_bonus_attempt:
+        # Consumed the instant this attempt starts, before any validation
+        # below -- per its own contract ("consumed... whether or not that
+        # use succeeds", see the User model column comment), a one-time
+        # cooldown bypass must not survive an early rejection (self-
+        # target/unregistered target/already-infected/insufficient
+        # balance) or it becomes a perpetually-live token silently
+        # defeating the 24h cooldown whenever it's eventually redeemed --
+        # e.g. ammo succeeds, the immediate retry then hits "already
+        # infected" because someone else got there first, or the retry's
+        # own stake can no longer be afforded after paying for the ammo.
+        attacker.virus_bonus_attempt = False
+        await session.commit()
+
     if target_id == attacker.user_id:
         return "❌ Нельзя заразить самого себя.", None
     target = await session.get(User, target_id)
@@ -75,7 +90,7 @@ async def _execute_attack(
         return "❌ Этот игрок уже заражён.", None
 
     now = datetime.utcnow()
-    if not attacker.virus_bonus_attempt and attacker.virus_last_used_at is not None:
+    if not used_bonus_attempt and attacker.virus_last_used_at is not None:
         if now - attacker.virus_last_used_at < COOLDOWN:
             return _format_cooldown_remaining(attacker, now), None
 
@@ -83,8 +98,8 @@ async def _execute_attack(
         return f"❌ Недостаточно RP⭐️. Нужно: {stake:.2f} RP⭐️.", None
 
     # Checks passed and the stake is charged -- the attempt now counts
-    # against the cooldown/bonus flag regardless of the roll below.
-    attacker.virus_bonus_attempt = False
+    # against the cooldown regardless of the roll below (the bonus flag,
+    # if used, was already consumed above).
     attacker.virus_last_used_at = now
     await session.commit()
 

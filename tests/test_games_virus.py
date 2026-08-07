@@ -221,6 +221,48 @@ class AmmoTests(VirusGameTestCase):
         self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
         self.assertEqual(await self._balance(1), Decimal("1"))
 
+    async def test_ammo_success_but_retry_hits_already_infected_still_consumes_bonus(self) -> None:
+        """Regression: if the target gets infected by someone else in the
+        gap between the failed attack and the ammo purchase, the retry
+        (via _execute_attack) rejects with "already infected" -- but the
+        one-time virus_bonus_attempt token must still be burned, per its
+        own contract ("consumed... whether or not that use succeeds"), or
+        it becomes a permanently live cooldown bypass redeemable later
+        against any other target."""
+        await self._add_user(1, balance="100")
+        await self._add_user(2)
+        await self._add_user(3)
+        async with self.sessions() as session:
+            await VirusInfectionRepository(session).create(2, 3, "light")
+        callback = _callback(1, "virus:ammo:2:10")
+        with patch("bot.handlers.group.games_virus.roll_ammo_success", return_value=True):
+            async with self.sessions() as session:
+                await cb_virus_buy_ammo(callback, session)
+
+        self.assertIn("уже заражён", callback.message.answer.await_args.args[0])
+        async with self.sessions() as session:
+            attacker = await session.get(User, 1)
+        self.assertFalse(attacker.virus_bonus_attempt)
+        # Only the ammo cost was spent -- the retry never reached the
+        # stake debit at all.
+        self.assertEqual(await self._balance(1), Decimal("95"))
+
+    async def test_ammo_success_but_retry_cant_afford_the_stake_still_consumes_bonus(self) -> None:
+        """Same contract, different early-return path: after paying for
+        ammo there's not enough left for the retry's own stake."""
+        await self._add_user(1, balance="7")
+        await self._add_user(2)
+        callback = _callback(1, "virus:ammo:2:10")
+        with patch("bot.handlers.group.games_virus.roll_ammo_success", return_value=True):
+            async with self.sessions() as session:
+                await cb_virus_buy_ammo(callback, session)
+
+        self.assertIn("Недостаточно", callback.message.answer.await_args.args[0])
+        async with self.sessions() as session:
+            attacker = await session.get(User, 1)
+        self.assertFalse(attacker.virus_bonus_attempt)
+        self.assertEqual(await self._balance(1), Decimal("2"))
+
 
 class CureTests(VirusGameTestCase):
     async def test_not_infected_rejected(self) -> None:

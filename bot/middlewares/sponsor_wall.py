@@ -373,13 +373,16 @@ async def _recheck_flyerhub(api_key: str, db_user: User, saved: list[dict]) -> l
     if newly_waiting:
         _persist_flyerhub_item_updates(db_user, newly_waiting)
 
-    if not any_resolved:
-        # Every fresh check failed, but items already mid-countdown are
-        # still valid pending state from an earlier successful check --
-        # only report total failure when there's truly nothing to fall
-        # back on.
-        if still_counting_down:
-            return still_counting_down
+    # A ref missing from `statuses` -- either its own call failed/threw,
+    # or nothing in to_check resolved at all -- defaults to "still
+    # pending" (not "resolved"), same fallback as _recheck_traffy. This
+    # must stay true even when every single to_check call failed: only
+    # bail out to None (total failure) when still_counting_down can't
+    # cover for it either, or a failed check would otherwise silently
+    # drop that item out of the pending list instead of leaving it
+    # pending -- a real "sponsor wave resolves without ever verifying it"
+    # bug, not just a "gets stuck" one.
+    if not any_resolved and not still_counting_down:
         return None
 
     pending_from_checked = [item for item in to_check if not statuses.get(str(item.get("ref", "")), False)]
