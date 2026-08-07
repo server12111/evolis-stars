@@ -73,7 +73,19 @@ async def _send_welcome(bot: Bot, chat_id: int, user_id: int) -> None:
 @router.chat_member()
 async def on_chat_member_update(event: ChatMemberUpdated, session: AsyncSession, bot: Bot) -> None:
     """Keeps ChatMembership in sync with real join/leave/promote events for
-    chat members OTHER than the bot itself (that's on_my_chat_member)."""
+    chat members OTHER than the bot itself (that's on_my_chat_member).
+
+    chat_member observers fire for every chat type the bot has visibility
+    into, unfiltered by the group router's own message/callback_query
+    filters (they only apply to those two event types) -- confirmed live,
+    a channel the bot is also admin in got the group-only welcome message
+    sent into it for a new subscriber. Every "chat owner"/membership
+    feature assumes member interaction a channel fundamentally doesn't
+    have (same reasoning as onboarding.py's on_my_chat_member), so this
+    must skip channels entirely, not just the welcome-message part."""
+    if event.chat.type == "channel":
+        return
+
     chat_id = event.chat.id
     user_id = event.new_chat_member.user.id
     status = event.new_chat_member.status

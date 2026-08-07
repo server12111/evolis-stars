@@ -191,6 +191,21 @@ class MembershipSyncTests(ChatModelsTestCase):
             membership = await repo.get(-200, 555)
         self.assertIsNotNone(membership.left_at)
 
+    async def test_channel_subscriber_updates_are_ignored_entirely(self) -> None:
+        """Regression: a channel the bot is also admin in got the group-
+        only welcome message sent into it for a new subscriber -- channels
+        must never get membership tracking or a welcome message, same as
+        onboarding.py's on_my_chat_member already excludes them."""
+        bot = AsyncMock()
+        joined = _chat_member_updated(-205, 560, "member", old_status="left", chat_type="channel")
+        async with self.sessions() as session:
+            await on_chat_member_update(joined, session, bot)
+
+        bot.send_message.assert_not_awaited()
+        async with self.sessions() as session:
+            membership = await ChatMembershipRepository(session).get(-205, 560)
+        self.assertIsNone(membership)
+
     async def test_genuine_join_sends_ephemeral_welcome(self) -> None:
         bot = AsyncMock()
         joined = _chat_member_updated(-201, 556, "member", old_status="left")
