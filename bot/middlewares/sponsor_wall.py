@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 
 from aiogram import Bot, BaseMiddleware
@@ -22,6 +23,8 @@ from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+_FLYERHUB_WAITING_GRACE = timedelta(seconds=30)
 
 
 def any_sponsor_provider_configured() -> bool:
@@ -259,18 +262,87 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
     ]
 
 
-async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | None:
+def _persist_flyerhub_item_updates(db_user: User, updated_items: list[dict]) -> None:
+    """Merges updated_items (matched by ref) back into whichever wave field
+    is currently frozen, so per-item metadata that doesn't come from a
+    provider (FlyerHub's "waiting_since" countdown start) survives across
+    separate recheck calls -- unlike evaluate_waves' own saved/remaining,
+    which reload fresh from JSON every time and would otherwise discard
+    an in-memory-only mutation."""
+    from bot.services.sponsor_waves import _current_items, _dump
+
+    if db_user.sponsor_wave not in (1, 2):
+        return
+    updates_by_ref = {str(item.get("ref", "")): item for item in updated_items if item.get("ref")}
+    if not updates_by_ref:
+        return
+    current = _current_items(db_user)
+    changed = False
+    for item in current:
+        ref = str(item.get("ref", ""))
+        if ref in updates_by_ref:
+            item["waiting_since"] = updates_by_ref[ref]["waiting_since"]
+            changed = True
+    if not changed:
+        return
+    dumped = _dump(current)
+    if db_user.sponsor_wave == 1:
+        db_user.sponsor_wave_one = dumped
+    else:
+        db_user.sponsor_wave_two = dumped
+
+
+async def _recheck_flyerhub(api_key: str, db_user: User, saved: list[dict]) -> list[dict] | None:
     """Re-check previously-issued FlyerHub signatures by signature (same
     non-re-fetch reasoning as _recheck_traffy above). fh_check_task_op has
     no batch form, so signatures are checked concurrently one call each; a
     signature whose call itself fails is left pending rather than treated
     as complete, but doesn't abort the whole recheck unless every single
-    one fails."""
+    one fails.
+
+    Per FlyerHub's own /check_task docs, "waiting" means the task is
+    genuinely done ("task completed, awaiting payment in 24 hours") -- a
+    fraud-hold on FlyerHub paying US, not on whether the user finished
+    their end. tasks.py's separate "Задания" reward flow correctly
+    withholds payment on "waiting" (that hold matters when we're the ones
+    paying real RP⭐️ for it), but the ОП wall never pays anyone for a
+    sponsor subscription. An item that just came back "waiting" starts a
+    persisted 30s countdown (waiting_since) instead of resolving outright
+    or being re-queried on every "check" press within that window --
+    FlyerHub's own settlement doesn't move faster than that, so hammering
+    it every few seconds learns nothing new. Once the 30s have passed,
+    the earlier "waiting" verdict is trusted and the item resolves
+    without spending another API call on it."""
+    now = datetime.utcnow()
+    still_counting_down: list[dict] = []
+    to_check: list[dict] = []
+    for item in saved:
+        if not item.get("ref"):
+            # Can't be verified at all without a ref -- matches the
+            # original safe default (stay pending forever) rather than
+            # silently vanishing from the result. Shouldn't actually occur
+            # in practice: fh_task_to_sponsor_item never decorates an item
+            # without a signature.
+            still_counting_down.append(item)
+            continue
+        waiting_since = item.get("waiting_since")
+        if waiting_since:
+            try:
+                started = datetime.fromisoformat(str(waiting_since))
+            except ValueError:
+                started = now  # malformed -- restart the countdown, safe default
+            if now - started < _FLYERHUB_WAITING_GRACE:
+                still_counting_down.append(item)
+                continue
+            continue  # countdown elapsed -- resolved, drop without re-checking
+        to_check.append(item)
+
+    if not to_check:
+        return still_counting_down
+
     from bot.services.flyerhub import fh_check_task_op
 
-    refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
-    if not refs:
-        return []
+    refs = [str(item.get("ref", "")) for item in to_check]
     outcomes = await asyncio.gather(
         *(fh_check_task_op(api_key, ref) for ref in refs), return_exceptions=True,
     )
@@ -278,36 +350,40 @@ async def _recheck_flyerhub(api_key: str, saved: list[dict]) -> list[dict] | Non
         "FlyerHub recheck raw outcomes: %s",
         {ref: (str(outcome) if not isinstance(outcome, BaseException) else f"ERR:{outcome}") for ref, outcome in zip(refs, outcomes)},
     )
-    if any(outcome == "waiting" for outcome in outcomes):
-        # A short grace pause before trusting "waiting" as done -- gives
-        # FlyerHub's own settlement a moment to flip to "complete" outright
-        # instead of resolving purely off the anti-fraud hold status.
-        await asyncio.sleep(30)
     statuses: dict[str, bool] = {}
+    newly_waiting: list[dict] = []
     any_resolved = False
-    for ref, outcome in zip(refs, outcomes):
+    for item, ref, outcome in zip(to_check, refs, outcomes):
         if isinstance(outcome, BaseException) or outcome is None:
             continue
         any_resolved = True
-        # Per FlyerHub's own /check_task docs, "waiting" means the task is
-        # genuinely done ("task completed, awaiting payment in 24 hours")
-        # -- a fraud-hold on FlyerHub paying US, not on whether the user
-        # finished their end. tasks.py's separate "Задания" reward flow
-        # correctly withholds payment on "waiting" (that anti-fraud hold
-        # matters when we're the ones paying real RP⭐️ for it), but the ОП
-        # wall never pays anyone for a sponsor subscription -- there's
-        # nothing to protect by continuing to block someone who has
-        # already done what was asked, for up to 24h, over FlyerHub's own
-        # internal settlement delay. "unavailable" ("resource is no longer
-        # relevant") is the same "nothing the user does can ever resolve
-        # this" case already fixed here before -- confirmed live, a saved
-        # signature stayed "unavailable" for 2+ minutes straight. Both are
-        # dropped like a completed item, same as a rotated-out tgrass/
-        # botohub offer is trusted once the provider stops offering it.
-        statuses[ref] = outcome in ("complete", "waiting", "unavailable")
+        if outcome == "waiting":
+            item["waiting_since"] = now.isoformat()
+            newly_waiting.append(item)
+            statuses[ref] = False  # countdown just started -- still pending this round
+            continue
+        # "unavailable" ("resource is no longer relevant") is the same
+        # "nothing the user does can ever resolve this" case fixed here
+        # before -- confirmed live, a saved signature stayed "unavailable"
+        # for 2+ minutes straight. Dropped like a completed item, same as
+        # a rotated-out tgrass/botohub offer is trusted once the provider
+        # stops offering it.
+        statuses[ref] = outcome in ("complete", "unavailable")
+
+    if newly_waiting:
+        _persist_flyerhub_item_updates(db_user, newly_waiting)
+
     if not any_resolved:
+        # Every fresh check failed, but items already mid-countdown are
+        # still valid pending state from an earlier successful check --
+        # only report total failure when there's truly nothing to fall
+        # back on.
+        if still_counting_down:
+            return still_counting_down
         return None
-    return [item for item in saved if not statuses.get(str(item.get("ref", "")), False)]
+
+    pending_from_checked = [item for item in to_check if not statuses.get(str(item.get("ref", "")), False)]
+    return still_counting_down + pending_from_checked
 
 
 async def get_pending_sponsor_items(
@@ -449,7 +525,7 @@ async def _evaluate_wave_state(
                 item for item in _current_items(db_user)
                 if str(item.get("provider", "")) == "flyerhub"
             ]
-            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, saved_flyerhub)
+            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, db_user, saved_flyerhub)
         else:
             raw_tasks = await fh_get_tasks_op(
                 settings.flyerhub_op_key,

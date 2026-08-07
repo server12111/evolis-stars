@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -365,17 +366,16 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(state.status, "complete")
 
-    async def test_waiting_flyerhub_offer_resolves_after_a_grace_pause(self) -> None:
+    async def test_waiting_flyerhub_offer_starts_a_persisted_countdown_and_stays_pending(self) -> None:
         """Per FlyerHub's own /check_task docs, "waiting" means "task
         completed, awaiting payment in 24 hours" -- a hold on FlyerHub
         paying US, not on whether the user finished their end. The ОП
         wall never pays anyone for a sponsor subscription, so there's
         nothing to protect by continuing to block someone who has already
-        done what was asked for up to 24h over FlyerHub's own internal
-        settlement delay (unlike tasks.py's "Задания" reward flow, which
-        correctly withholds real RP⭐️ payment on this same status). A
-        short 30s grace pause is given first, in case it flips outright to
-        "complete" in the meantime."""
+        done what was asked -- but per explicit request, the first sight
+        of "waiting" starts a persisted 30s countdown (not an instant
+        resolve) instead, so a `waiting_since` timestamp must be written
+        back into the frozen wave's own JSON, not just returned in-memory."""
         session = fake_session()
         frozen = frozen_user([{
             "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
@@ -390,18 +390,21 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
             patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="waiting")),
-            patch("bot.middlewares.sponsor_wall.asyncio.sleep", AsyncMock()) as sleep,
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
 
-        sleep.assert_awaited_once_with(30)
-        self.assertEqual(state.status, "complete")
+        self.assertEqual(state.status, "pending")
+        persisted = json.loads(frozen.sponsor_wave_one)
+        self.assertIn("waiting_since", persisted[0])
 
-    async def test_non_waiting_outcomes_do_not_trigger_the_grace_pause(self) -> None:
+    async def test_waiting_within_the_30s_window_skips_the_api_call_and_stays_pending(self) -> None:
+        """A second "check" press within the 30s countdown must not spend
+        another FlyerHub API call re-learning what's already known --
+        FlyerHub's own settlement doesn't move that fast anyway."""
         session = fake_session()
         frozen = frozen_user([{
             "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
-            "ref": "sig-complete",
+            "ref": "sig-waiting", "waiting_since": datetime.utcnow().isoformat(),
         }])
         with (
             patch.object(settings, "tgrass_code", ""),
@@ -411,13 +414,60 @@ class FlyerhubTrustKindTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
             patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
             patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
-            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock(return_value="complete")),
-            patch("bot.middlewares.sponsor_wall.asyncio.sleep", AsyncMock()) as sleep,
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock()) as check_task,
         ):
             state = await _evaluate_wave_state(inner(), frozen, session)
 
-        sleep.assert_not_awaited()
+        check_task.assert_not_awaited()
+        self.assertEqual(state.status, "pending")
+
+    async def test_waiting_past_the_30s_window_resolves_without_another_api_call(self) -> None:
+        session = fake_session()
+        frozen = frozen_user([{
+            "provider": "flyerhub", "url": "https://t.me/donechan", "name": "Done",
+            "ref": "sig-waiting",
+            "waiting_since": (datetime.utcnow() - timedelta(seconds=31)).isoformat(),
+        }])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock()) as check_task,
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        check_task.assert_not_awaited()
         self.assertEqual(state.status, "complete")
+
+    async def test_flyerhub_item_without_a_ref_stays_pending_instead_of_vanishing(self) -> None:
+        """A saved item with no ref can't be re-verified by signature at
+        all -- must fall back to the original safe default (stays pending
+        forever) rather than silently dropping out of the result just
+        because it was skipped by the ref-keyed countdown bookkeeping.
+        Shouldn't occur in practice (fh_task_to_sponsor_item never
+        decorates a signature-less item), but must not regress either way."""
+        session = fake_session()
+        frozen = frozen_user([{
+            "provider": "flyerhub", "url": "https://t.me/norefchan", "name": "NoRef",
+        }])
+        with (
+            patch.object(settings, "tgrass_code", ""),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", "op-key"),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int()),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+            patch("bot.services.flyerhub.fh_check_task_op", AsyncMock()) as check_task,
+        ):
+            state = await _evaluate_wave_state(inner(), frozen, session)
+
+        check_task.assert_not_awaited()
+        self.assertEqual(state.status, "pending")
 
 
 class AllProvidersFailTests(unittest.IsolatedAsyncioTestCase):
