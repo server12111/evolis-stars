@@ -384,6 +384,7 @@ async def _evaluate_wave_state(
         check_tgrass(
             db_user.user_id,
             settings.tgrass_code,
+            max_offers=wave_size,
             is_premium=bool(inner.from_user and inner.from_user.is_premium),
             username=(
                 inner.from_user.username

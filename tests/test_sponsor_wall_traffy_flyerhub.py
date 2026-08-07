@@ -105,6 +105,28 @@ class TraffyFreshWaveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(state.items or []), 1)
 
 
+class TgrassLimitTests(unittest.IsolatedAsyncioTestCase):
+    async def test_wave_size_forwarded_as_max_offers(self) -> None:
+        """TGrass supports offers_limit (its docs: "has priority over the
+        bot's own setting"), same as Traffy/FlyerHub's own limit params --
+        must actually be forwarded so the admin's sponsor_max_channels
+        setting applies here too, not just to the other three providers."""
+        session = fake_session()
+        with (
+            patch.object(settings, "tgrass_code", "tg-code"),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "traffy_key", ""),
+            patch.object(settings, "flyerhub_op_key", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_int", fake_get_int(wave_size=7)),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])) as check_tgrass,
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            await _evaluate_wave_state(inner(), user(), session)
+
+        check_tgrass.assert_awaited_once()
+        self.assertEqual(check_tgrass.await_args.kwargs.get("max_offers"), 7)
+
+
 class TraffyRecheckTests(unittest.IsolatedAsyncioTestCase):
     async def test_frozen_wave_rechecks_by_assignment_id_not_a_fresh_fetch(self) -> None:
         """Re-fetching /tasks on every "check" press would hand out brand

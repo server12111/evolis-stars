@@ -41,6 +41,9 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
                         logger.warning("BotoHub returned HTTP %s", resp.status)
                         return None
                     data = await resp.json(content_type=None)
+                    if not isinstance(data, dict):
+                        logger.warning("BotoHub returned malformed data")
+                        return None
 
                     # completed=true или skip=true — всё выполнено / нет заданий
                     if data.get("completed") or data.get("skip"):
@@ -51,9 +54,12 @@ async def check_botohub(user_id: int, api_key: str) -> list[dict] | None:
                         return []
 
                     tasks = data.get("tasks", [])
+                    if not isinstance(tasks, list):
+                        logger.warning("BotoHub returned invalid tasks")
+                        return None
                     result = []
                     for url in tasks:
-                        if not url:
+                        if not url or not isinstance(url, str):
                             continue
                         result.append({"name": "Канал", "url": url})
                     logger.info("BotoHub check_botohub user_id=%d → %d offers", user_id, len(result))

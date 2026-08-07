@@ -54,6 +54,9 @@ async def check_tgrass(
                         logger.warning("TGrass returned HTTP %s", resp.status)
                         return None
                     data = await resp.json(content_type=None)
+                    if not isinstance(data, dict):
+                        logger.warning("TGrass returned malformed data")
+                        return None
                     status = data.get("status", "")
 
                     # "ok" = подписан на все, "no_offers" = нет подходящих офферов
@@ -63,9 +66,12 @@ async def check_tgrass(
 
                     # "not_ok" = есть неподписанные офферы — возвращаем только их
                     offers = data.get("offers", [])
+                    if not isinstance(offers, list):
+                        logger.warning("TGrass returned invalid offers")
+                        return None
                     result = []
                     for o in offers:
-                        if not o.get("link"):
+                        if not isinstance(o, dict) or not o.get("link"):
                             continue
                         # Используем явное сравнение с True, т.к. поле bool по документации
                         # Если поле отсутствует или None — считаем НЕ подписанным (безопасно)
