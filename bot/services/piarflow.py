@@ -40,6 +40,19 @@ async def get_sponsors(
                     if resp.status == 404:
                         logger.debug("PiarFlow get_sponsors HTTP 404 (no tasks)")
                         return []
+                    if resp.status == 403:
+                        # Undocumented (docs only list 400/401/404/429/500),
+                        # but confirmed live: PiarFlow returns 403 "User is
+                        # not in this bot" for specific real user_ids that
+                        # simply have nothing available for them right now
+                        # -- the same "no tasks" meaning as 404, not a key/
+                        # auth failure. Treating it like every other >=400
+                        # status (None -> hard failure, no FlyerHub/linkni
+                        # fallback in _show_pf_task) made PiarFlow tasks
+                        # silently "disappear" for those users instead of
+                        # falling through to the next task source.
+                        logger.debug("PiarFlow get_sponsors HTTP 403 (no tasks for this user)")
+                        return []
                     if resp.status >= 400:
                         logger.warning("PiarFlow get_sponsors HTTP %s", resp.status)
                         return None
