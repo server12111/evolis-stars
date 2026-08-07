@@ -1,6 +1,6 @@
 import math
 
-from sqlalchemy import Float, String, cast, func, update
+from sqlalchemy import Float, String, cast, func, select, update
 
 from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
@@ -244,6 +244,16 @@ class SettingsRepository(BaseRepository):
     async def get_bool(self, key: str, default: bool = True) -> bool:
         val = await self.get(key, "1" if default else "0")
         return val.strip().lower() in {"1", "true", "yes", "on"}
+
+    async def get_prefixed(self, prefix: str) -> dict[str, str]:
+        """All key/value pairs whose key starts with `prefix`, in one query --
+        for callers that would otherwise issue one get() per item in a loop
+        (e.g. checking a per-item "recently skipped" flag for every task in
+        a list)."""
+        result = await self.session.execute(
+            select(BotSettings).where(BotSettings.key.startswith(prefix))
+        )
+        return {row.key: row.value for row in result.scalars().all()}
 
     async def set(self, key: str, value: str) -> None:
         row = await self.session.get(BotSettings, key)

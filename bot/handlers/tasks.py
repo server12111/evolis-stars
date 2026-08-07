@@ -181,18 +181,21 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
     s_repo = SettingsRepository(session)
     all_tasks = await task_repo.all_active()
     completed_ids = await task_repo.completed_ids(db_user.user_id)
+    # One query for every "recently skipped" flag this user has, instead of
+    # one per active task -- same persisted 15-min-TTL pattern as the
+    # PiarFlow/FlyerHub skip buttons below, just batched since this runs on
+    # every "Задания" open. Without persisting it at all, "skip" only ever
+    # excluded the ONE task just pressed for that single render, letting it
+    # cycle A -> B -> A -> B forever with exactly 2 active tasks instead of
+    # ever reaching "nothing left" and falling through to PiarFlow/FlyerHub.
+    skipped_at = await s_repo.get_prefixed(f"task_skipped:{db_user.user_id}:") if all_tasks else {}
+    now = int(time.time())
     uncompleted = []
     for t in all_tasks:
         if t.id in completed_ids or t.id == current_task_id:
             continue
-        # Same persisted "recently skipped" pattern (15-min TTL) as the
-        # PiarFlow/FlyerHub skip buttons below -- without it, "skip" only
-        # ever excluded the ONE task just pressed for that single render,
-        # not remembered across calls. With exactly 2 admin tasks that let
-        # "skip" cycle A -> B -> A -> B forever instead of ever reaching
-        # "nothing left" and falling through to PiarFlow/FlyerHub.
-        skipped = await s_repo.get(f"task_skipped:{db_user.user_id}:{t.id}", "")
-        if skipped.isdigit() and int(time.time()) - int(skipped) < 900:
+        skipped = skipped_at.get(f"task_skipped:{db_user.user_id}:{t.id}", "")
+        if skipped.isdigit() and now - int(skipped) < 900:
             continue
         uncompleted.append(t)
 
