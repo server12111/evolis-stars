@@ -178,9 +178,23 @@ async def cb_tasks_menu(callback: CallbackQuery, db_user: User, session: AsyncSe
 async def _show_next_task(callback: CallbackQuery, db_user: User, session: AsyncSession, current_task_id: int | None = None) -> None:
     """Show next uncompleted task, or task list if none left."""
     task_repo = TaskRepository(session)
+    s_repo = SettingsRepository(session)
     all_tasks = await task_repo.all_active()
     completed_ids = await task_repo.completed_ids(db_user.user_id)
-    uncompleted = [t for t in all_tasks if t.id not in completed_ids and t.id != current_task_id]
+    uncompleted = []
+    for t in all_tasks:
+        if t.id in completed_ids or t.id == current_task_id:
+            continue
+        # Same persisted "recently skipped" pattern (15-min TTL) as the
+        # PiarFlow/FlyerHub skip buttons below -- without it, "skip" only
+        # ever excluded the ONE task just pressed for that single render,
+        # not remembered across calls. With exactly 2 admin tasks that let
+        # "skip" cycle A -> B -> A -> B forever instead of ever reaching
+        # "nothing left" and falling through to PiarFlow/FlyerHub.
+        skipped = await s_repo.get(f"task_skipped:{db_user.user_id}:{t.id}", "")
+        if skipped.isdigit() and int(time.time()) - int(skipped) < 900:
+            continue
+        uncompleted.append(t)
 
     if not uncompleted:
         pf_configured = bool(settings.piarflow_key)
@@ -202,7 +216,6 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
             return
         if await _try_show_linkni(callback, db_user, session):
             return
-        s_repo = SettingsRepository(session)
         tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
         reward_str = f"{tasks_reward:.1f}"
         template = await ContentRepository(session).get_text("tasks")
@@ -369,6 +382,9 @@ async def cb_task_skip(callback: CallbackQuery, db_user: User, session: AsyncSes
     except (IndexError, ValueError):
         await callback.answer()
         return
+    await SettingsRepository(session).set(
+        f"task_skipped:{db_user.user_id}:{task_id}", str(int(time.time())),
+    )
     await callback.answer()
     await _show_next_task(callback, db_user, session, current_task_id=task_id)
 
