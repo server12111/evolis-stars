@@ -25,6 +25,7 @@ from bot.database.repositories.chat_broadcast import (
     load_photo_ids,
 )
 from bot.database.repositories.chat_promo import ChatPromoRepository
+from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.database.repositories.game import GameRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
@@ -39,6 +40,12 @@ from bot.handlers.group.chat_bonus import (
     start_bonus_creation,
 )
 from bot.handlers.group.chat_promo import msg_chat_promo_code, start_promo_creation
+from bot.handlers.group.chat_sponsor_wall import (
+    MAX_WALL_SPONSORS_HARD_CAP,
+    cb_wall_sponsor_addnew,
+    cb_wall_sponsor_reuse,
+    start_wall_sponsor_flow,
+)
 from bot.handlers.group.info import render_roulette_log_text, render_top_users_text
 from bot.handlers.group.owner_menu import render_chat_panel_text
 from bot.keyboards.mychats import (
@@ -50,10 +57,16 @@ from bot.keyboards.mychats import (
     mychat_back_kb,
     mychat_back_to_list_kb,
     mychat_panel_kb,
+    mychat_wall_kb,
     mychats_list_kb,
 )
 from bot.services.content_moderation import find_banned_term
-from bot.states.group import ChatOwnerBonusStates, ChatOwnerBroadcastStates, ChatOwnerPromoStates
+from bot.states.group import (
+    ChatOwnerBonusStates,
+    ChatOwnerBroadcastStates,
+    ChatOwnerPromoStates,
+    ChatOwnerWallStates,
+)
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -91,7 +104,7 @@ async def _verify_owned_chat(callback: CallbackQuery, session: AsyncSession, cha
 async def _render_panel(callback: CallbackQuery, session: AsyncSession, chat: Chat) -> None:
     has_promo = await ChatPromoRepository(session).get_by_chat(chat.chat_id) is not None
     text = await render_chat_panel_text(ChatRepository(session), chat.chat_id, chat.member_count)
-    kb = mychat_panel_kb(chat.chat_id, chat.broadcast_opt_in, has_promo)
+    kb = mychat_panel_kb(chat.chat_id, chat.broadcast_opt_in, has_promo, chat.games_enabled)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception as exc:
@@ -203,6 +216,178 @@ async def cb_mychats_broadcast_toggle(callback: CallbackQuery, session: AsyncSes
     await session.commit()
     await _render_panel(callback, session, chat)
     await callback.answer("✅ Включено" if chat.broadcast_opt_in else "✅ Выключено")
+
+
+@router.callback_query(F.data.startswith("mychats:gamestoggle:"))
+async def cb_mychats_gamestoggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+
+    chat.games_enabled = not chat.games_enabled
+    await session.commit()
+    await _render_panel(callback, session, chat)
+    await callback.answer("✅ Игры включены" if chat.games_enabled else "✅ Игры выключены")
+
+
+async def _render_wall(callback: CallbackQuery, session: AsyncSession, chat: Chat) -> None:
+    sponsors = await ChatSponsorWallRepository(session).list_all(chat.chat_id)
+    active_count = sum(1 for s in sponsors if s.is_active)
+    text = (
+        f"🚧 <b>Спонсор-стена</b>\n\n"
+        f"Пока участник не подпишется на всех активных спонсорах ниже, бот удаляет его сообщения "
+        f"в этом чате. За каждого спонсора участник получает <b>1 RP⭐️</b>.\n\n"
+        f"Активно: <b>{active_count}/{chat.sponsor_wall_max_sponsors}</b>"
+    )
+    kb = mychat_wall_kb(chat.chat_id, sponsors, chat.sponsor_wall_max_sponsors)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("mychats:wall:"))
+async def cb_mychats_wall(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    await _render_wall(callback, session, chat)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("mychats:walladd:"))
+async def cb_mychats_walladd(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot,
+) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 4:
+        await callback.answer()
+        return
+    try:
+        chat_id = int(parts[2])
+    except ValueError:
+        await callback.answer()
+        return
+    sponsor_type = parts[3]
+    if sponsor_type not in ("channel", "chat"):
+        await callback.answer()
+        return
+    await start_wall_sponsor_flow(callback, state, session, bot, chat_id, sponsor_type)
+
+
+@router.callback_query(F.data.startswith("mychats:walltoggle:"))
+async def cb_mychats_walltoggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 4:
+        await callback.answer()
+        return
+    try:
+        chat_id, sponsor_id = int(parts[2]), int(parts[3])
+    except ValueError:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    sponsor = await ChatSponsorWallRepository(session).toggle(sponsor_id, chat_id)
+    if sponsor is None:
+        await callback.answer("❌ Спонсор не найден.", show_alert=True)
+        return
+    await _render_wall(callback, session, chat)
+    await callback.answer("✅ Включен" if sponsor.is_active else "✅ Выключен")
+
+
+@router.callback_query(F.data.startswith("mychats:walldelete:"))
+async def cb_mychats_walldelete(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 4:
+        await callback.answer()
+        return
+    try:
+        chat_id, sponsor_id = int(parts[2]), int(parts[3])
+    except ValueError:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    ok = await ChatSponsorWallRepository(session).delete(sponsor_id, chat_id)
+    if not ok:
+        await callback.answer("❌ Спонсор не найден.", show_alert=True)
+        return
+    await _render_wall(callback, session, chat)
+    await callback.answer("🗑 Удалён")
+
+
+@router.callback_query(F.data.startswith("mychats:walllimit:"))
+async def cb_mychats_walllimit(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    await state.set_state(ChatOwnerWallStates.enter_limit)
+    await state.update_data(chat_id=chat_id)
+    await callback.message.answer(
+        f"✏️ Введите новый лимит спонсоров на стене (1-{MAX_WALL_SPONSORS_HARD_CAP}):",
+        reply_markup=mychat_back_kb(chat_id),
+    )
+    await callback.answer()
+
+
+@router.message(ChatOwnerWallStates.enter_limit)
+async def msg_wall_limit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    chat = await _verify_owned_chat_for_state(session, data, message.from_user.id)
+    if chat is None:
+        await state.clear()
+        return
+    chat_id = chat.chat_id
+    raw = (message.text or "").strip()
+    if not raw.isdigit():
+        await message.answer("❌ Введите целое число:", reply_markup=mychat_back_kb(chat_id))
+        return
+    value = int(raw)
+    if value < 1 or value > MAX_WALL_SPONSORS_HARD_CAP:
+        await message.answer(
+            f"❌ Лимит должен быть от 1 до {MAX_WALL_SPONSORS_HARD_CAP}:",
+            reply_markup=mychat_back_kb(chat_id),
+        )
+        return
+    chat.sponsor_wall_max_sponsors = value
+    await session.commit()
+    await state.clear()
+    await message.answer(f"✅ Лимит спонсоров на стене: {value}", reply_markup=mychat_back_kb(chat_id))
 
 
 @router.callback_query(F.data.startswith("mychats:stats:"))
@@ -900,3 +1085,8 @@ router.callback_query.register(
 router.callback_query.register(
     cb_bonus_sponsors_done, ChatOwnerBonusStates.choose_sponsors, F.data == "chatbonus:sponsors:done",
 )
+# The sponsor-wall screen only ever lives in this private chat panel (never
+# the group owner-menu), unlike the bonus flow above -- no FSM state filter
+# needed, ownership is re-checked inside the handlers themselves.
+router.callback_query.register(cb_wall_sponsor_addnew, F.data.startswith("chatwall:addnew:"))
+router.callback_query.register(cb_wall_sponsor_reuse, F.data.startswith("chatwall:reuse:"))

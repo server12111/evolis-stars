@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import User
+from bot.database.models import Chat, User
 from bot.database.repositories.virus import VirusInfectionRepository
 from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.keyboards.group.virus import virus_ammo_kb, virus_cure_kb
@@ -128,8 +128,11 @@ async def _execute_attack(
 
 
 @router.message(_matches_virus_attack)
-async def msg_virus_attack(message: Message, session: AsyncSession) -> None:
+async def msg_virus_attack(message: Message, session: AsyncSession, chat: Chat | None = None) -> None:
     if message.text is None or message.from_user is None or message.reply_to_message is None:
+        return
+    if chat is not None and not chat.games_enabled:
+        await message.reply("🎮 Игры отключены в этом чате.")
         return
     reply_from = message.reply_to_message.from_user
     if reply_from is None:

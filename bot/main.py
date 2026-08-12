@@ -16,6 +16,7 @@ from bot.database.engine import SessionFactory, init_db
 from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.handlers import admin_channel_router, group_router, link_click_router, router
+from bot.middlewares.chat_sponsor_wall import ChatSponsorWallMiddleware
 from bot.middlewares.database import DatabaseMiddleware
 from bot.middlewares.group_activity import GroupActivityMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
@@ -117,6 +118,7 @@ async def main() -> None:
         dp.update.middleware(DatabaseMiddleware())
         dp.update.middleware(UserMiddleware())
         dp.update.middleware(GroupActivityMiddleware())
+        dp.update.middleware(ChatSponsorWallMiddleware())
         dp.update.middleware(TosGateMiddleware())
         dp.update.middleware(SponsorWallMiddleware())
         dp.update.middleware(VirusInterferenceMiddleware())

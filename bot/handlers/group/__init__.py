@@ -5,6 +5,7 @@ from bot.handlers.group import (
     chat_bonus,
     chat_leaderboard,
     chat_promo,
+    chat_sponsor_wall,
     games_doors,
     games_maze,
     games_roulette,

@@ -1,0 +1,380 @@
+import unittest
+from datetime import datetime
+from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Chat as TgChat
+from aiogram.types import Message
+from aiogram.types import Update
+from aiogram.types import User as TgUser
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from bot.database.engine import Base
+from bot.database.models import Chat, ChatSponsorWallSponsor, User
+from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
+from bot.handlers.group.chat_bonus import _origin_state, _pending_sponsor_state, try_link_pending_sponsor
+from bot.handlers.group.chat_sponsor_wall import cb_wall_check
+from bot.handlers.group.games_tower import msg_tower_start
+from bot.middlewares.chat_sponsor_wall import ChatSponsorWallMiddleware
+from bot.states.group import PendingSponsorAddStates
+
+
+def _update(chat_id: int, user_id: int, text: str = "hello") -> Update:
+    return Update(
+        update_id=1,
+        message=Message(
+            message_id=5,
+            date=datetime.utcnow(),
+            chat=TgChat(id=chat_id, type="supergroup"),
+            from_user=TgUser(id=user_id, is_bot=False, first_name="A"),
+            text=text,
+        ),
+    )
+
+
+def _my_chat_member(chat_id: int, chat_type: str, from_user_id: int, status: str, title: str = "Sponsor", username: str | None = None):
+    return SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id, type=chat_type, title=title, username=username),
+        from_user=SimpleNamespace(id=from_user_id),
+        new_chat_member=SimpleNamespace(status=status),
+        old_chat_member=SimpleNamespace(status="left"),
+    )
+
+
+class DbTestCase(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with self.engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+
+    async def asyncTearDown(self) -> None:
+        await self.engine.dispose()
+
+    async def _make_chat(self, chat_id: int, owner_id: int, max_sponsors: int = 3) -> Chat:
+        async with self.sessions() as session:
+            chat = Chat(chat_id=chat_id, title="C", owner_user_id=owner_id, sponsor_wall_max_sponsors=max_sponsors)
+            session.add(chat)
+            await session.commit()
+            return chat
+
+    async def _make_user(self, user_id: int, balance: str = "0") -> User:
+        async with self.sessions() as session:
+            user = User(user_id=user_id, first_name="U", stars_balance=Decimal(balance))
+            session.add(user)
+            await session.commit()
+            return user
+
+    async def _add_sponsor(self, chat_id: int, sponsor_chat_id: int, **overrides) -> ChatSponsorWallSponsor:
+        async with self.sessions() as session:
+            defaults = dict(sponsor_type="channel", title="Sponsor", username=f"sp{sponsor_chat_id}")
+            defaults.update(overrides)
+            sponsor = ChatSponsorWallSponsor(chat_id=chat_id, sponsor_chat_id=sponsor_chat_id, **defaults)
+            session.add(sponsor)
+            await session.commit()
+            await session.refresh(sponsor)
+            return sponsor
+
+
+class RepositoryTests(DbTestCase):
+    async def test_add_respects_per_chat_max(self) -> None:
+        await self._make_chat(-1, 1, max_sponsors=1)
+        async with self.sessions() as session:
+            repo = ChatSponsorWallRepository(session)
+            first = await repo.add(-1, -100, "channel", "A", "a", max_sponsors=1)
+            second = await repo.add(-1, -200, "channel", "B", "b", max_sponsors=1)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+
+    async def test_add_rejects_duplicate_sponsor_chat(self) -> None:
+        await self._make_chat(-1, 1, max_sponsors=5)
+        async with self.sessions() as session:
+            repo = ChatSponsorWallRepository(session)
+            first = await repo.add(-1, -100, "channel", "A", "a", max_sponsors=5)
+            dup = await repo.add(-1, -100, "channel", "A", "a", max_sponsors=5)
+        self.assertIsNotNone(first)
+        self.assertIsNone(dup)
+
+    async def test_mark_completed_is_race_safe(self) -> None:
+        await self._make_chat(-1, 1)
+        await self._make_user(10)
+        sponsor = await self._add_sponsor(-1, -100)
+        async with self.sessions() as session:
+            repo = ChatSponsorWallRepository(session)
+            first = await repo.mark_completed(sponsor.id, 10)
+            second = await repo.mark_completed(sponsor.id, 10)
+        self.assertTrue(first)
+        self.assertFalse(second)
+
+    async def test_toggle_and_delete_are_ownership_scoped(self) -> None:
+        await self._make_chat(-1, 1)
+        await self._make_chat(-2, 2)
+        sponsor = await self._add_sponsor(-1, -100)
+        async with self.sessions() as session:
+            repo = ChatSponsorWallRepository(session)
+            wrong_chat = await repo.toggle(sponsor.id, -2)
+            right_chat = await repo.toggle(sponsor.id, -1)
+        self.assertIsNone(wrong_chat)
+        self.assertIsNotNone(right_chat)
+        self.assertFalse(right_chat.is_active)
+
+        async with self.sessions() as session:
+            repo = ChatSponsorWallRepository(session)
+            wrong_delete = await repo.delete(sponsor.id, -2)
+            right_delete = await repo.delete(sponsor.id, -1)
+        self.assertFalse(wrong_delete)
+        self.assertTrue(right_delete)
+
+
+class GeneralizedPendingSponsorFlowTests(DbTestCase):
+    async def _seed_pending_wall(self, storage, bot_id, user_id, sponsor_type, origin_chat_id, wall_chat_id):
+        pending = _pending_sponsor_state(storage, bot_id, user_id)
+        await pending.set_state(PendingSponsorAddStates.awaiting_add)
+        await pending.update_data(
+            sponsor_type=sponsor_type, origin_chat_id=origin_chat_id,
+            purpose="wall", wall_chat_id=wall_chat_id,
+        )
+
+    async def test_wall_purpose_persists_directly_to_wall_table_not_fsm(self) -> None:
+        await self._make_chat(-50, 42, max_sponsors=3)
+        storage = MemoryStorage()
+        bot = SimpleNamespace(id=1, send_message=AsyncMock())
+        await self._seed_pending_wall(storage, 1, 42, "channel", -50, -50)
+
+        event = _my_chat_member(-900, "channel", 42, "administrator", title="Sponsor Ch", username="sponsorch")
+        async with self.sessions() as session:
+            handled = await try_link_pending_sponsor(bot, storage, event, session)
+
+        self.assertTrue(handled)
+        async with self.sessions() as session:
+            sponsors = await ChatSponsorWallRepository(session).list_active(-50)
+        self.assertEqual(len(sponsors), 1)
+        self.assertEqual(sponsors[0].sponsor_chat_id, -900)
+
+        # Must NOT have also polluted the bonus-creation FSM's own state.
+        origin = _origin_state(storage, 1, -50, 42)
+        origin_data = await origin.get_data()
+        self.assertNotIn("sponsors", origin_data)
+
+        pending = _pending_sponsor_state(storage, 1, 42)
+        self.assertIsNone(await pending.get_state())
+        bot.send_message.assert_awaited_once()
+
+    async def test_wall_purpose_respects_max_sponsors(self) -> None:
+        await self._make_chat(-50, 42, max_sponsors=1)
+        await self._add_sponsor(-50, -800)
+        storage = MemoryStorage()
+        bot = SimpleNamespace(id=1, send_message=AsyncMock())
+        await self._seed_pending_wall(storage, 1, 42, "channel", -50, -50)
+
+        event = _my_chat_member(-900, "channel", 42, "administrator")
+        async with self.sessions() as session:
+            handled = await try_link_pending_sponsor(bot, storage, event, session)
+
+        self.assertTrue(handled)
+        async with self.sessions() as session:
+            sponsors = await ChatSponsorWallRepository(session).list_active(-50)
+        self.assertEqual(len(sponsors), 1)  # the pre-existing one, new one rejected
+        self.assertEqual(sponsors[0].sponsor_chat_id, -800)
+
+
+class MiddlewareTests(DbTestCase):
+    async def _run(self, chat: Chat, user_id: int, session, bot=None):
+        handler = AsyncMock(return_value="handled")
+        bot = bot or SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+        )
+        update = _update(chat.chat_id, user_id)
+        data = {
+            "session": session,
+            "bot": bot,
+            "event_chat": update.message.chat,
+            "event_from_user": update.message.from_user,
+            "chat": chat,
+        }
+        result = await ChatSponsorWallMiddleware()(handler, update, data)
+        return handler, bot, result
+
+    async def test_no_active_sponsors_is_a_full_noop(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._make_user(10)
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 10, session)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+        self.assertEqual(result, "handled")
+
+    async def test_owner_is_exempt_without_any_api_call(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100)
+        await self._make_user(1)
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(side_effect=AssertionError("must not be called for the owner")),
+        )
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 1, session, bot=bot)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+
+    async def test_telegram_chat_admin_is_exempt(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+        )
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 20, session, bot=bot)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+
+    async def test_unsubscribed_member_message_is_deleted_and_handler_never_runs(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+        )
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 20, session, bot=bot)
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
+        bot.send_message.assert_awaited_once()
+        self.assertIsNone(result)
+
+    async def test_fully_completed_member_passes_through_without_api_call(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(side_effect=AssertionError("must not be called once fully completed")),
+        )
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 20, session, bot=bot)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+
+    async def test_bot_admin_is_exempt_even_as_a_plain_chat_member(self) -> None:
+        from unittest.mock import patch
+
+        from bot.config import get_settings
+
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100)
+        await self._make_user(999)
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+        )
+        with patch.object(get_settings(), "admin_ids", "999"):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 999, session, bot=bot)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+
+
+class CheckCallbackTests(DbTestCase):
+    def _callback(self, chat_id: int, user_id: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            data=f"chatwall:check:{chat_id}",
+            from_user=SimpleNamespace(id=user_id),
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+
+    async def test_checks_membership_by_numeric_chat_id_not_bare_username(self) -> None:
+        """Regression: get_chat_member must be called with sponsor_chat_id
+        (the numeric id), not sponsor.username -- passing a bare username
+        without a leading '@' is rejected by Telegram's Bot API, which
+        would permanently block every genuinely-subscribed member."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        async with self.sessions() as session:
+            await cb_wall_check(self._callback(-1, 20), session, bot)
+
+        bot.get_chat_member.assert_awaited_once_with(sponsor.sponsor_chat_id, 20)
+
+    async def test_newly_confirmed_sponsor_credits_one_rp_once(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        async with self.sessions() as session:
+            await cb_wall_check(self._callback(-1, 20), session, bot)
+        async with self.sessions() as session:
+            user = await session.get(User, 20)
+            completed = await ChatSponsorWallRepository(session).is_completed(sponsor.id, 20)
+        self.assertEqual(float(user.stars_balance), 6.0)
+        self.assertTrue(completed)
+
+        # Pressing check again must not double-credit.
+        async with self.sessions() as session:
+            await cb_wall_check(self._callback(-1, 20), session, bot)
+        async with self.sessions() as session:
+            user = await session.get(User, 20)
+        self.assertEqual(float(user.stars_balance), 6.0)
+
+    async def test_still_unsubscribed_reports_alert_not_credit(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="left")))
+
+        callback = self._callback(-1, 20)
+        async with self.sessions() as session:
+            await cb_wall_check(callback, session, bot)
+        async with self.sessions() as session:
+            user = await session.get(User, 20)
+        self.assertEqual(float(user.stars_balance), 5.0)
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+
+
+class GamesToggleTests(DbTestCase):
+    async def test_disabled_chat_blocks_game_start(self) -> None:
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=1),
+            text="башня 5",
+            reply=AsyncMock(),
+        )
+        chat = Chat(chat_id=-1, title="C", games_enabled=False)
+        async with self.sessions() as session:
+            await msg_tower_start(message, session, chat=chat)
+        message.reply.assert_awaited_once()
+        self.assertIn("отключены", message.reply.await_args.args[0])
+
+    async def test_enabled_chat_does_not_block_on_the_toggle(self) -> None:
+        """games_enabled=True must fall through to the (mocked-away) normal
+        flow rather than being rejected by the new check itself."""
+        message = SimpleNamespace(
+            from_user=SimpleNamespace(id=1),
+            chat=SimpleNamespace(id=-1),
+            text="башня 5",
+            reply=AsyncMock(),
+        )
+        chat = Chat(chat_id=-1, title="C", games_enabled=True)
+        async with self.sessions() as session:
+            await msg_tower_start(message, session, chat=chat)
+        # Falls through past both gates into place_bet(), which will reply
+        # about registration/balance -- either way, NOT the games-disabled
+        # message specifically.
+        message.reply.assert_awaited_once()
+        self.assertNotIn("отключены", message.reply.await_args.args[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

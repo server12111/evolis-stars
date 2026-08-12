@@ -30,7 +30,13 @@ class GroupActivityMiddleware(BaseMiddleware):
             and isinstance(event, Update)
             and event.message is not None
         ):
-            await ChatRepository(session).ensure_exists(event_chat.id, getattr(event_chat, "title", "") or "")
+            chat = await ChatRepository(session).ensure_exists(event_chat.id, getattr(event_chat, "title", "") or "")
             await ChatMembershipRepository(session).touch_message(event_chat.id, tg_user.id)
+            # Made available to every downstream group handler/middleware via
+            # aiogram's normal data-dict parameter injection (same mechanism
+            # db_user/session already use) -- avoids a second per-message
+            # query anywhere that just needs the Chat row (per-chat games
+            # toggle, the sponsor-wall middleware).
+            data["chat"] = chat
 
         return await handler(event, data)

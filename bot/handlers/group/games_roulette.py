@@ -8,6 +8,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
+from bot.database.models import Chat
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.registration import registration_required_kb
 from bot.services.chat_eligibility import credit_stars
@@ -84,7 +85,7 @@ async def _animate_and_reveal(message: Message, result_color: str, final_text: s
 
 
 @router.message(_matches_roulette_command)
-async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
+async def msg_roulette_bet(message: Message, session: AsyncSession, chat: Chat | None = None) -> None:
     if message.from_user is None or message.text is None:
         return
     match = _PATTERN.match(message.text.strip())
@@ -94,6 +95,9 @@ async def msg_roulette_bet(message: Message, session: AsyncSession) -> None:
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("roulette_enabled", True):
         await message.reply("🎰 Рулетка временно недоступна.")
+        return
+    if chat is not None and not chat.games_enabled:
+        await message.reply("🎮 Игры отключены в этом чате.")
         return
     min_bet = await settings_repo.get_float("roulette_min_bet", 1.0)
     max_bet = await settings_repo.get_float("roulette_max_bet", 500.0)

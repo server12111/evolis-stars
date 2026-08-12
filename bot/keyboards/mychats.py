@@ -24,7 +24,9 @@ def mychats_list_kb(chats: list[Chat], bot_username: str) -> InlineKeyboardMarku
     return builder.as_markup()
 
 
-def mychat_panel_kb(chat_id: int, broadcast_opt_in: bool, has_promo: bool) -> InlineKeyboardMarkup:
+def mychat_panel_kb(
+    chat_id: int, broadcast_opt_in: bool, has_promo: bool, games_enabled: bool = True,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if has_promo:
         builder.row(InlineKeyboardButton(text="🎁 Бонус", callback_data=f"mychats:bonus:{chat_id}"))
@@ -44,6 +46,9 @@ def mychat_panel_kb(chat_id: int, broadcast_opt_in: bool, has_promo: bool) -> In
         InlineKeyboardButton(text="🎰 Игры", callback_data=f"mychats:games:{chat_id}"),
         InlineKeyboardButton(text="🎰 Лог рулетки", callback_data=f"mychats:log:{chat_id}"),
     )
+    games_toggle_label = "🎮 Игры в чате: ✅ вкл" if games_enabled else "🎮 Игры в чате: ❌ выкл"
+    builder.row(InlineKeyboardButton(text=games_toggle_label, callback_data=f"mychats:gamestoggle:{chat_id}"))
+    builder.row(InlineKeyboardButton(text="🚧 Спонсор-стена", callback_data=f"mychats:wall:{chat_id}"))
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data=f"mychats:refresh:{chat_id}"))
     builder.row(InlineKeyboardButton(text="◀️ К списку чатов", callback_data="mychats:list"))
     return builder.as_markup()
@@ -106,6 +111,28 @@ def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="◀️ К списку чатов", callback_data="mychats:list"),
     ]])
+
+
+def mychat_wall_kb(chat_id: int, sponsors: list, max_sponsors: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    active_count = 0
+    for sponsor in sponsors:
+        if sponsor.is_active:
+            active_count += 1
+        status = "✅" if sponsor.is_active else "⛔"
+        label = f"{status} {sponsor.title or sponsor.username or sponsor.sponsor_chat_id}"
+        builder.row(
+            InlineKeyboardButton(text=label, callback_data=f"mychats:walltoggle:{chat_id}:{sponsor.id}"),
+            InlineKeyboardButton(text="🗑", callback_data=f"mychats:walldelete:{chat_id}:{sponsor.id}"),
+        )
+    if active_count < max_sponsors:
+        builder.row(
+            InlineKeyboardButton(text="📢 Канал", callback_data=f"mychats:walladd:{chat_id}:channel"),
+            InlineKeyboardButton(text="👥 Чат", callback_data=f"mychats:walladd:{chat_id}:chat"),
+        )
+    builder.row(InlineKeyboardButton(text=f"✏️ Лимит: {max_sponsors}", callback_data=f"mychats:walllimit:{chat_id}"))
+    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"))
+    return builder.as_markup()
 
 
 def connected_instructions_kb(bot_username: str) -> InlineKeyboardMarkup:

@@ -40,7 +40,7 @@ async def on_my_chat_member(event: ChatMemberUpdated, bot: Bot, session: AsyncSe
     # sponsor is a different flow entirely (no chat_min_members threshold,
     # no "only the owner may add" rule tied to *this* chat) — resolve that
     # first and skip normal chat-registration handling if it applies.
-    if await try_link_pending_sponsor(bot, state.storage, event):
+    if await try_link_pending_sponsor(bot, state.storage, event, session):
         return
 
     new_status = event.new_chat_member.status

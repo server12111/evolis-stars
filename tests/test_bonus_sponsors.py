@@ -405,7 +405,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         await self._seed_pending(storage, 1, 42, "channel", -50)
 
         event = _my_chat_member(-900, "channel", 42, "administrator", title="Sponsor Ch", username="sponsorch")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         origin = _origin_state(storage, 1, -50, 42)
@@ -425,7 +425,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         await self._seed_pending(storage, 1, 42, "chat", -50)
 
         event = _my_chat_member(-901, "supergroup", 42, "administrator", title="Sponsor Group", username=None)
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         # A regular chat/group DOES get a confirmation posted inside it,
@@ -441,7 +441,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
 
         # Owner pressed "Добавить каналы" but actually added a group.
         event = _my_chat_member(-901, "supergroup", 42, "administrator")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         origin = _origin_state(storage, 1, -50, 42)
@@ -454,7 +454,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         await self._seed_pending(storage, 1, 42, "chat", -50)
 
         event = _my_chat_member(-902, "supergroup", 42, "member")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         origin = _origin_state(storage, 1, -50, 42)
@@ -473,7 +473,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         await self._seed_pending(storage, 1, 42, "channel", -50)
 
         event = _my_chat_member(-900, "channel", 42, "administrator")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         data = await origin.get_data()
@@ -491,7 +491,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         await self._seed_pending(storage, 1, 42, "channel", -50)
 
         event = _my_chat_member(-900, "channel", 42, "administrator")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
 
         self.assertTrue(handled)
         data = await origin.get_data()
@@ -501,7 +501,7 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         storage = MemoryStorage()
         bot = SimpleNamespace(id=1, send_message=AsyncMock())
         event = _my_chat_member(-900, "channel", 999, "administrator")
-        handled = await try_link_pending_sponsor(bot, storage, event)
+        handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
         self.assertFalse(handled)
 
 

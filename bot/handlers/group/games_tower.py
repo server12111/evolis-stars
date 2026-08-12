@@ -7,6 +7,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
+from bot.database.models import Chat
 from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.games_tower import tower_playing_kb
@@ -27,7 +28,7 @@ def _matches_tower_start(message: Message) -> bool:
 
 
 @router.message(_matches_tower_start)
-async def msg_tower_start(message: Message, session: AsyncSession) -> None:
+async def msg_tower_start(message: Message, session: AsyncSession, chat: Chat | None = None) -> None:
     if message.from_user is None or message.text is None:
         return
     match = _START_PATTERN.match(message.text.strip())
@@ -36,6 +37,9 @@ async def msg_tower_start(message: Message, session: AsyncSession) -> None:
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("chat_tower_enabled", True):
         await message.reply("🗼 Башня временно недоступна.")
+        return
+    if chat is not None and not chat.games_enabled:
+        await message.reply("🎮 Игры отключены в этом чате.")
         return
 
     round_repo = ChatGameRoundRepository(session)

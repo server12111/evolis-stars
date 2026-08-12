@@ -173,15 +173,27 @@ async def cb_bonus_mode(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-async def _start_new_sponsor_flow(callback: CallbackQuery, state: FSMContext, bot: Bot, sponsor_type: str) -> None:
+async def _start_new_sponsor_flow(
+    callback: CallbackQuery, state: FSMContext, bot: Bot, sponsor_type: str,
+    *, purpose: str = "bonus", wall_chat_id: int | None = None,
+) -> None:
     """Arms the "waiting for the owner to promote the bot" flow and sends
     the deep link — the only way to add a channel/chat the bot isn't
-    already an admin in yet."""
-    data = await state.get_data()
-    sponsors = data.get("sponsors") or []
-    if len(sponsors) >= MAX_BONUS_SPONSORS:
-        await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
-        return
+    already an admin in yet.
+
+    purpose="wall" arms this same mechanism for the per-chat sponsor wall
+    (bot/handlers/group/chat_sponsor_wall.py) instead of the bonus-creation
+    FSM's own "sponsors" list -- try_link_pending_sponsor below branches on
+    it once the owner actually promotes the bot. The caller is responsible
+    for its own max-sponsors check before calling this for purpose="wall"
+    (the wall's cap is per-chat, stored on the Chat row, not available
+    here without a session)."""
+    if purpose == "bonus":
+        data = await state.get_data()
+        sponsors = data.get("sponsors") or []
+        if len(sponsors) >= MAX_BONUS_SPONSORS:
+            await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+            return
 
     pending = _pending_sponsor_state(state.storage, bot.id, callback.from_user.id)
     if await pending.get_state() == PendingSponsorAddStates.awaiting_add:
@@ -215,6 +227,7 @@ async def _start_new_sponsor_flow(callback: CallbackQuery, state: FSMContext, bo
     # different FSM slot than cb_bonus_sponsors_done later reads from.
     await pending.update_data(
         sponsor_type=sponsor_type, origin_chat_id=callback.message.chat.id, armed_at=time.time(),
+        purpose=purpose, wall_chat_id=wall_chat_id,
     )
 
     label = "канал" if sponsor_type == "channel" else "чат"
@@ -420,10 +433,16 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
     await callback.answer()
 
 
-async def try_link_pending_sponsor(bot: Bot, storage: BaseStorage, event: ChatMemberUpdated) -> bool:
+async def try_link_pending_sponsor(
+    bot: Bot, storage: BaseStorage, event: ChatMemberUpdated, session: AsyncSession,
+) -> bool:
     """Called from onboarding.py's my_chat_member handler before its own
     logic. Returns True if this event was consumed as a sponsor-add (the
-    caller should skip normal chat-registration handling for it)."""
+    caller should skip normal chat-registration handling for it).
+
+    session is only actually used by the purpose="wall" branch (persisting
+    directly to ChatSponsorWallSponsor) -- the purpose="bonus" branch below
+    is unchanged and still only touches FSM state."""
     adder = getattr(event, "from_user", None)
     if adder is None:
         return False
@@ -435,7 +454,12 @@ async def try_link_pending_sponsor(bot: Bot, storage: BaseStorage, event: ChatMe
     pending_data = await pending.get_data()
     sponsor_type = pending_data.get("sponsor_type")
     origin_chat_id = pending_data.get("origin_chat_id")
+    purpose = pending_data.get("purpose", "bonus")
+    wall_chat_id = pending_data.get("wall_chat_id")
     if sponsor_type not in ("channel", "chat") or origin_chat_id is None:
+        await pending.clear()
+        return False
+    if purpose == "wall" and wall_chat_id is None:
         await pending.clear()
         return False
 
@@ -463,6 +487,12 @@ async def try_link_pending_sponsor(bot: Bot, storage: BaseStorage, event: ChatMe
         except Exception:
             pass
         return True
+
+    if purpose == "wall":
+        from bot.handlers.group.chat_sponsor_wall import link_pending_wall_sponsor
+        return await link_pending_wall_sponsor(
+            bot, session, pending, event, wall_chat_id, origin_chat_id, sponsor_type,
+        )
 
     origin = _origin_state(storage, bot.id, origin_chat_id, adder.id)
     origin_data = await origin.get_data()

@@ -21,6 +21,10 @@ class ChatOwnerBroadcastStates(StatesGroup):
     enter_interval = State()
 
 
+class ChatOwnerWallStates(StatesGroup):
+    enter_limit = State()
+
+
 class PendingSponsorAddStates(StatesGroup):
     """User-scoped (not chat-scoped) — set while waiting for the owner to
     finish Telegram's native "add bot as admin" flow in a channel/chat

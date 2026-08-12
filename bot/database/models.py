@@ -483,6 +483,15 @@ class Chat(Base):
     custom_broadcast_interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     custom_broadcast_last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     custom_broadcast_next_index: Mapped[int] = mapped_column(Integer, default=0)
+    # Owner toggle for the four chat games (Башня/Лабиринт/Двери/Рулетка) +
+    # Вирус -- independent of and in ADDITION to their own bot-wide enabled
+    # settings (chat_tower_enabled etc.); both must be true for a game to
+    # start in this chat.
+    games_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Owner's own configurable cap on how many sponsors they can attach to
+    # this chat's sponsor wall (see ChatSponsorWallSponsor below) -- unlike
+    # MAX_BONUS_SPONSORS, this is per-chat, not a single bot-wide number.
+    sponsor_wall_max_sponsors: Mapped[int] = mapped_column(Integer, default=3)
 
 
 class ChatMembership(Base):
@@ -586,6 +595,46 @@ class ChatBonusSponsor(Base):
     title: Mapped[str] = mapped_column(String(256), default="")
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatSponsorWallSponsor(Base):
+    """A channel/chat the OWNER attached directly to their chat's mandatory
+    "must subscribe to post" wall -- distinct from ChatBonusSponsor above
+    (which gates a specific redeemable bonus code, not every message).
+    Up to Chat.sponsor_wall_max_sponsors per chat (enforced in the handler,
+    not the schema, same convention as ChatBonusSponsor's MAX_BONUS_SPONSORS)."""
+
+    __tablename__ = "chat_sponsor_wall_sponsors"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "sponsor_chat_id", name="uq_wall_sponsor_chat"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("chats.chat_id", ondelete="CASCADE"))
+    sponsor_chat_id: Mapped[int] = mapped_column(BigInteger)
+    sponsor_type: Mapped[str] = mapped_column(String(16))  # "channel" / "chat"
+    title: Mapped[str] = mapped_column(String(256), default="")
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatSponsorWallCompletion(Base):
+    """Append-only ledger: this user subscribed to this wall sponsor and
+    was credited 1 RP⭐️ for it. The unique constraint IS the anti-farming
+    guard (same convention as OwnSponsorCompletion/ChatBonusUse) -- a
+    second credit attempt for the same (sponsor, user) pair fails at the
+    DB level rather than needing a separate "already rewarded" check."""
+
+    __tablename__ = "chat_sponsor_wall_completions"
+    __table_args__ = (
+        UniqueConstraint("sponsor_id", "user_id", name="uq_wall_completion_sponsor_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sponsor_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_sponsor_wall_sponsors.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    rewarded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class ChatAdSend(Base):

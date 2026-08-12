@@ -219,6 +219,14 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN custom_broadcast_next_index INTEGER DEFAULT 0")
         )
+    if "games_enabled" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN games_enabled BOOLEAN NOT NULL DEFAULT 1")
+        )
+    if "sponsor_wall_max_sponsors" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN sponsor_wall_max_sponsors INTEGER NOT NULL DEFAULT 3")
+        )
     broadcast_msg_columns = {
         column["name"] for column in inspect(connection).get_columns("chat_broadcast_messages")
     }

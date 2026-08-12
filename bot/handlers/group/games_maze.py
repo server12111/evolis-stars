@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
+from bot.database.models import Chat
 from bot.database.repositories.chat_game import ChatGameRoundRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.keyboards.group.games_maze import maze_playing_kb
@@ -50,7 +51,7 @@ def _status_text(bet: float, step: int, shields: int, multiplier: float, extra: 
 
 
 @router.message(_matches_maze_start)
-async def msg_maze_start(message: Message, session: AsyncSession) -> None:
+async def msg_maze_start(message: Message, session: AsyncSession, chat: Chat | None = None) -> None:
     if message.from_user is None or message.text is None:
         return
     match = _START_PATTERN.match(message.text.strip())
@@ -59,6 +60,9 @@ async def msg_maze_start(message: Message, session: AsyncSession) -> None:
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("maze_enabled", True):
         await message.reply("🌀 Лабиринт временно недоступен.")
+        return
+    if chat is not None and not chat.games_enabled:
+        await message.reply("🎮 Игры отключены в этом чате.")
         return
 
     round_repo = ChatGameRoundRepository(session)
