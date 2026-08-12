@@ -68,6 +68,8 @@ SETTING_LABELS = {
     "vc_rate_tier3": ("💎 Курс VC (50к-100к) — VC за 1 RP⭐️", "число, напр. 1500"),
     "vc_rate_tier4": ("💎 Курс VC (100к-300к) — VC за 1 RP⭐️", "число, напр. 2000"),
     "vc_rate_tier5": ("💎 Курс VC (300к-500к) — VC за 1 RP⭐️", "число, напр. 2500"),
+    "crypto_min_withdrawal": ("🪙 Мин. вывод крипты", "целое число RP⭐️, напр. 50"),
+    "crypto_rp_usd_rate": ("🪙 Курс крипты ($ за 1 RP⭐️)", "число, напр. 0.005"),
 }
 
 # Plain-text (non-numeric) admin settings -- msg_setting_value branches to a
@@ -83,6 +85,7 @@ TOGGLE_SETTINGS = {
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
     "withdraw_vc_enabled": "💎 Вывод VC",
+    "withdraw_crypto_enabled": "🪙 Вывод крипты",
 }
 
 
@@ -182,6 +185,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         "min_sponsors_for_reward",
         "vc_min_withdrawal",
         "vc_max_withdrawal",
+        "crypto_min_withdrawal",
     }
     if key in integer_keys and not val.is_integer():
         await message.answer(
@@ -262,6 +266,18 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
                 reply_markup=settings_cancel_kb(),
             )
             return
+    if key == "crypto_min_withdrawal" and val <= 0:
+        await message.answer(
+            "❌ Мин. вывод крипты должен быть больше 0:",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
+    if key == "crypto_rp_usd_rate" and val <= 0:
+        await message.answer(
+            "❌ Курс крипты должен быть больше 0:",
+            reply_markup=settings_cancel_kb(),
+        )
+        return
     await state.clear()
     stored_value = str(int(val)) if key in integer_keys else str(val)
     await repo.set(key, stored_value)

@@ -248,6 +248,43 @@ class VcWithdrawal(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+# ─── CryptoWithdrawal ─────────────────────────────────────────────────────────
+# A third withdrawal currency, alongside Stars and VC above — again its own
+# table rather than reusing either (crypto has no fragment-or-gift method,
+# no tiered rate, but does have a recipient which the other two don't share
+# a matching shape with: a Telegram username for the "usdt_send" method, or
+# a wallet address for "ton"). Both methods share one $0.005-per-RP⭐️
+# anchor (see crypto_rp_usd_rate setting); "ton" additionally snapshots the
+# live TON->USD rate used to convert that into a TON amount, so an admin
+# rate-change or price swing afterward never silently changes what an
+# already-submitted request is worth.
+
+class CryptoWithdrawal(Base):
+    __tablename__ = "crypto_withdrawals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    method: Mapped[str] = mapped_column(String(16))  # "usdt_send" | "ton"
+    rp_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))  # RP⭐️ chosen == what's debited
+    payout_amount: Mapped[Decimal] = mapped_column(Numeric(18, 8))  # $ (usdt_send) or TON (ton)
+    # TON->USD rate snapshot used for the "ton" method; NULL for
+    # "usdt_send" (no external rate involved — it's already USD-denominated).
+    ton_rate_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    # @username (usdt_send, paid via the @send bot) or a TON wallet address
+    # (ton) — never shown in the public payments-channel post, only to the
+    # admin who has to actually send the payout, and echoed back to the
+    # user themselves on approval.
+    recipient: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending / approved / rejected
+    # Shares one sequence with Withdrawal.display_number — see that field's
+    # own comment.
+    display_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    admin_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 # ─── WithdrawalCounter ────────────────────────────────────────────────────────
 # Single-row (id=1) shared sequence backing Withdrawal.display_number and
 # VcWithdrawal.display_number — see those fields' own comments.

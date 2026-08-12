@@ -6,13 +6,16 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import VcWithdrawal, Withdrawal
+from bot.database.models import CryptoWithdrawal, VcWithdrawal, Withdrawal
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_broadcast import ChatBroadcastRepository
+from bot.database.repositories.crypto_withdrawal import CryptoWithdrawalRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
 from bot.database.repositories.vc_withdrawal import VcWithdrawalRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
+from bot.handlers.crypto_withdraw import _METHOD_LABELS as _CRYPTO_METHOD_LABELS
+from bot.handlers.crypto_withdraw import _fmt_payout as _fmt_crypto_payout_amount
 
 router = Router()
 settings = get_settings()
@@ -22,6 +25,10 @@ _METHOD_LABELS_ADMIN = {"fragment": "Fragment", "gift": "Подарок"}
 # Must match withdraw.py's _METHOD_CHOICE_THRESHOLD — method is only ever
 # genuinely chosen for amount >= this, so it's only shown here in that case.
 _METHOD_CHOICE_THRESHOLD = 50
+
+
+def _fmt_crypto_payout(withdrawal: CryptoWithdrawal) -> str:
+    return _fmt_crypto_payout_amount(withdrawal.method, withdrawal.payout_amount)
 
 
 def _is_admin(user_id: int) -> bool:
@@ -119,6 +126,51 @@ async def _update_public_vc_withdrawal_status(
     except Exception as exc:
         logger.warning(
             "Cannot update VC withdrawal %s in payments channel %s: %s",
+            withdrawal.id,
+            payments_channel_id,
+            exc,
+        )
+
+
+async def _update_public_crypto_withdrawal_status(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    withdrawal: CryptoWithdrawal,
+    status: str,
+    status_icon: str,
+) -> None:
+    if not withdrawal.channel_message_id:
+        return
+
+    payments_channel_id = (
+        settings.payments_channel_id
+        or await SettingsRepository(session).get("payments_channel_id")
+    )
+    if not payments_channel_id:
+        return
+
+    user = await UserRepository(session).get(withdrawal.user_id)
+    user_display = f"@{html.escape(user.username)}" if user and user.username else str(withdrawal.user_id)
+    vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    # Never the recipient (wallet/username) here — this is the PUBLIC post,
+    # same rule as when it was first sent (see crypto_withdraw.py's
+    # public_text vs admin_text split).
+    text = (
+        f"🪙 <b>Запрос на вывод крипты #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
+        f"👤 Пользователь: {user_display} | ID: <code>{withdrawal.user_id}</code>\n"
+        f"🪙 Получит: <b>{_fmt_crypto_payout(withdrawal)}</b> ({_CRYPTO_METHOD_LABELS.get(withdrawal.method, withdrawal.method)})\n"
+        f"{status_icon} Статус: <b>{status}</b>"
+    )
+    try:
+        await callback.bot.edit_message_text(
+            chat_id=int(payments_channel_id),
+            message_id=withdrawal.channel_message_id,
+            text=text,
+            parse_mode="HTML",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Cannot update crypto withdrawal %s in payments channel %s: %s",
             withdrawal.id,
             payments_channel_id,
             exc,
@@ -248,6 +300,74 @@ async def cb_vcwithdraw_reject(callback: CallbackQuery, session: AsyncSession) -
     except Exception:
         pass
     await _update_public_vc_withdrawal_status(callback, session, w, "Отклонено", "❌")
+    await callback.answer("❌ Отклонено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:cryptowithdraw_approve:"))
+async def cb_cryptowithdraw_approve(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    wid = int(callback.data.split(":")[2])
+    w = await CryptoWithdrawalRepository(session).approve(wid)
+    if not w:
+        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        return
+    try:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n✅ <b>Принято</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    try:
+        # Unlike the public channel post, this DM is the user's OWN
+        # recipient (their own wallet/username) coming back to them — not
+        # exposed to anyone else, so echoing it here is fine and useful as
+        # a "sending here" confirmation.
+        await callback.bot.send_message(
+            w.user_id,
+            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\n"
+            f"Вы получите: <b>{_fmt_crypto_payout(w)}</b> на <code>{w.recipient}</code>\n"
+            f"Скоро вы получите выплату.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await _update_public_crypto_withdrawal_status(callback, session, w, "Принято", "✅")
+    await callback.answer("✅ Одобрено")
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("admin:cryptowithdraw_reject:"))
+async def cb_cryptowithdraw_reject(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not _is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа.", show_alert=True)
+        return
+    wid = int(callback.data.split(":")[2])
+    w_repo = CryptoWithdrawalRepository(session)
+    w = await w_repo.reject(wid)
+    if not w:
+        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        return
+    await session.commit()
+
+    try:
+        await callback.message.edit_text(
+            callback.message.text + "\n\n❌ <b>Отклонено</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    try:
+        await callback.bot.send_message(
+            w.user_id,
+            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
+            f"Списанные <b>{float(w.rp_amount):.0f} RP⭐️</b> не возвращены на баланс.",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await _update_public_crypto_withdrawal_status(callback, session, w, "Отклонено", "❌")
     await callback.answer("❌ Отклонено")
 
 

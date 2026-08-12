@@ -215,6 +215,14 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # Mandatory-subscription gate shown right before a VC request is
     # submitted (not the general sponsor wall) -- empty disables the gate.
     "vc_mandatory_channel": "https://t.me/VirusikChat",
+    # Crypto withdrawal -- a third withdrawal currency alongside Telegram
+    # Stars and VC. One flat $-per-RP⭐️ anchor for both sub-methods (see
+    # bot/handlers/crypto_withdraw.py): "usdt_send" pays out in $ directly
+    # (via the @send bot, to the user's Telegram username), "ton" converts
+    # that same $ value into TON at the live rate (bot/services/ton_price.py).
+    "withdraw_crypto_enabled": "1",
+    "crypto_min_withdrawal": "50",
+    "crypto_rp_usd_rate": "0.005",
 }
 
 

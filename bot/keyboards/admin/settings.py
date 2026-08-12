@@ -54,6 +54,8 @@ NUMERIC_SETTINGS = [
     ("vc_rate_tier3", "💎 Курс VC (50к-100к)"),
     ("vc_rate_tier4", "💎 Курс VC (100к-300к)"),
     ("vc_rate_tier5", "💎 Курс VC (300к-500к)"),
+    ("crypto_min_withdrawal", "🪙 Мин. вывод крипты"),
+    ("crypto_rp_usd_rate", "🪙 Курс крипты ($ за 1 RP⭐️)"),
 ]
 
 # Текстовые настройки (не числа) — по одной в ряд, тот же generic-флоу
@@ -69,6 +71,7 @@ TOGGLE_PAIRS = [
     ("games_enabled", "🎮 Игры"),
     ("tasks_enabled", "📋 Задания"),
     ("withdraw_vc_enabled", "💎 Вывод VC"),
+    ("withdraw_crypto_enabled", "🪙 Вывод крипты"),
 ]
 
 
