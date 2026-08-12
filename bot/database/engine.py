@@ -58,11 +58,39 @@ def _add_missing_user_columns(connection) -> None:
         "rp_migrated": "BOOLEAN NOT NULL DEFAULT 0",
         "virus_last_used_at": "DATETIME",
         "virus_bonus_attempt": "BOOLEAN NOT NULL DEFAULT 0",
+        "referral_tier": "VARCHAR(16)",
     }
     referral_counted_added = "referral_counted" not in columns
     for name, definition in additions.items():
         if name not in columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+    # is_vip/referral_tier are only (re)computed inside check_referral_reward
+    # on a referrer's NEXT referral -- a user who already crossed a
+    # threshold before this code shipped would otherwise wait indefinitely
+    # for their badge. Gated by a one-time marker (same convention as
+    # rp_migrated/rp_bonus_migration_done below) so this full-table scan
+    # only ever runs once, not on every startup.
+    already_backfilled_tiers = connection.execute(
+        text("SELECT 1 FROM bot_settings WHERE key = 'referral_tier_backfill_done'")
+    ).first()
+    if already_backfilled_tiers is None:
+        connection.execute(text(
+            "UPDATE users SET is_vip = 1 WHERE referrals_count >= 50 AND is_vip = 0"
+        ))
+        connection.execute(text(
+            "UPDATE users SET referral_tier = 'good' WHERE referrals_count >= 500 AND (referral_tier IS NULL OR referral_tier != 'good')"
+        ))
+        connection.execute(text(
+            "UPDATE users SET referral_tier = 'sigma' WHERE referrals_count >= 300 AND referrals_count < 500 "
+            "AND (referral_tier IS NULL OR referral_tier NOT IN ('sigma', 'good'))"
+        ))
+        connection.execute(text(
+            "UPDATE users SET referral_tier = 'premium' WHERE referrals_count >= 200 AND referrals_count < 300 "
+            "AND (referral_tier IS NULL OR referral_tier NOT IN ('premium', 'sigma', 'good'))"
+        ))
+        connection.execute(text(
+            "INSERT INTO bot_settings (key, value) VALUES ('referral_tier_backfill_done', '1')"
+        ))
     if referral_counted_added:
         # Before this migration referrals_count was incremented on /start.
         # Preserve that historical state and avoid double-counting users.

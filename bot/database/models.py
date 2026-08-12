@@ -49,6 +49,10 @@ class User(Base):
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_vip: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Highest cosmetic referral-count tier reached: None/"premium"/"sigma"/
+    # "good" — independent of is_vip, same "badge only, no reward effect"
+    # treatment. See bot.services.referral.REFERRAL_TIERS.
+    referral_tier: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)  # Telegram Premium, synced from tg_user.is_premium on every update
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

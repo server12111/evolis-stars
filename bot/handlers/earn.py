@@ -13,13 +13,16 @@ from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.user import UserRepository
 from bot.keyboards.earn import earn_kb, return_referrals_kb
 from bot.services.referral import (
+    GOOD_THRESHOLD,
     MILESTONE_SETTINGS,
-    RECURRING_MILESTONE,
+    PREMIUM_THRESHOLD,
     REFERRAL_RETURN_DAYS,
+    SIGMA_THRESHOLD,
     VIP_THRESHOLD,
     format_stars,
     get_milestone_bonus,
     get_min_sponsors_for_reward,
+    get_recurring_tier_rate,
     get_referral_reward,
     sponsors_word,
 )
@@ -45,12 +48,14 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     reward_top = await get_referral_reward(session, 9)
     reward_premium = await get_referral_reward(session, 0, is_premium=True)
     min_sponsors = await get_min_sponsors_for_reward(session)
-    top_tier = RECURRING_MILESTONE
-    top_bonus = await get_milestone_bonus(session, top_tier)
     milestone_bonuses = {
         threshold: await get_milestone_bonus(session, threshold)
         for threshold, _ in MILESTONE_SETTINGS
     }
+    recurring_200 = await get_recurring_tier_rate(session, PREMIUM_THRESHOLD)
+    recurring_300 = await get_recurring_tier_rate(session, SIGMA_THRESHOLD)
+    recurring_400 = await get_recurring_tier_rate(session, 400)
+    recurring_500 = await get_recurring_tier_rate(session, GOOD_THRESHOLD)
 
     format_kwargs = dict(
         referrals=db_user.referrals_count,
@@ -60,8 +65,13 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         min_sponsors_minus_1=max(0, min_sponsors - 1),
         min_sponsors_word=sponsors_word(min_sponsors),
         vip_threshold=VIP_THRESHOLD,
-        top_tier=top_tier,
-        top_bonus=format_stars(top_bonus),
+        premium_threshold=PREMIUM_THRESHOLD,
+        sigma_threshold=SIGMA_THRESHOLD,
+        good_threshold=GOOD_THRESHOLD,
+        recurring_200=format_stars(recurring_200),
+        recurring_300=format_stars(recurring_300),
+        recurring_400=format_stars(recurring_400),
+        recurring_500=format_stars(recurring_500),
         reward=format_stars(reward_base),  # fallback for old templates
         referral_reward=format_stars(reward_base),
         referral_reward_above_5=format_stars(reward_above_5),

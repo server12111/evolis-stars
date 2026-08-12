@@ -25,31 +25,73 @@ _STAR_STEP = Decimal("0.01")
 # holding that milestone's one-time bonus amount.
 MILESTONE_SETTINGS: list[tuple[int, str]] = [
     (10, "referral_bonus_10"),
-    (15, "referral_bonus_15"),
     (20, "referral_bonus_20"),
-    (25, "referral_bonus_25"),
     (30, "referral_bonus_30"),
-    (35, "referral_bonus_35"),
     (40, "referral_bonus_40"),
-    (45, "referral_bonus_45"),
     (50, "referral_bonus_50"),
-    (55, "referral_bonus_55"),
-    (60, "referral_bonus_60"),
-    (67, "referral_bonus_67"),
-    (70, "referral_bonus_70"),
-    (76, "referral_bonus_76"),
+    (65, "referral_bonus_65"),
     (80, "referral_bonus_80"),
     (90, "referral_bonus_90"),
+    (100, "referral_bonus_100"),
+    (120, "referral_bonus_120"),
+    (140, "referral_bonus_140"),
+    (145, "referral_bonus_145"),
+    (150, "referral_bonus_150"),
+    (155, "referral_bonus_155"),
+    (170, "referral_bonus_170"),
+    (190, "referral_bonus_190"),
+    (200, "referral_bonus_200"),
+    (250, "referral_bonus_250"),
+    (350, "referral_bonus_350"),
+    (450, "referral_bonus_450"),
 ]
-# From this referral count onward, every new referral keeps earning this
-# same bonus forever (on top of the one-time milestones above, which stop
-# at 90) — separate from VIP_THRESHOLD, which is purely a cosmetic badge.
-RECURRING_MILESTONE = 100
-RECURRING_MILESTONE_SETTING = "referral_bonus_100"
 
-# Purely cosmetic status once reached — no bonus, no message here; it only
-# surfaces as a badge on the user's withdrawal requests (see withdraw.py).
+# From each referral count onward, every NEW referral additionally earns
+# this per-referral bonus on top of the base reward (and any one-time
+# milestone above) — the rate REPLACES the previous tier's rate rather than
+# stacking with it. Checked highest-first so the highest tier reached wins.
+RECURRING_TIERS: list[tuple[int, str]] = [
+    (500, "referral_recurring_500"),
+    (400, "referral_recurring_400"),
+    (300, "referral_recurring_300"),
+    (200, "referral_recurring_200"),
+]
+
+# Purely cosmetic statuses once reached — no bonus, no message here; they
+# only surface as badges on the user's withdrawal requests / /info (see
+# withdraw.py etc.). Checked highest-first so the highest tier reached wins;
+# independent of VIP, which stays its own separate badge.
 VIP_THRESHOLD = 50
+PREMIUM_THRESHOLD = 200
+SIGMA_THRESHOLD = 300
+GOOD_THRESHOLD = 500
+REFERRAL_TIERS: list[tuple[int, str]] = [
+    (GOOD_THRESHOLD, "good"),
+    (SIGMA_THRESHOLD, "sigma"),
+    (PREMIUM_THRESHOLD, "premium"),
+]
+REFERRAL_TIER_BADGES: dict[str, str] = {
+    "premium": " 👑 Premium",
+    "sigma": " 🐺 Sigma",
+    "good": " 🌟 Good",
+}
+
+
+def referral_tier_for_count(count: int) -> str | None:
+    for threshold, tier in REFERRAL_TIERS:
+        if count >= threshold:
+            return tier
+    return None
+
+
+def referral_tier_badge(tier: str | None) -> str:
+    return REFERRAL_TIER_BADGES.get(tier or "", "")
+
+
+def vip_and_tier_badge(is_vip: bool, tier: str | None) -> str:
+    """Combined cosmetic badge suffix for withdrawal requests / admin posts
+    -- single source of truth so every call site stays in sync."""
+    return (" 💎 VIP" if is_vip else "") + referral_tier_badge(tier)
 
 
 def format_stars(value: Decimal | float) -> str:
@@ -112,13 +154,31 @@ async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
 
 
 async def get_milestone_bonus(session: AsyncSession, new_referrals_count: int) -> Decimal:
-    """One-time bonus for the exact milestone, or the recurring bonus for
-    every referral once the referrer has reached RECURRING_MILESTONE."""
+    """One-time bonus for the exact milestone (if any) PLUS the recurring
+    per-referral bonus for the highest tier reached (if any) — both can
+    apply to the same referral, e.g. reaching exactly 200 pays the
+    200-milestone bonus AND the newly-unlocked 200+ recurring rate for that
+    same referral."""
+    total = Decimal("0")
     for threshold, key in MILESTONE_SETTINGS:
         if new_referrals_count == threshold:
+            total += await _get_decimal_setting(session, key, "0")
+            break
+    for threshold, key in RECURRING_TIERS:
+        if new_referrals_count >= threshold:
+            total += await _get_decimal_setting(session, key, "0")
+            break
+    return total
+
+
+async def get_recurring_tier_rate(session: AsyncSession, threshold: int) -> Decimal:
+    """The flat per-referral rate for one specific recurring-tier threshold
+    (200/300/400/500) — for display purposes (see earn.py). Unlike
+    get_milestone_bonus, this never adds an overlapping one-time milestone
+    bonus on top."""
+    for t, key in RECURRING_TIERS:
+        if t == threshold:
             return await _get_decimal_setting(session, key, "0")
-    if new_referrals_count >= RECURRING_MILESTONE:
-        return await _get_decimal_setting(session, RECURRING_MILESTONE_SETTING, "0")
     return Decimal("0")
 
 
@@ -380,6 +440,10 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         # trigger any message here; it only shows up on the user's own
         # withdrawal requests (see withdraw.py).
         referrer_is_vip = getattr(referrer, "is_vip", False) or new_referrals_count >= VIP_THRESHOLD
+        # Sticky-or-computed, same as is_vip above: never downgrade a tier
+        # the referrer already reached (referrals_count only grows, so this
+        # is defensive rather than load-bearing).
+        referrer_tier = referral_tier_for_count(new_referrals_count) or getattr(referrer, "referral_tier", None)
         bonus = await get_milestone_bonus(session, new_referrals_count)
         total_reward = reward + bonus
 
@@ -393,6 +457,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                 stars_balance=User.stars_balance + total_reward,
                 referrals_count=new_referrals_count,
                 is_vip=referrer_is_vip,
+                referral_tier=referrer_tier,
             )
             .execution_options(synchronize_session=False)
         )
@@ -415,9 +480,9 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     user.referral_reward_given = True
     await session.commit()
     logger.info(
-        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s is_vip=%s is_premium=%s",
+        "REFERRAL outcome=paid referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s bonus=%s is_vip=%s tier=%s is_premium=%s",
         referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
-        reward, bonus, referrer_is_vip, referred_is_premium,
+        reward, bonus, referrer_is_vip, referrer_tier, referred_is_premium,
     )
 
     if bot:

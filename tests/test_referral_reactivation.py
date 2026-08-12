@@ -320,7 +320,10 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(float(saved_referrer.stars_balance), 9.1)
         self.assertEqual(saved_referrer.referrals_count, 10)
 
-    async def test_recurring_bonus_starts_at_100_and_repeats_forever(self) -> None:
+    async def test_100_is_a_one_time_milestone_not_an_infinite_recurring_bonus(self) -> None:
+        """RECURRING_MILESTONE (100+ paid forever) was removed -- 100 is now
+        an ordinary one-time milestone and referral #101 must NOT keep
+        earning that bonus."""
         async with self.sessions() as session:
             session.add(BotSettings(key="referral_bonus_100", value="1"))
             await session.commit()
@@ -337,7 +340,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 780)
-        # 99 -> 100 crosses into the recurring milestone: tier reward (9) + 1.
+        # 99 -> 100 hits the one-time milestone: tier reward (9) + 1.
         self.assertEqual(float(saved_referrer.stars_balance), 10.0)
         self.assertEqual(saved_referrer.referrals_count, 100)
 
@@ -352,8 +355,9 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 780)
-        # 101st referral keeps earning the same recurring bonus.
-        self.assertEqual(float(saved_referrer.stars_balance), 20.0)
+        # 101st referral is below the new 200+ recurring floor: only the
+        # base tier reward (9), no milestone/recurring bonus on top.
+        self.assertEqual(float(saved_referrer.stars_balance), 19.0)
         self.assertEqual(saved_referrer.referrals_count, 101)
 
     async def test_vip_flag_flips_silently_with_no_special_message(self) -> None:

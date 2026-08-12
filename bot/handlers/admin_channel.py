@@ -16,6 +16,7 @@ from bot.database.repositories.vc_withdrawal import VcWithdrawalRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
 from bot.handlers.crypto_withdraw import _METHOD_LABELS as _CRYPTO_METHOD_LABELS
 from bot.handlers.crypto_withdraw import _fmt_payout as _fmt_crypto_payout_amount
+from bot.services.referral import vip_and_tier_badge
 
 router = Router()
 settings = get_settings()
@@ -62,7 +63,7 @@ async def _update_public_withdrawal_status(
         if recipient_username
         else html.escape(user.first_name if user else str(withdrawal.user_id))
     )
-    vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    vip_badge = vip_and_tier_badge(bool(user and user.is_vip), user.referral_tier if user else None)
     method_line = ""
     if float(withdrawal.amount) >= _METHOD_CHOICE_THRESHOLD:
         method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
@@ -109,7 +110,7 @@ async def _update_public_vc_withdrawal_status(
 
     user = await UserRepository(session).get(withdrawal.user_id)
     user_display = f"@{html.escape(user.username)}" if user and user.username else str(withdrawal.user_id)
-    vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    vip_badge = vip_and_tier_badge(bool(user and user.is_vip), user.referral_tier if user else None)
     text = (
         f"💎 <b>Запрос на вывод VC #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {user_display} | ID: <code>{withdrawal.user_id}</code>\n"
@@ -151,7 +152,7 @@ async def _update_public_crypto_withdrawal_status(
 
     user = await UserRepository(session).get(withdrawal.user_id)
     user_display = f"@{html.escape(user.username)}" if user and user.username else str(withdrawal.user_id)
-    vip_badge = " 💎 VIP" if user and user.is_vip else ""
+    vip_badge = vip_and_tier_badge(bool(user and user.is_vip), user.referral_tier if user else None)
     # Never the recipient (wallet/username) here — this is the PUBLIC post,
     # same rule as when it was first sent (see crypto_withdraw.py's
     # public_text vs admin_text split).

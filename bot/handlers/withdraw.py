@@ -26,6 +26,7 @@ from bot.keyboards.withdraw import (
 )
 from bot.services.captcha import generate_captcha
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough
+from bot.services.referral import vip_and_tier_badge
 from bot.services.withdrawal_numbering import next_withdrawal_number
 from bot.states.withdraw import WithdrawStates
 
@@ -407,7 +408,7 @@ async def msg_captcha(
         else ""
     )
 
-    vip_badge = " 💎 VIP" if db_user.is_vip else ""
+    vip_badge = vip_and_tier_badge(db_user.is_vip, db_user.referral_tier)
     # Method is only ever genuinely chosen for amount >= _METHOD_CHOICE_THRESHOLD
     # (see _advance_after_recipient) — showing it for a smaller withdrawal
     # would misleadingly imply the user picked something they were never asked.

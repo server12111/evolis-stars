@@ -11,6 +11,7 @@ from bot.database.repositories.chat_membership import ChatMembershipRepository
 from bot.database.repositories.game import GameRepository
 from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_games import COLOR_EMOJI
+from bot.services.referral import referral_tier_badge
 
 router = Router()
 settings = get_settings()
@@ -71,11 +72,14 @@ async def msg_group_profile(message: Message, session: AsyncSession) -> None:
     chat_games = await g_repo.user_chat_count(user.user_id, message.chat.id)
     username_display = f"@{user.username}" if user.username else escape(user.first_name)
     vip_line = "💎 <b>VIP</b>\n" if user.is_vip else ""
+    tier_badge = referral_tier_badge(user.referral_tier).strip()
+    tier_line = f"<b>{tier_badge}</b>\n" if tier_badge else ""
 
     text = (
         f"🪪 <b>Профиль</b>\n\n"
         f"👤 {username_display}\n"
         f"{vip_line}"
+        f"{tier_line}"
         f"💰 Баланс: <b>{float(user.stars_balance):.2f} RP⭐️</b>\n"
         f"🎮 Игр сыграно всего: <b>{total_games}</b>\n"
         f"💬 Игр в этом чате: <b>{chat_games}</b>"

@@ -21,6 +21,7 @@ from bot.keyboards.vc_withdraw import (
 )
 from bot.keyboards.withdraw import payments_channel_kb
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough
+from bot.services.referral import vip_and_tier_badge
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 from bot.services.withdrawal_numbering import next_withdrawal_number
 from bot.states.vc_withdraw import VcWithdrawStates
@@ -303,7 +304,7 @@ async def _finalize_vc_withdrawal(
     withdrawal = await w_repo.create(user_id, Decimal(amount), rate, rp_cost)
     withdrawal.display_number = await next_withdrawal_number(session)
 
-    vip_badge = " 💎 VIP" if db_user.is_vip else ""
+    vip_badge = vip_and_tier_badge(db_user.is_vip, db_user.referral_tier)
     user_display = f"@{escape(db_user.username)}" if db_user.username else str(db_user.user_id)
     request_text = (
         f"💎 <b>Новая заявка на вывод VC #{withdrawal.display_number}</b>{vip_badge}\n\n"

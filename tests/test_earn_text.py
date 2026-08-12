@@ -58,6 +58,7 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.earn.get_referral_reward", AsyncMock(return_value=Decimal("4"))),
             patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=2)),
             patch("bot.handlers.earn.get_milestone_bonus", AsyncMock(return_value=Decimal("0.1"))),
+            patch("bot.handlers.earn.get_recurring_tier_rate", AsyncMock(return_value=Decimal("1"))),
         ):
             await cb_earn(callback, db_user, session)
 
@@ -97,6 +98,7 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.earn.get_referral_reward", AsyncMock(side_effect=reward_side_effect)),
             patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=3)),
             patch("bot.handlers.earn.get_milestone_bonus", AsyncMock(return_value=Decimal("0.1"))),
+            patch("bot.handlers.earn.get_recurring_tier_rate", AsyncMock(return_value=Decimal("1"))),
         ):
             await cb_earn(callback, db_user, session)
 

@@ -55,7 +55,7 @@ class FakeState:
 
 
 def db_user(**kwargs) -> SimpleNamespace:
-    base = dict(user_id=1, username="tester", stars_balance=Decimal("1000"), is_vip=False)
+    base = dict(user_id=1, username="tester", stars_balance=Decimal("1000"), is_vip=False, referral_tier=None)
     base.update(kwargs)
     return SimpleNamespace(**base)
 
