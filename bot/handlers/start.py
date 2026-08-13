@@ -33,8 +33,9 @@ from bot.services.referral import (
     check_referral_reward,
     notify_referrer_joined,
     notify_user_sponsors_verified,
-    reward_returning_referral,
+    resolve_pending_reactivation,
     sponsors_word,
+    trigger_referral_reactivation_wall,
 )
 from bot.services.sponsor_waves import (
     skip_current_wave,
@@ -89,6 +90,7 @@ async def _mark_sponsors_verified_and_notify(db_user: User, session: AsyncSessio
     if not was_verified:
         await notify_user_sponsors_verified(db_user, session, bot)
         await check_referral_reward(db_user, session, bot)
+        await resolve_pending_reactivation(db_user, session, bot)
 
 
 async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSession, bot: Bot) -> None:
@@ -106,6 +108,7 @@ async def _proceed_after_tos(message: Message, db_user: User, session: AsyncSess
         # state forever) would get renotified on every single /start.
         await notify_user_sponsors_verified(db_user, session, bot)
         await check_referral_reward(db_user, session, bot)
+        await resolve_pending_reactivation(db_user, session, bot)
     await _send_main_menu(message, db_user, session)
 
 
@@ -160,13 +163,22 @@ async def cmd_start(
                             bot,
                         )
                 else:
-                    await reward_returning_referral(
-                        db_user,
-                        referrer_id,
-                        previous_last_seen_at,
-                        session,
-                        bot,
-                    )
+                    # Arming a wall only makes sense if one will actually
+                    # be shown: admins bypass the sponsor wall entirely
+                    # (see the branch just below), and with no provider
+                    # configured _proceed_after_tos skips straight to
+                    # sponsors_verified=True -- either way the wave would
+                    # get wiped and immediately self-resolve against zero
+                    # sponsors, losing the reward instead of preserving the
+                    # pre-existing (stale but nonzero) one.
+                    is_admin_user = db_user.is_admin or db_user.user_id in settings.admin_id_list
+                    if not is_admin_user and _any_sponsor_provider_configured():
+                        await trigger_referral_reactivation_wall(
+                            db_user,
+                            referrer_id,
+                            previous_last_seen_at,
+                            session,
+                        )
         except (ValueError, IndexError):
             pass
 
@@ -179,6 +191,15 @@ async def cmd_start(
     if db_user.is_admin or db_user.user_id in settings.admin_id_list:
         db_user.sponsors_verified = True
         db_user.tos_accepted = True
+        # A reactivation armed before this promotion (a previously-normal
+        # referred user promoted to admin mid-flow) can never be resolved
+        # here -- admins bypass the wall entirely, so no fresh wave is ever
+        # populated to evaluate. Clear it silently rather than resolving
+        # against the wiped (empty) wave, which would otherwise send a
+        # misleading "insufficient sponsors" message and forfeit the
+        # reward anyway.
+        db_user.pending_reactivation_referrer_id = None
+        db_user.pending_reactivation_since = None
         await session.commit()
         await _send_main_menu(message, db_user, session)
         return

@@ -153,6 +153,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
                 referral_reward_given=True,
                 is_premium=True,
                 last_seen_at=inactive_since,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
             )
             session.add_all((referrer, referred))
             await session.commit()
@@ -162,6 +163,8 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
             )
 
         # Half of the premium rate (9 -> 4.50), not the normal rate's half.
+        # Premium still needs to clear the min-sponsors floor to be paid at
+        # all -- only the reward TIER is fixed regardless of count.
         self.assertEqual(reward, Decimal("4.50"))
 
 

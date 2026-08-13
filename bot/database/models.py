@@ -37,6 +37,13 @@ class User(Base):
     referrals_count: Mapped[int] = mapped_column(Integer, default=0)
     referrer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True)
     referral_reward_given: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set while a returning referral (see bot.services.referral.
+    # trigger_referral_reactivation_wall) is mid a freshly-reset sponsor
+    # wall -- resolve_pending_reactivation reads these once that wall
+    # clears to know which referrer/inactivity-window to reward, then
+    # clears both back to NULL.
+    pending_reactivation_referrer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    pending_reactivation_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
     referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.database.models import ReferralReactivation, User
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
-from bot.services.sponsor_waves import classify_sponsor_type, total_sponsor_count
+from bot.services.sponsor_waves import classify_sponsor_type, total_sponsor_count, wave_in_progress
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 logger = logging.getLogger(__name__)
@@ -227,6 +227,75 @@ async def _verify_tg_subscriptions(bot: Bot, user_id: int, urls: list[str]) -> l
     return [url for url in results if isinstance(url, str)]
 
 
+def _reactivation_eligible(
+    user: User, requested_referrer_id: int, previous_last_seen_at: datetime | None,
+) -> bool:
+    """Shared guard for both paying a reactivation reward and deciding
+    whether to even trigger a fresh sponsor wall for one: a genuinely
+    stale, previously-completed referral relationship, inactive for at
+    least REFERRAL_RETURN_DAYS."""
+    if (
+        previous_last_seen_at is None
+        or user.referrer_id != requested_referrer_id
+        or not user.referral_counted
+        or not user.referral_reward_given
+    ):
+        return False
+    return previous_last_seen_at <= datetime.utcnow() - timedelta(days=REFERRAL_RETURN_DAYS)
+
+
+async def trigger_referral_reactivation_wall(
+    user: User,
+    requested_referrer_id: int,
+    previous_last_seen_at: datetime | None,
+    session: AsyncSession,
+) -> bool:
+    """Re-arms the exact same mandatory sponsor wall a brand-new signup
+    goes through (SponsorWallMiddleware only short-circuits on
+    sponsors_verified=True; initialize_waves only skips re-freezing when
+    sponsor_wave is already 1/2) for a referral returning via their
+    original link after REFERRAL_RETURN_DAYS of inactivity. The actual
+    reactivation reward is paid later, once that fresh wall clears -- see
+    resolve_pending_reactivation. Returns True if a wall was armed."""
+    if not _reactivation_eligible(user, requested_referrer_id, previous_last_seen_at):
+        return False
+    if wave_in_progress(user) or user.pending_reactivation_referrer_id is not None:
+        # A wave is genuinely frozen mid-progress right now (don't yank it
+        # out from under them), or a reactivation is already in flight
+        # (don't clobber it with a fresher previous_last_seen_at).
+        return False
+
+    user.sponsor_wave = 0
+    user.sponsor_wave_one = None
+    user.sponsor_wave_two = None
+    user.sponsors_verified = False
+    user.pending_reactivation_referrer_id = requested_referrer_id
+    user.pending_reactivation_since = previous_last_seen_at
+    await session.commit()
+    return True
+
+
+async def resolve_pending_reactivation(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
+    """Called wherever sponsors_verified just transitioned to True -- pays
+    out the reactivation reward (if any is pending) using the freshly
+    cleared sponsor wave instead of the normal check_referral_reward path
+    (a no-op here anyway, since referral_reward_given is already True for
+    a returning referral)."""
+    referrer_id = user.pending_reactivation_referrer_id
+    if referrer_id is None:
+        return
+    since = user.pending_reactivation_since
+    # Cleared only AFTER a successful call, not before: if this raises (a
+    # transient DB error -- reward_returning_referral already swallows its
+    # own expected IntegrityError internally), the pending markers are left
+    # exactly as they were, so the next genuine sponsors_verified
+    # transition retries this reactivation instead of silently losing it.
+    await reward_returning_referral(user, referrer_id, since, session, bot)
+    user.pending_reactivation_referrer_id = None
+    user.pending_reactivation_since = None
+    await session.commit()
+
+
 async def reward_returning_referral(
     user: User,
     requested_referrer_id: int,
@@ -234,35 +303,55 @@ async def reward_returning_referral(
     session: AsyncSession,
     bot: Bot | None = None,
 ) -> Decimal | None:
-    if (
-        previous_last_seen_at is None
-        or user.referrer_id != requested_referrer_id
-        or not user.referral_counted
-        or not user.referral_reward_given
-    ):
+    if not _reactivation_eligible(user, requested_referrer_id, previous_last_seen_at):
         return None
 
     now = datetime.utcnow()
-    if previous_last_seen_at > now - timedelta(days=REFERRAL_RETURN_DAYS):
-        return None
-
     referrer = await UserRepository(session).get(requested_referrer_id)
     if not referrer or referrer.is_blocked:
         return None
 
     referred_user_id = user.user_id
+    # Only ever called via resolve_pending_reactivation, after
+    # trigger_referral_reactivation_wall has already forced the user
+    # through a brand-new sponsor wall -- sponsor_wave_one/two here is the
+    # FRESH wave they just cleared, not the original signup one.
     tg_urls, web_urls = _current_sponsor_urls(user)
-    # _current_sponsor_urls reads the frozen wave saved back when this
-    # referral first completed the sponsor wall — potentially long ago.
-    # Without an independent re-check here, a referral who subscribed to
-    # a big first wave months ago and unsubscribed from most of it since
-    # would still price this reactivation reward off that stale count
-    # (e.g. "6-8 sponsors" tier) even though only 1 sponsor is genuinely
-    # current. Re-verify TG links the same way check_referral_reward does;
-    # web links have no independent check and keep trusting the saved list.
     if bot and tg_urls:
+        # Re-verify independently rather than trusting the wall's own pass
+        # blindly, same don't-trust-the-provider principle as
+        # check_referral_reward.
         tg_urls = await _verify_tg_subscriptions(bot, referred_user_id, tg_urls)
     sponsor_count = len(tg_urls) + len(web_urls)
+
+    min_sponsors = await get_min_sponsors_for_reward(session)
+    if sponsor_count < min_sponsors:
+        # Unlike check_referral_reward's insufficient-sponsors branch, this
+        # has no persisted "already notified" flag to dedupe repeats -- not
+        # needed here, since resolve_pending_reactivation only clears the
+        # pending columns AFTER this call returns, so a failed/incomplete
+        # attempt is retried wholesale (including this notification) rather
+        # than silently resumed partway through.
+        if bot:
+            try:
+                await bot.send_message(
+                    user.user_id,
+                    f"⚠️ Подписался(-ась) на недостаточное количество спонсоров "
+                    f"({sponsor_count} из {min_sponsors}) — награда твоему другу "
+                    f"за это возвращение не начислена.",
+                )
+            except Exception:
+                pass
+            try:
+                await bot.send_message(
+                    requested_referrer_id,
+                    f"⚠️ Вернувшийся по вашей ссылке реферал подписался на "
+                    f"недостаточное количество спонсоров — повторная награда не начислена.",
+                )
+            except Exception:
+                pass
+        return None
+
     base_reward = await get_referral_reward(session, sponsor_count, is_premium=bool(user.is_premium))
     reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 

@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.settings import SettingsRepository
-from bot.services.referral import check_referral_reward, notify_user_sponsors_verified
+from bot.services.referral import (
+    check_referral_reward,
+    notify_user_sponsors_verified,
+    resolve_pending_reactivation,
+)
 from bot.services.sponsor_results import all_configured_integrations_failed
 from bot.services.sponsor_waves import (
     SponsorWaveState,
@@ -743,5 +747,6 @@ class SponsorWallMiddleware(BaseMiddleware):
             if bot is not None:
                 await notify_user_sponsors_verified(db_user, session, bot)
                 await check_referral_reward(db_user, session, bot)
+                await resolve_pending_reactivation(db_user, session, bot)
 
         return await handler(event, data)

@@ -131,6 +131,15 @@ def _total_waves(user: User) -> int:
     return 0
 
 
+def wave_in_progress(user: User) -> bool:
+    """True while a wave is genuinely frozen mid-progress right now (1 or
+    2) -- as opposed to 0 (never started) or 3 (fully resolved). NOT the
+    same signal as sponsors_verified, which sponsor_recheck_loop flips back
+    to False for every verified user every ~10 minutes regardless of
+    whether a wave is actually pending."""
+    return user.sponsor_wave in (1, 2)
+
+
 def total_sponsor_count(user: User) -> int:
     """Total sponsors across every wave the user was shown — used for the
     "you subscribed to N sponsors" confirmation message."""
