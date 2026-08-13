@@ -10,6 +10,7 @@ from bot.services.referral import (
     get_milestone_bonus,
     referral_tier_badge,
     referral_tier_for_count,
+    vip_and_tier_badge,
 )
 
 
@@ -118,6 +119,22 @@ class ReferralTierHelperTests(unittest.TestCase):
         self.assertIn("Premium", referral_tier_badge("premium"))
         self.assertIn("Sigma", referral_tier_badge("sigma"))
         self.assertIn("Good", referral_tier_badge("good"))
+
+    def test_vip_and_tier_badge_shows_only_the_highest_title(self) -> None:
+        """A user who is VIP and has also reached a Premium/Sigma/Good tier
+        must show only the higher tier badge -- never both stacked."""
+        self.assertEqual(vip_and_tier_badge(False, None), "")
+        self.assertIn("VIP", vip_and_tier_badge(True, None))
+        for tier in ("premium", "sigma", "good"):
+            with self.subTest(tier=tier):
+                # is_vip=True (always true in practice once a referrer has
+                # any of these tiers, since their thresholds are all above
+                # VIP's own 50) must not add "VIP" alongside the tier badge.
+                badge = vip_and_tier_badge(True, tier)
+                self.assertNotIn("VIP", badge)
+                self.assertEqual(badge, referral_tier_badge(tier))
+                # Also correct when is_vip somehow wasn't set yet.
+                self.assertEqual(vip_and_tier_badge(False, tier), referral_tier_badge(tier))
 
 
 class ReferralTierPersistenceTests(unittest.IsolatedAsyncioTestCase):

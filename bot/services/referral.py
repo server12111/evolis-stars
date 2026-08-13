@@ -89,9 +89,14 @@ def referral_tier_badge(tier: str | None) -> str:
 
 
 def vip_and_tier_badge(is_vip: bool, tier: str | None) -> str:
-    """Combined cosmetic badge suffix for withdrawal requests / admin posts
-    -- single source of truth so every call site stays in sync."""
-    return (" 💎 VIP" if is_vip else "") + referral_tier_badge(tier)
+    """Cosmetic badge suffix for withdrawal requests / admin posts -- shows
+    only the single HIGHEST title reached (VIP(50) < Premium(200) <
+    Sigma(300) < Good(500)), never stacks multiple badges. Single source
+    of truth so every call site stays in sync."""
+    tier_badge = referral_tier_badge(tier)
+    if tier_badge:
+        return tier_badge
+    return " 💎 VIP" if is_vip else ""
 
 
 def format_stars(value: Decimal | float) -> str:
