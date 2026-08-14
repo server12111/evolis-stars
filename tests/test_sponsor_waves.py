@@ -4,11 +4,16 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from bot.services.sponsor_waves import (
+    WaveFields,
     evaluate_waves,
     extract_host,
+    initialize_waves,
     is_sponsor_blocked,
+    skip_current_wave,
     sponsor_wave_markup,
     sponsor_wave_text,
+    total_sponsor_count,
+    wave_in_progress,
 )
 
 
@@ -523,6 +528,65 @@ class ExtractHostAndBlockPredicateTests(unittest.TestCase):
 
     def test_is_sponsor_blocked_false_with_no_blocklists(self) -> None:
         self.assertFalse(is_sponsor_blocked("https://t.me/foo", frozenset(), frozenset()))
+
+
+_OTHER_FIELDS = WaveFields(wave="other_wave", one="other_wave_one", two="other_wave_two")
+
+
+def other_wave_user() -> SimpleNamespace:
+    """Same shape as user() above but with a completely different field
+    triplet -- exercises WaveFields parameterization (see
+    bot.services.chat_wall_integrations, the chat sponsor wall's own
+    ad-network offer pool, which runs this exact engine against
+    wall_integration_wave* instead of sponsor_wave*)."""
+    return SimpleNamespace(other_wave=0, other_wave_one=None, other_wave_two=None, sponsor_wave=99)
+
+
+@patch("bot.services.sponsor_waves.WAVE_SIZE", 6)
+class WaveFieldsParameterizationTests(unittest.TestCase):
+    """The default sponsor_wave*-based tests above cover the engine itself
+    exhaustively; these just confirm the SAME functions correctly read/
+    write an arbitrary field triplet instead, and never touch the default
+    sponsor_wave* fields when told not to."""
+
+    def test_initialize_and_evaluate_use_the_given_fields_not_the_default(self) -> None:
+        current = other_wave_user()
+        state = evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 3),
+            botohub_result=[],
+            fields=_OTHER_FIELDS,
+        )
+        self.assertEqual(state.status, "pending")
+        self.assertEqual(current.other_wave, 1)
+        self.assertIsNotNone(current.other_wave_one)
+        # The unrelated default-named field must be left completely alone.
+        self.assertEqual(current.sponsor_wave, 99)
+
+    def test_wave_in_progress_and_total_sponsor_count_respect_fields(self) -> None:
+        current = other_wave_user()
+        self.assertFalse(wave_in_progress(current, _OTHER_FIELDS))
+        evaluate_waves(current, tgrass_result=offers("tg", 3), botohub_result=[], fields=_OTHER_FIELDS)
+        self.assertTrue(wave_in_progress(current, _OTHER_FIELDS))
+        self.assertEqual(total_sponsor_count(current, _OTHER_FIELDS), 3)
+
+    def test_full_lifecycle_reaches_complete_on_the_custom_fields(self) -> None:
+        current = other_wave_user()
+        evaluate_waves(current, tgrass_result=offers("tg", 2), botohub_result=[], fields=_OTHER_FIELDS)
+        completed = evaluate_waves(current, tgrass_result=[], botohub_result=[], fields=_OTHER_FIELDS)
+        self.assertEqual(completed.status, "complete")
+        self.assertEqual(current.other_wave, 3)
+        self.assertFalse(wave_in_progress(current, _OTHER_FIELDS))
+
+    def test_skip_current_wave_respects_fields(self) -> None:
+        current = other_wave_user()
+        initialize_waves(
+            current, tgrass_result=offers("tg", 8), botohub_result=[], wave_size=6, fields=_OTHER_FIELDS,
+        )
+        self.assertEqual(current.other_wave, 1)
+        state = skip_current_wave(current, _OTHER_FIELDS)
+        self.assertEqual(state.status, "complete")
+        self.assertEqual(current.other_wave, 3)
 
 
 if __name__ == "__main__":

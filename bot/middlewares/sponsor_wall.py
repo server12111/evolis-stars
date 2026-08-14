@@ -18,7 +18,9 @@ from bot.services.referral import (
 )
 from bot.services.sponsor_results import all_configured_integrations_failed
 from bot.services.sponsor_waves import (
+    SPONSOR_WAVE_FIELDS,
     SponsorWaveState,
+    WaveFields,
     evaluate_waves,
     sponsor_wave_markup,
     sponsor_wave_text,
@@ -194,6 +196,7 @@ async def _drop_confirmed_subscriptions(
 
 async def _reinstate_expired_pinned_sponsors(
     bot: Bot | None, db_user: User, results: dict[str, list[dict] | BaseException | None], cache: dict,
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
 ) -> None:
     """Providers pin a rotating batch of offers to a user for a limited
     window (BotoHub: ~3 minutes, per its own docs) and can legitimately
@@ -219,12 +222,12 @@ async def _reinstate_expired_pinned_sponsors(
     (no admin access to most third-party channels) gets stuck reinstated
     forever — confirmed live, one stayed reinstated for 2+ hours straight
     even though the provider repeatedly reported zero offers."""
-    if bot is None or db_user.sponsor_wave not in (1, 2):
+    if bot is None or getattr(db_user, fields.wave) not in (1, 2):
         return
 
     from bot.services.sponsor_waves import _current_items, _decorate, _key
 
-    for item in _current_items(db_user):
+    for item in _current_items(db_user, fields):
         provider = str(item.get("provider", ""))
         provider_result = results.get(provider)
         if not isinstance(provider_result, list):
@@ -278,7 +281,9 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
     ]
 
 
-def _persist_flyerhub_item_updates(db_user: User, updated_items: list[dict]) -> None:
+def _persist_flyerhub_item_updates(
+    db_user: User, updated_items: list[dict], fields: WaveFields = SPONSOR_WAVE_FIELDS,
+) -> None:
     """Merges updated_items (matched by ref) back into whichever wave field
     is currently frozen, so per-item metadata that doesn't come from a
     provider (FlyerHub's "waiting_since" countdown start) survives across
@@ -287,12 +292,12 @@ def _persist_flyerhub_item_updates(db_user: User, updated_items: list[dict]) -> 
     an in-memory-only mutation."""
     from bot.services.sponsor_waves import _current_items, _dump
 
-    if db_user.sponsor_wave not in (1, 2):
+    if getattr(db_user, fields.wave) not in (1, 2):
         return
     updates_by_ref = {str(item.get("ref", "")): item for item in updated_items if item.get("ref")}
     if not updates_by_ref:
         return
-    current = _current_items(db_user)
+    current = _current_items(db_user, fields)
     changed = False
     for item in current:
         ref = str(item.get("ref", ""))
@@ -302,13 +307,15 @@ def _persist_flyerhub_item_updates(db_user: User, updated_items: list[dict]) -> 
     if not changed:
         return
     dumped = _dump(current)
-    if db_user.sponsor_wave == 1:
-        db_user.sponsor_wave_one = dumped
+    if getattr(db_user, fields.wave) == 1:
+        setattr(db_user, fields.one, dumped)
     else:
-        db_user.sponsor_wave_two = dumped
+        setattr(db_user, fields.two, dumped)
 
 
-async def _recheck_flyerhub(api_key: str, db_user: User, saved: list[dict]) -> list[dict] | None:
+async def _recheck_flyerhub(
+    api_key: str, db_user: User, saved: list[dict], fields: WaveFields = SPONSOR_WAVE_FIELDS,
+) -> list[dict] | None:
     """Re-check previously-issued FlyerHub signatures by signature (same
     non-re-fetch reasoning as _recheck_traffy above). fh_check_task_op has
     no batch form, so signatures are checked concurrently one call each; a
@@ -387,7 +394,7 @@ async def _recheck_flyerhub(api_key: str, db_user: User, saved: list[dict]) -> l
         statuses[ref] = outcome in ("complete", "unavailable")
 
     if newly_waiting:
-        _persist_flyerhub_item_updates(db_user, newly_waiting)
+        _persist_flyerhub_item_updates(db_user, newly_waiting, fields)
 
     # A ref missing from `statuses` -- either its own call failed/threw,
     # or nothing in to_check resolved at all -- defaults to "still
@@ -428,41 +435,28 @@ async def get_pending_sponsor_items(
     return wave_state.items or []
 
 
-async def _evaluate_wave_state(
+async def evaluate_provider_wave(
     inner: Message | CallbackQuery,
     db_user: User,
     session: AsyncSession,
     bot: Bot | None = None,
-    skip_when_complete: bool = False,
+    *,
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
     top_up: bool = True,
 ) -> SponsorWaveState:
-    """Checks every configured sponsor provider fresh and evaluates the
-    current wave against it — the shared core behind both
-    run_sponsor_wall_check (which also renders/commits) and
-    get_pending_sponsor_items (which only needs the resulting item list).
+    """Live-checks every configured sponsor provider (tgrass/botohub/
+    traffy/flyerhub) for db_user and evaluates the wave given by `fields`
+    against the fresh results. The shared provider-calling core behind the
+    /start onboarding wall (default fields, via _evaluate_wave_state below)
+    and the chat sponsor wall's own ad-network offer pool
+    (bot/services/chat_wall_integrations.py, a second independent wave on
+    its own fields) -- one engine, reused rather than duplicated, so both
+    walls share the exact same recheck-by-id-for-traffy/flyerhub and
+    don't-trust-a-rotating-batch-blindly logic.
 
-    skip_when_complete short-circuits to "complete" immediately for a
-    sponsor_wave==3 user, with no provider calls at all — correct for
-    get_pending_sponsor_items (sponsor_skip is exempt from
-    SponsorWallMiddleware's own sponsors_verified check, so a stale skip
-    button pressed after the user already finished normally must not
-    re-hit every provider just to report nothing left to skip). It must
-    stay False for run_sponsor_wall_check's normal path: sponsor_recheck_
-    scheduler periodically flips sponsors_verified back to False for
-    already-complete users specifically so the NEXT interaction re-checks
-    providers for sponsors that weren't there before — short-circuiting
-    here too would make that recheck a permanent no-op forever after the
-    first time a user ever reaches wave 3, silently defeating it.
-
-    top_up mirrors this same read-only requirement for get_pending_
-    sponsor_items: evaluate_waves() can grow and persist a bigger wave
-    when sponsors resolve (see its own docstring), which is exactly right
-    for a real check but wrong for a price quote — merely opening the
-    "skip sponsors" dialog must not silently inflate what the user owes.
-    """
-    if db_user.sponsor_wave == 3 and skip_when_complete:
-        return SponsorWaveState("complete")
-
+    top_up mirrors evaluate_waves' own read-only requirement: growing the
+    wave with replacement sponsors is right for a real check but wrong for
+    a price quote (see get_pending_sponsor_items)."""
     from bot.services.botohub import check_botohub
     from bot.services.tgrass import check_tgrass
     from bot.services.traffy import get_traffy_tasks
@@ -470,7 +464,7 @@ async def _evaluate_wave_state(
     from bot.services.sponsor_waves import _current_items
 
     membership_cache: dict = {}
-    wave_frozen = db_user.sponsor_wave in (1, 2)
+    wave_frozen = getattr(db_user, fields.wave) in (1, 2)
 
     wave_size = min(
         20,
@@ -519,7 +513,7 @@ async def _evaluate_wave_state(
     if settings.traffy_key:
         if wave_frozen:
             saved_traffy = [
-                item for item in _current_items(db_user)
+                item for item in _current_items(db_user, fields)
                 if str(item.get("provider", "")) == "traffy"
             ]
             traffy_result = await _recheck_traffy(settings.traffy_key, db_user.user_id, saved_traffy)
@@ -541,10 +535,10 @@ async def _evaluate_wave_state(
     if settings.flyerhub_op_key:
         if wave_frozen:
             saved_flyerhub = [
-                item for item in _current_items(db_user)
+                item for item in _current_items(db_user, fields)
                 if str(item.get("provider", "")) == "flyerhub"
             ]
-            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, db_user, saved_flyerhub)
+            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, db_user, saved_flyerhub, fields)
         else:
             raw_tasks = await fh_get_tasks_op(
                 settings.flyerhub_op_key,
@@ -567,8 +561,8 @@ async def _evaluate_wave_state(
         flyerhub_result = []
 
     logger.info(
-        "WALL uid=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s blocked_urls=%s blocked_domains=%s",
-        db_user.user_id,
+        "WALL uid=%s wave_field=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s blocked_urls=%s blocked_domains=%s",
+        db_user.user_id, fields.wave,
         _describe_result(tgrass_result),
         _describe_result(botohub_result),
         _describe_result(traffy_result),
@@ -587,7 +581,7 @@ async def _evaluate_wave_state(
         flyerhub_configured=bool(settings.flyerhub_op_key),
         flyerhub_result=flyerhub_result,
     ):
-        logger.info("WALL uid=%s unavailable reason=all_configured_failed", db_user.user_id)
+        logger.info("WALL uid=%s wave_field=%s unavailable reason=all_configured_failed", db_user.user_id, fields.wave)
         return SponsorWaveState("unavailable")
 
     # Traffy/FlyerHub are deliberately excluded here — the reinstate
@@ -597,7 +591,7 @@ async def _evaluate_wave_state(
     # so it can never "silently disappear" the way a rotated batch can.
     await _reinstate_expired_pinned_sponsors(
         bot, db_user, {"tgrass": tgrass_result, "botohub": botohub_result},
-        membership_cache,
+        membership_cache, fields,
     )
 
     wave_state = evaluate_waves(
@@ -612,11 +606,12 @@ async def _evaluate_wave_state(
         top_up=top_up,
         blocked_urls=blocked_urls,
         blocked_domains=blocked_domains,
+        fields=fields,
     )
     if wave_state.status == "unavailable":
         logger.info(
-            "WALL uid=%s unavailable reason=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s",
-            db_user.user_id,
+            "WALL uid=%s wave_field=%s unavailable reason=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s",
+            db_user.user_id, fields.wave,
             "recheck_required_provider_failed" if wave_frozen else "first_freeze_provider_failed",
             _describe_result(tgrass_result),
             _describe_result(botohub_result),
@@ -625,6 +620,38 @@ async def _evaluate_wave_state(
         )
     await session.commit()
     return wave_state
+
+
+async def _evaluate_wave_state(
+    inner: Message | CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+    bot: Bot | None = None,
+    skip_when_complete: bool = False,
+    top_up: bool = True,
+) -> SponsorWaveState:
+    """Thin onboarding-wall-specific wrapper around evaluate_provider_wave
+    (see its docstring for the actual provider-calling logic) -- the
+    shared core behind both run_sponsor_wall_check (which also
+    renders/commits) and get_pending_sponsor_items (which only needs the
+    resulting item list).
+
+    skip_when_complete short-circuits to "complete" immediately for a
+    sponsor_wave==3 user, with no provider calls at all — correct for
+    get_pending_sponsor_items (sponsor_skip is exempt from
+    SponsorWallMiddleware's own sponsors_verified check, so a stale skip
+    button pressed after the user already finished normally must not
+    re-hit every provider just to report nothing left to skip). It must
+    stay False for run_sponsor_wall_check's normal path: sponsor_recheck_
+    scheduler periodically flips sponsors_verified back to False for
+    already-complete users specifically so the NEXT interaction re-checks
+    providers for sponsors that weren't there before — short-circuiting
+    here too would make that recheck a permanent no-op forever after the
+    first time a user ever reaches wave 3, silently defeating it.
+    """
+    if db_user.sponsor_wave == 3 and skip_when_complete:
+        return SponsorWaveState("complete")
+    return await evaluate_provider_wave(inner, db_user, session, bot, top_up=top_up)
 
 
 async def run_sponsor_wall_check(

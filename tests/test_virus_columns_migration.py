@@ -27,9 +27,10 @@ class LegacyVirusColumnsMigrationTests(unittest.IsolatedAsyncioTestCase):
                 "user_id, first_name, stars_balance, rp_migrated, referrals_count, "
                 "referral_reward_given, referral_counted, referral_insufficient_notified, "
                 "sponsors_verified, tos_accepted, tos_gate_shown, sponsor_wave, "
+                "wall_integration_wave, "
                 "tasks_completed_count, is_blocked, is_admin, is_vip, is_premium, "
                 "free_game_credits, slots_777_count, darts_bullseye_count"
-                ") VALUES (1, 'Legacy', 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)"
+                ") VALUES (1, 'Legacy', 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)"
             ))
             await connection.run_sync(_add_missing_user_columns)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)

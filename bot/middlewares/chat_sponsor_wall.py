@@ -7,8 +7,13 @@ from aiogram import BaseMiddleware, Bot
 from aiogram.types import TelegramObject, Update
 
 from bot.config import get_settings
-from bot.database.models import Chat
+from bot.database.models import Chat, User
 from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
+from bot.services.chat_wall_integrations import (
+    WALL_INTEGRATION_FIELDS,
+    evaluate_and_credit_integration_wave,
+    pending_integration_items,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -89,21 +94,55 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         completed_ids = await wall_repo.completed_sponsor_ids([s.id for s in active], user.id)
-        if len(completed_ids) >= len(active):
+        owner_missing = [s for s in active if s.id not in completed_ids]
+
+        # Integration (ad-network) offers are global per user, not per
+        # chat -- read the User row (may not exist yet for a group member
+        # who never started the bot privately; treat that as "nothing to
+        # gate on" rather than blocking on missing data).
+        db_user = await session.get(User, user.id)
+        wave_field = getattr(db_user, WALL_INTEGRATION_FIELDS.wave) if db_user is not None else 3
+
+        if not owner_missing and wave_field == 3:
             # Common case for anyone who already passed the wall once --
-            # no Telegram API call needed at all.
+            # no Telegram/provider API call needed at all.
             return await handler(event, data)
 
         # Not yet complete -- only NOW is a live API call worth spending,
         # to check whether this specific not-yet-verified member happens
         # to be a Telegram chat-admin (exempt), bounded to actual
-        # unsubscribed traffic rather than every single message.
+        # unsubscribed traffic rather than every single message. Checked
+        # before the (potentially much more expensive) ad-network
+        # provider round below, so an exempt admin never triggers one.
         try:
             member = await bot.get_chat_member(chat.chat_id, user.id)
             if member.status in ("administrator", "creator"):
                 return await handler(event, data)
         except Exception:
             pass
+
+        integration_missing: list[dict] = []
+        integration_unavailable = False
+        if db_user is not None:
+            if wave_field == 0:
+                # Never frozen for this user -- the one live provider round
+                # a first-ever block is allowed to spend (see
+                # evaluate_and_credit_integration_wave's own docstring).
+                wave_state, _ = await evaluate_and_credit_integration_wave(message, db_user, session, bot)
+                if wave_state.status == "pending":
+                    integration_missing = wave_state.items or []
+                elif wave_state.status == "unavailable":
+                    # A provider outage must still BLOCK (same as the
+                    # /start wall's own _show_retry path) -- silently
+                    # letting the message through here would bypass the
+                    # paid wall entirely for as long as the outage lasts.
+                    integration_unavailable = True
+            elif wave_field != 3:
+                # Already frozen -- DB-only, no provider call on this hot path.
+                integration_missing = await pending_integration_items(db_user, session)
+
+        if not owner_missing and not integration_missing and not integration_unavailable:
+            return await handler(event, data)
 
         try:
             await bot.delete_message(chat.chat_id, message.message_id)
@@ -117,7 +156,6 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
             _last_wall_shown[key] = now
             from bot.handlers.group.chat_sponsor_wall import wall_subscribe_kb
 
-            missing = [s for s in active if s.id not in completed_ids]
             display_name = escape(user.first_name or user.username or "участник")
             mention = f'<a href="tg://user?id={user.id}">{display_name}</a>'
             try:
@@ -125,7 +163,7 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
                     chat.chat_id,
                     f"🚧 {mention}, чтобы писать в этом чате, подпишись на спонсоров ниже и нажми «Проверить»:",
                     parse_mode="HTML",
-                    reply_markup=wall_subscribe_kb(missing, chat.chat_id),
+                    reply_markup=wall_subscribe_kb(owner_missing, chat.chat_id, integration_missing),
                 )
             except Exception as exc:
                 logger.debug("Cannot send wall message to chat %s: %s", chat.chat_id, exc)

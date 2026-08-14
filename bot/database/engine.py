@@ -61,6 +61,9 @@ def _add_missing_user_columns(connection) -> None:
         "referral_tier": "VARCHAR(16)",
         "pending_reactivation_referrer_id": "BIGINT",
         "pending_reactivation_since": "DATETIME",
+        "wall_integration_wave": "INTEGER NOT NULL DEFAULT 0",
+        "wall_integration_wave_one": "TEXT",
+        "wall_integration_wave_two": "TEXT",
     }
     referral_counted_added = "referral_counted" not in columns
     for name, definition in additions.items():

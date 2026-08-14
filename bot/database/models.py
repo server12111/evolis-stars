@@ -52,6 +52,15 @@ class User(Base):
     sponsor_wave: Mapped[int] = mapped_column(Integer, default=0)
     sponsor_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)
     sponsor_wave_two: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # A second, independent wave (same engine, see bot.services.sponsor_waves.
+    # WaveFields) of ad-network offers (tgrass/botohub/traffy/flyerhub) for
+    # the chat sponsor wall's "bot sponsors" -- global per user, not per
+    # chat, since the same offer pool applies regardless of which walled
+    # chat triggered the check. Unlike sponsor_wave* (onboarding gate),
+    # completing one of these pays 1 RP⭐️ (see ChatWallIntegrationCompletion).
+    wall_integration_wave: Mapped[int] = mapped_column(Integer, default=0)
+    wall_integration_wave_one: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wall_integration_wave_two: Mapped[str | None] = mapped_column(Text, nullable=True)
     tasks_completed_count: Mapped[int] = mapped_column(Integer, default=0)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -631,11 +640,12 @@ class ChatSponsorWallSponsor(Base):
 
 
 class ChatSponsorWallCompletion(Base):
-    """Append-only ledger: this user subscribed to this wall sponsor and
-    was credited 1 RP⭐️ for it. The unique constraint IS the anti-farming
-    guard (same convention as OwnSponsorCompletion/ChatBonusUse) -- a
-    second credit attempt for the same (sponsor, user) pair fails at the
-    DB level rather than needing a separate "already rewarded" check."""
+    """Append-only ledger: this user subscribed to this OWNER-added wall
+    sponsor. No RP⭐️ reward -- these are the chat owner's own promotion,
+    unfunded, unlike ChatWallIntegrationCompletion below. This table only
+    tracks whether the "must subscribe to post" gate is satisfied. The
+    unique constraint is what makes a repeat completed_sponsor_ids lookup
+    safe/idempotent (same convention as OwnSponsorCompletion/ChatBonusUse)."""
 
     __tablename__ = "chat_sponsor_wall_completions"
     __table_args__ = (
@@ -645,6 +655,28 @@ class ChatSponsorWallCompletion(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     sponsor_id: Mapped[int] = mapped_column(Integer, ForeignKey("chat_sponsor_wall_sponsors.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    rewarded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ChatWallIntegrationCompletion(Base):
+    """Append-only ledger: this user completed this specific ad-network
+    offer (tgrass/botohub/botohub -- identified by normalized URL --  or
+    traffy/flyerhub -- identified by their own opaque ref/assignment_id/
+    signature) shown via the chat sponsor wall's integration wave, and was
+    credited 1 RP⭐️ for it. Global per user, not per chat -- the same
+    underlying subscription must never be paid twice just because it was
+    shown through two different chats' walls. The unique constraint IS the
+    anti-farming guard (same convention as ChatSponsorWallCompletion)."""
+
+    __tablename__ = "chat_wall_integration_completions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", "item_key", name="uq_wall_integration_completion"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
+    provider: Mapped[str] = mapped_column(String(32))
+    item_key: Mapped[str] = mapped_column(String(512))
     rewarded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

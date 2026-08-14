@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, NamedTuple
 from urllib.parse import urlparse
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -14,6 +14,21 @@ MAX_WAVES = 1
 
 ProviderResult = list[dict] | BaseException
 WaveStatus = Literal["pending", "complete", "unavailable"]
+
+
+class WaveFields(NamedTuple):
+    """Which three User columns a wave engine call operates on -- lets the
+    same freeze/evaluate/advance state machine below run more than one
+    independent wave per user (e.g. the /start onboarding wall and,
+    separately, the chat sponsor wall's ad-network offer pool) without
+    duplicating this logic. Every function here defaults to the original
+    /start-wall columns, so existing callers are unaffected."""
+    wave: str = "sponsor_wave"
+    one: str = "sponsor_wave_one"
+    two: str = "sponsor_wave_two"
+
+
+SPONSOR_WAVE_FIELDS = WaveFields()
 
 
 @dataclass(slots=True)
@@ -115,35 +130,36 @@ def _dump(items: list[dict]) -> str:
     return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
 
 
-def _current_items(user: User) -> list[dict]:
-    if user.sponsor_wave == 1:
-        return _load(user.sponsor_wave_one)
-    if user.sponsor_wave == 2:
-        return _load(user.sponsor_wave_two)
+def _current_items(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> list[dict]:
+    wave = getattr(user, fields.wave)
+    if wave == 1:
+        return _load(getattr(user, fields.one))
+    if wave == 2:
+        return _load(getattr(user, fields.two))
     return []
 
 
-def _total_waves(user: User) -> int:
-    if _load(user.sponsor_wave_two):
+def _total_waves(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> int:
+    if _load(getattr(user, fields.two)):
         return 2
-    if _load(user.sponsor_wave_one):
+    if _load(getattr(user, fields.one)):
         return 1
     return 0
 
 
-def wave_in_progress(user: User) -> bool:
+def wave_in_progress(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> bool:
     """True while a wave is genuinely frozen mid-progress right now (1 or
     2) -- as opposed to 0 (never started) or 3 (fully resolved). NOT the
     same signal as sponsors_verified, which sponsor_recheck_loop flips back
     to False for every verified user every ~10 minutes regardless of
     whether a wave is actually pending."""
-    return user.sponsor_wave in (1, 2)
+    return getattr(user, fields.wave) in (1, 2)
 
 
-def total_sponsor_count(user: User) -> int:
+def total_sponsor_count(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> int:
     """Total sponsors across every wave the user was shown — used for the
     "you subscribed to N sponsors" confirmation message."""
-    return len(_load(user.sponsor_wave_one)) + len(_load(user.sponsor_wave_two))
+    return len(_load(getattr(user, fields.one))) + len(_load(getattr(user, fields.two)))
 
 
 def initialize_waves(
@@ -156,6 +172,7 @@ def initialize_waves(
     wave_size: int | None = None,
     blocked_urls: frozenset[str] = frozenset(),
     blocked_domains: frozenset[str] = frozenset(),
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
 ) -> None:
     """Freeze at most twelve sponsors into two restart-safe waves.
 
@@ -168,7 +185,7 @@ def initialize_waves(
     blocked_urls/blocked_domains are dropped before the wave_size trim --
     an admin-blocked sponsor a provider keeps offering must never get
     frozen into a wave in the first place. See is_sponsor_blocked."""
-    if user.sponsor_wave in {1, 2}:
+    if getattr(user, fields.wave) in {1, 2}:
         return
 
     if wave_size is None:
@@ -202,9 +219,9 @@ def initialize_waves(
 
     first = unique[:wave_size]
     second = unique[wave_size:wave_size * MAX_WAVES]
-    user.sponsor_wave_one = _dump(first) if first else None
-    user.sponsor_wave_two = _dump(second) if second else None
-    user.sponsor_wave = 1 if first else 3
+    setattr(user, fields.one, _dump(first) if first else None)
+    setattr(user, fields.two, _dump(second) if second else None)
+    setattr(user, fields.wave, 1 if first else 3)
 
 
 def evaluate_waves(
@@ -220,6 +237,7 @@ def evaluate_waves(
     top_up: bool = True,
     blocked_urls: frozenset[str] = frozenset(),
     blocked_domains: frozenset[str] = frozenset(),
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
 ) -> SponsorWaveState:
     """Check only saved sponsors and advance through both waves in order.
 
@@ -240,7 +258,7 @@ def evaluate_waves(
     # On the first request every configured provider must answer. Otherwise a
     # temporary outage could freeze waves without that provider's mandatory
     # sponsors and let the user pass them permanently.
-    if user.sponsor_wave not in {1, 2, 3} and (
+    if getattr(user, fields.wave) not in {1, 2, 3} and (
         not isinstance(tgrass_result, list)
         or not isinstance(botohub_result, list)
         or (traffy_configured and not isinstance(traffy_result, list))
@@ -257,6 +275,7 @@ def evaluate_waves(
         wave_size=wave_size,
         blocked_urls=blocked_urls,
         blocked_domains=blocked_domains,
+        fields=fields,
     )
 
     results: dict[str, ProviderResult] = {
@@ -266,8 +285,8 @@ def evaluate_waves(
         "flyerhub": flyerhub_result,
     }
 
-    while user.sponsor_wave in {1, 2}:
-        wave = user.sponsor_wave
+    while getattr(user, fields.wave) in {1, 2}:
+        wave = getattr(user, fields.wave)
         # "piarflow" is a retired ОП provider (kept only for the separate
         # "Задания" feature, see tasks.py) -- it will never again appear in
         # `results` above. A user whose wave was frozen with a piarflow
@@ -276,15 +295,15 @@ def evaluate_waves(
         # instead, same as if the user had finished them. Same auto-resolve
         # for a sponsor an admin blocked after this wave was already frozen.
         saved = [
-            item for item in _current_items(user)
+            item for item in _current_items(user, fields)
             if str(item.get("provider", "")) != "piarflow"
             and not is_sponsor_blocked(item.get("url", ""), blocked_urls, blocked_domains)
         ]
         if not saved:
-            if wave == 1 and _load(user.sponsor_wave_two):
-                user.sponsor_wave = 2
+            if wave == 1 and _load(getattr(user, fields.two)):
+                setattr(user, fields.wave, 2)
                 continue
-            user.sponsor_wave = 3
+            setattr(user, fields.wave, 3)
             return SponsorWaveState("complete")
 
         required_providers = {str(item.get("provider", "")) for item in saved}
@@ -295,7 +314,7 @@ def evaluate_waves(
             return SponsorWaveState(
                 "unavailable",
                 wave=wave,
-                total_waves=_total_waves(user),
+                total_waves=_total_waves(user, fields),
                 items=saved,
             )
 
@@ -358,23 +377,23 @@ def evaluate_waves(
                 # pending right now.
                 persisted = saved + new_candidates
                 if wave == 1:
-                    user.sponsor_wave_one = _dump(persisted)
+                    setattr(user, fields.one, _dump(persisted))
                 else:
-                    user.sponsor_wave_two = _dump(persisted)
+                    setattr(user, fields.two, _dump(persisted))
 
         if remaining:
             return SponsorWaveState(
                 "pending",
                 wave=wave,
-                total_waves=_total_waves(user),
+                total_waves=_total_waves(user, fields),
                 items=remaining[:wave_size],
             )
 
-        if wave == 1 and _load(user.sponsor_wave_two):
-            user.sponsor_wave = 2
+        if wave == 1 and _load(getattr(user, fields.two)):
+            setattr(user, fields.wave, 2)
             continue
 
-        user.sponsor_wave = 3
+        setattr(user, fields.wave, 3)
         return SponsorWaveState("complete")
 
     return SponsorWaveState("complete")
@@ -404,21 +423,21 @@ def sponsor_wave_markup(items: list[dict]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def skip_current_wave(user: User) -> SponsorWaveState:
+def skip_current_wave(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> SponsorWaveState:
     """Force-completes the currently active wave without checking any
     subscription — used when the user pays real Telegram Stars to skip it
     instead of subscribing. Mirrors evaluate_waves' own advance-or-complete
     branch (the one taken when a genuine re-check finds nothing left
     unsubscribed), just triggered by a successful payment instead."""
-    if user.sponsor_wave == 1 and _load(user.sponsor_wave_two):
-        user.sponsor_wave = 2
+    if getattr(user, fields.wave) == 1 and _load(getattr(user, fields.two)):
+        setattr(user, fields.wave, 2)
         return SponsorWaveState(
             "pending",
             wave=2,
-            total_waves=_total_waves(user),
-            items=_load(user.sponsor_wave_two)[:WAVE_SIZE],
+            total_waves=_total_waves(user, fields),
+            items=_load(getattr(user, fields.two))[:WAVE_SIZE],
         )
-    user.sponsor_wave = 3
+    setattr(user, fields.wave, 3)
     return SponsorWaveState("complete")
 
 

@@ -1,5 +1,4 @@
 import logging
-from decimal import Decimal
 from html import escape
 
 from aiogram import Bot, F, Router
@@ -9,11 +8,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.config import get_settings
-from bot.database.models import Chat
+from bot.database.models import Chat, User
 from bot.database.repositories.chat import ChatRepository
 from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.handlers.group.chat_bonus import _start_new_sponsor_flow
-from bot.services.chat_eligibility import credit_stars
 from bot.services.telegram_chat import is_subscribed
 
 router = Router()
@@ -234,7 +232,9 @@ async def link_pending_wall_sponsor(
     return True
 
 
-def wall_subscribe_kb(sponsors: list, chat_id: int) -> InlineKeyboardMarkup:
+def wall_subscribe_kb(
+    sponsors: list, chat_id: int, integration_items: list[dict] | None = None,
+) -> InlineKeyboardMarkup:
     # Known limitation, inherited from bonus_subscribe_kb's identical
     # shape (bot/keyboards/group/chat_bonus.py): a sponsor with no public
     # username (a private channel/chat) gets no join button here, even
@@ -246,6 +246,15 @@ def wall_subscribe_kb(sponsors: list, chat_id: int) -> InlineKeyboardMarkup:
         label = f"📢 {sponsor.title or sponsor.username or 'Спонсор'}"
         if sponsor.username:
             builder.row(InlineKeyboardButton(text=label, url=f"https://t.me/{sponsor.username}"))
+    # Ad-network offers (tgrass/botohub/traffy/flyerhub) -- paid, unlike
+    # the owner sponsors above. Same item shape sponsor_wave_markup already
+    # renders for the /start wall (provider/url/name).
+    for item in integration_items or []:
+        url = item.get("url")
+        if not url:
+            continue
+        label = f"⭐️ {item.get('name') or 'Спонсор'}"
+        builder.row(InlineKeyboardButton(text=label, url=str(url)))
     builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data=f"chatwall:check:{chat_id}"))
     return builder.as_markup()
 
@@ -269,7 +278,6 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
 
     completed_ids = await wall_repo.completed_sponsor_ids([s.id for s in active], callback.from_user.id)
     still_missing = []
-    newly_completed = 0
     for sponsor in active:
         if sponsor.id in completed_ids:
             continue
@@ -279,13 +287,29 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
         except Exception:
             subscribed = False
         if subscribed:
-            if await wall_repo.mark_completed(sponsor.id, callback.from_user.id):
-                await credit_stars(session, callback.from_user.id, Decimal("1"))
-                newly_completed += 1
+            # No RP for owner-added sponsors -- unfunded, the chat owner's
+            # own promotion. mark_completed is still needed to satisfy the
+            # gate (see ChatSponsorWallMiddleware).
+            await wall_repo.mark_completed(sponsor.id, callback.from_user.id)
         else:
             still_missing.append(sponsor)
 
-    if not still_missing:
+    still_missing_integration: list[dict] = []
+    integration_unavailable = False
+    newly_completed = 0
+    db_user = await session.get(User, callback.from_user.id)
+    if db_user is not None:
+        from bot.services.chat_wall_integrations import evaluate_and_credit_integration_wave
+
+        wave_state, newly_completed = await evaluate_and_credit_integration_wave(callback, db_user, session, bot)
+        if wave_state.status == "pending":
+            still_missing_integration = wave_state.items or []
+        elif wave_state.status == "unavailable":
+            # A provider outage must not read as "nothing missing" -- keep
+            # blocking rather than silently passing the paid wall.
+            integration_unavailable = True
+
+    if not still_missing and not still_missing_integration and not integration_unavailable:
         try:
             await callback.message.edit_text("✅ Теперь можно писать в этом чате!")
         except Exception:
@@ -293,5 +317,14 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
         await callback.answer("✅ Готово!" + (f" +{newly_completed} RP⭐️" if newly_completed else ""))
         return
 
-    names = ", ".join(escape(s.title or s.username or "спонсор") for s in still_missing)
-    await callback.answer(f"❌ Ещё не подписан(а) на: {names}", show_alert=True)
+    owner_names = ", ".join(escape(s.title or s.username or "спонсор") for s in still_missing)
+    integration_names = ", ".join(
+        escape(str(item.get("name") or item.get("url") or "спонсор")) for item in still_missing_integration
+    )
+    names = ", ".join(part for part in (owner_names, integration_names) if part)
+    message_parts = []
+    if names:
+        message_parts.append(f"❌ Ещё не подписан(а) на: {names}")
+    if integration_unavailable:
+        message_parts.append("⚠️ Проверка бот-спонсоров временно недоступна, попробуй позже.")
+    await callback.answer(" ".join(message_parts), show_alert=True)

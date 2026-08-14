@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Chat as TgChat
@@ -18,6 +18,7 @@ from bot.handlers.group.chat_bonus import _origin_state, _pending_sponsor_state,
 from bot.handlers.group.chat_sponsor_wall import cb_wall_check
 from bot.handlers.group.games_tower import msg_tower_start
 from bot.middlewares.chat_sponsor_wall import ChatSponsorWallMiddleware
+from bot.middlewares.sponsor_wall import settings as sponsor_wall_settings
 from bot.states.group import PendingSponsorAddStates
 
 
@@ -50,6 +51,17 @@ class DbTestCase(unittest.IsolatedAsyncioTestCase):
             await connection.run_sync(Base.metadata.create_all)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
+        # The chat sponsor wall now also evaluates the ad-network
+        # integration wave (bot.services.chat_wall_integrations), which
+        # reuses evaluate_provider_wave -- reads these same settings the
+        # /start wall does. A real local .env can have real provider keys
+        # configured; blank them out here so these tests never make a real
+        # network call and reliably resolve to an empty/complete wave.
+        for attr in ("tgrass_code", "botohub_key", "traffy_key", "flyerhub_op_key"):
+            patcher = patch.object(sponsor_wall_settings, attr, "")
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
 
@@ -60,9 +72,9 @@ class DbTestCase(unittest.IsolatedAsyncioTestCase):
             await session.commit()
             return chat
 
-    async def _make_user(self, user_id: int, balance: str = "0") -> User:
+    async def _make_user(self, user_id: int, balance: str = "0", **overrides) -> User:
         async with self.sessions() as session:
-            user = User(user_id=user_id, first_name="U", stars_balance=Decimal(balance))
+            user = User(user_id=user_id, first_name="U", stars_balance=Decimal(balance), **overrides)
             session.add(user)
             await session.commit()
             return user
@@ -181,6 +193,16 @@ class GeneralizedPendingSponsorFlowTests(DbTestCase):
 
 
 class MiddlewareTests(DbTestCase):
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        # Module-level debounce dict (bot/middlewares/chat_sponsor_wall.py)
+        # persists across tests in the same process -- several tests here
+        # reuse the same (chat_id, user_id) pair, and without clearing this
+        # a wall message sent by an earlier test can suppress a later
+        # test's expected send_message call within the cooldown window.
+        from bot.middlewares.chat_sponsor_wall import _last_wall_shown
+        _last_wall_shown.clear()
+
     async def _run(self, chat: Chat, user_id: int, session, bot=None):
         handler = AsyncMock(return_value="handled")
         bot = bot or SimpleNamespace(
@@ -249,9 +271,13 @@ class MiddlewareTests(DbTestCase):
         self.assertIsNone(result)
 
     async def test_fully_completed_member_passes_through_without_api_call(self) -> None:
+        # wall_integration_wave=3: already resolved on the ad-network side
+        # too (see test_first_check_still_freezes_integration_wave_even_
+        # when_owner_side_already_done below for the still-pending case) --
+        # this is the true zero-cost "nothing left to check at all" path.
         chat = await self._make_chat(-1, 1)
         sponsor = await self._add_sponsor(-1, -100)
-        await self._make_user(20)
+        await self._make_user(20, wall_integration_wave=3)
         async with self.sessions() as session:
             await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
 
@@ -263,6 +289,49 @@ class MiddlewareTests(DbTestCase):
             handler, bot, result = await self._run(chat, 20, session, bot=bot)
         handler.assert_awaited_once()
         bot.delete_message.assert_not_awaited()
+
+    async def test_first_check_still_freezes_integration_wave_even_when_owner_side_already_done(self) -> None:
+        """A user who already satisfied the owner sponsors but has never
+        had their ad-network integration wave initialized (wall_integration_
+        wave == 0, the User default) must still go through the one-time
+        freeze -- with no providers configured in tests this resolves to
+        "complete" immediately and the message passes through, but the
+        admin-exemption check IS reachable (unlike the fully-resolved case
+        above)."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(20)  # wall_integration_wave defaults to 0
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+
+        async with self.sessions() as session:
+            handler, bot, result = await self._run(chat, 20, session)
+        handler.assert_awaited_once()
+        bot.delete_message.assert_not_awaited()
+
+        async with self.sessions() as session:
+            saved = await session.get(User, 20)
+        self.assertEqual(saved.wall_integration_wave, 3)  # frozen empty -> resolved (no providers configured)
+
+    async def test_unavailable_provider_still_blocks_even_when_owner_side_done(self) -> None:
+        """A provider outage during the first-ever integration freeze must
+        not silently let the user through -- same as the /start wall's
+        own _show_retry path."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+
+        with (
+            patch.object(sponsor_wall_settings, "tgrass_code", "cfg"),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=None)),
+        ):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 20, session)
+
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
 
     async def test_bot_admin_is_exempt_even_as_a_plain_chat_member(self) -> None:
         from unittest.mock import patch
@@ -287,7 +356,10 @@ class CheckCallbackTests(DbTestCase):
     def _callback(self, chat_id: int, user_id: int) -> SimpleNamespace:
         return SimpleNamespace(
             data=f"chatwall:check:{chat_id}",
-            from_user=SimpleNamespace(id=user_id),
+            # is_premium/username/language_code: evaluate_provider_wave
+            # (the integration-wave check, also run by cb_wall_check now)
+            # reads these unconditionally off from_user.
+            from_user=SimpleNamespace(id=user_id, is_premium=False, username=None, language_code="ru"),
             message=SimpleNamespace(edit_text=AsyncMock()),
             answer=AsyncMock(),
         )
@@ -307,7 +379,10 @@ class CheckCallbackTests(DbTestCase):
 
         bot.get_chat_member.assert_awaited_once_with(sponsor.sponsor_chat_id, 20)
 
-    async def test_newly_confirmed_sponsor_credits_one_rp_once(self) -> None:
+    async def test_newly_confirmed_owner_sponsor_marks_completed_but_pays_no_rp(self) -> None:
+        """Owner-added sponsors are unfunded (the chat owner's own
+        promotion) -- subscribing satisfies the gate (is_completed) but no
+        longer credits RP⭐️, unlike before this session's change."""
         chat = await self._make_chat(-1, 1)
         sponsor = await self._add_sponsor(-1, -100, username="sp100")
         await self._make_user(20, balance="5")
@@ -318,15 +393,15 @@ class CheckCallbackTests(DbTestCase):
         async with self.sessions() as session:
             user = await session.get(User, 20)
             completed = await ChatSponsorWallRepository(session).is_completed(sponsor.id, 20)
-        self.assertEqual(float(user.stars_balance), 6.0)
+        self.assertEqual(float(user.stars_balance), 5.0)
         self.assertTrue(completed)
 
-        # Pressing check again must not double-credit.
+        # Pressing check again must not change the balance either.
         async with self.sessions() as session:
             await cb_wall_check(self._callback(-1, 20), session, bot)
         async with self.sessions() as session:
             user = await session.get(User, 20)
-        self.assertEqual(float(user.stars_balance), 6.0)
+        self.assertEqual(float(user.stars_balance), 5.0)
 
     async def test_still_unsubscribed_reports_alert_not_credit(self) -> None:
         chat = await self._make_chat(-1, 1)
@@ -340,6 +415,24 @@ class CheckCallbackTests(DbTestCase):
         async with self.sessions() as session:
             user = await session.get(User, 20)
         self.assertEqual(float(user.stars_balance), 5.0)
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+
+    async def test_unavailable_integration_provider_does_not_report_success(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        callback = self._callback(-1, 20)
+        with (
+            patch.object(sponsor_wall_settings, "tgrass_code", "cfg"),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=None)),
+        ):
+            async with self.sessions() as session:
+                await cb_wall_check(callback, session, bot)
+
+        callback.message.edit_text.assert_not_awaited()
         callback.answer.assert_awaited_once()
         self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
 
