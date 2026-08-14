@@ -177,7 +177,7 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
                     chat.chat_id,
                     f"🚧 {mention}, чтобы писать в этом чате, подпишись на спонсоров ниже и нажми «Проверить»:",
                     parse_mode="HTML",
-                    reply_markup=wall_subscribe_kb(owner_missing, chat.chat_id, integration_missing),
+                    reply_markup=wall_subscribe_kb(owner_missing, chat.chat_id, integration_missing, user.id),
                 )
             except Exception as exc:
                 logger.debug("Cannot send wall message to chat %s: %s", chat.chat_id, exc)

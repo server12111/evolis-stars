@@ -233,7 +233,7 @@ async def link_pending_wall_sponsor(
 
 
 def wall_subscribe_kb(
-    sponsors: list, chat_id: int, integration_items: list[dict] | None = None,
+    sponsors: list, chat_id: int, integration_items: list[dict] | None = None, user_id: int | None = None,
 ) -> InlineKeyboardMarkup:
     # Known limitation, inherited from bonus_subscribe_kb's identical
     # shape (bot/keyboards/group/chat_bonus.py): a sponsor with no public
@@ -255,7 +255,16 @@ def wall_subscribe_kb(
             continue
         label = f"⭐️ {item.get('name') or 'Спонсор'}"
         builder.row(InlineKeyboardButton(text=label, url=str(url)))
-    builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data=f"chatwall:check:{chat_id}"))
+    # user_id scopes the check to whoever the wall was actually shown to --
+    # a group message's buttons are visible/clickable by anyone in the
+    # chat, and without this any OTHER member pressing it would silently
+    # run the check against their OWN account instead (harmless in effect,
+    # but confusing: "✅ Готово!" for someone who was never blocked and
+    # never subscribed to anything). Omitted (None) only for backward
+    # compatibility with a stale button from a message sent before this
+    # change, which cb_wall_check still honors unrestricted.
+    check_data = f"chatwall:check:{chat_id}:{user_id}" if user_id is not None else f"chatwall:check:{chat_id}"
+    builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data=check_data))
     return builder.as_markup()
 
 
@@ -264,11 +273,25 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
     if callback.message is None or callback.from_user is None:
         await callback.answer()
         return
+    parts = callback.data.split(":")
     try:
-        chat_id = int(callback.data.split(":")[2])
+        chat_id = int(parts[2])
     except (IndexError, ValueError):
         await callback.answer()
         return
+    # parts[3], when present, is the user this specific wall message was
+    # shown to (see wall_subscribe_kb) -- anyone else pressing it gets
+    # turned away instead of silently running the check against their own,
+    # unrelated account.
+    if len(parts) >= 4:
+        try:
+            intended_user_id = int(parts[3])
+        except ValueError:
+            await callback.answer("❌ Эта проверка не для тебя.", show_alert=True)
+            return
+        if intended_user_id != callback.from_user.id:
+            await callback.answer("❌ Эта проверка не для тебя.", show_alert=True)
+            return
 
     chat = await ChatRepository(session).get(chat_id)
     if chat is None:

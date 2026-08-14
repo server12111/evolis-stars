@@ -18,10 +18,12 @@ from bot.handlers.group.chat_bonus import (
     cb_bonus_check_sponsors,
     cb_bonus_sponsors_done,
     msg_bonus_redeem,
+    try_confirm_pending_sponsor_manually,
     try_link_pending_sponsor,
     _origin_state,
     _pending_sponsor_state,
 )
+from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.states.group import PendingSponsorAddStates
 
 
@@ -503,6 +505,185 @@ class TryLinkPendingSponsorTests(unittest.IsolatedAsyncioTestCase):
         event = _my_chat_member(-900, "channel", 999, "administrator")
         handled = await try_link_pending_sponsor(bot, storage, event, SimpleNamespace())
         self.assertFalse(handled)
+
+
+def _manual_message(
+    user_id: int, text: str | None = None, forward_from_chat_id: int | None = None,
+    forward_origin_channel_id: int | None = None,
+):
+    forward_origin = None
+    if forward_origin_channel_id is not None:
+        forward_origin = SimpleNamespace(type="channel", chat=SimpleNamespace(id=forward_origin_channel_id))
+    return SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        text=text,
+        forward_origin=forward_origin,
+        forward_from_chat=SimpleNamespace(id=forward_from_chat_id) if forward_from_chat_id is not None else None,
+        answer=AsyncMock(),
+    )
+
+
+def _admin_member_for(*admin_ids: int):
+    async def _side_effect(chat_id, user_id):
+        return SimpleNamespace(status="administrator" if user_id in admin_ids else "member")
+    return AsyncMock(side_effect=_side_effect)
+
+
+def _resolved_chat(chat_id: int, chat_type: str = "channel", title: str = "Sponsor Ch", username: str | None = "sponsorch"):
+    return SimpleNamespace(id=chat_id, type=chat_type, title=title, username=username)
+
+
+class TryConfirmPendingSponsorManuallyTests(ChatModelsTestCase):
+    async def _seed_pending(self, storage, bot_id, user_id, sponsor_type, origin_chat_id, *, purpose="bonus", wall_chat_id=None):
+        pending = _pending_sponsor_state(storage, bot_id, user_id)
+        await pending.set_state(PendingSponsorAddStates.awaiting_add)
+        data = {"sponsor_type": sponsor_type, "origin_chat_id": origin_chat_id, "purpose": purpose}
+        if wall_chat_id is not None:
+            data["wall_chat_id"] = wall_chat_id
+        await pending.update_data(**data)
+
+    async def test_no_pending_marker_not_handled(self) -> None:
+        storage = MemoryStorage()
+        bot = SimpleNamespace(id=1, get_chat=AsyncMock(), get_chat_member=AsyncMock(), send_message=AsyncMock())
+        message = _manual_message(999, text="@sponsorch")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertFalse(handled)
+        message.answer.assert_not_awaited()
+
+    async def test_message_not_a_reference_falls_through(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        bot = SimpleNamespace(id=1, get_chat=AsyncMock(), get_chat_member=AsyncMock(), send_message=AsyncMock())
+        message = _manual_message(42, text="hello there")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertFalse(handled)
+        message.answer.assert_not_awaited()
+        bot.get_chat_member.assert_not_awaited()
+
+    async def test_bot_not_admin_there_rejected_without_linking(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=_resolved_chat(-900)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, text="@sponsorch")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertTrue(handled)
+        message.answer.assert_awaited_once()
+        self.assertIn("не администратор", message.answer.await_args.args[0])
+        # Still pending -- owner can promote it and retry.
+        pending = _pending_sponsor_state(storage, 1, 42)
+        self.assertEqual(await pending.get_state(), PendingSponsorAddStates.awaiting_add)
+
+    async def test_username_resolves_and_links_bonus_purpose(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        resolved = _resolved_chat(-900)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=resolved),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, text="https://t.me/sponsorch")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertTrue(handled)
+        origin = _origin_state(storage, 1, -50, 42)
+        data = await origin.get_data()
+        self.assertEqual(len(data["sponsors"]), 1)
+        self.assertEqual(data["sponsors"][0]["chat_id"], -900)
+        pending = _pending_sponsor_state(storage, 1, 42)
+        self.assertIsNone(await pending.get_state())
+
+    async def test_forwarded_message_resolves_and_links_wall_purpose(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-50, title="Owner Chat", status="active", owner_user_id=42, sponsor_wall_max_sponsors=3))
+            await session.commit()
+
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "chat", -50, purpose="wall", wall_chat_id=-50)
+        resolved = _resolved_chat(-901, chat_type="supergroup", title="Sponsor Group", username=None)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=resolved),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, forward_from_chat_id=-901)
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertTrue(handled)
+        async with self.sessions() as session:
+            sponsors = await ChatSponsorWallRepository(session).list_active(-50)
+        self.assertEqual(len(sponsors), 1)
+        self.assertEqual(sponsors[0].sponsor_chat_id, -901)
+        pending = _pending_sponsor_state(storage, 1, 42)
+        self.assertIsNone(await pending.get_state())
+
+    async def test_username_lookup_failure_falls_through(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(side_effect=Exception("no such chat")),
+            get_chat_member=AsyncMock(),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, text="@doesnotexist")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertFalse(handled)
+        bot.get_chat_member.assert_not_awaited()
+
+    async def test_forward_origin_channel_resolves_and_links(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=_resolved_chat(-900)),
+            get_chat_member=_admin_member_for(1, 42),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, forward_origin_channel_id=-900)
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertTrue(handled)
+        origin = _origin_state(storage, 1, -50, 42)
+        data = await origin.get_data()
+        self.assertEqual(data["sponsors"][0]["chat_id"], -900)
+
+    async def test_requester_not_admin_there_rejected_without_linking(self) -> None:
+        storage = MemoryStorage()
+        await self._seed_pending(storage, 1, 42, "channel", -50)
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=_resolved_chat(-900)),
+            # Bot is admin (user_id=1), but the requester (user_id=42) is not
+            # -- must not link a chat/channel the requester has no control over
+            # just because the bot happens to be admin there for some other
+            # reason (e.g. another owner's sponsor).
+            get_chat_member=_admin_member_for(1),
+            send_message=AsyncMock(),
+        )
+        message = _manual_message(42, text="@sponsorch")
+        async with self.sessions() as session:
+            handled = await try_confirm_pending_sponsor_manually(message, session, bot, storage)
+        self.assertTrue(handled)
+        message.answer.assert_awaited_once()
+        self.assertIn("администратором", message.answer.await_args.args[0])
+        origin = _origin_state(storage, 1, -50, 42)
+        data = await origin.get_data()
+        self.assertEqual(data.get("sponsors", []), [])
+        # Still pending -- the actual admin of that chat/channel can retry.
+        pending = _pending_sponsor_state(storage, 1, 42)
+        self.assertEqual(await pending.get_state(), PendingSponsorAddStates.awaiting_add)
 
 
 class BonusCreationWithSponsorsTests(ChatModelsTestCase):

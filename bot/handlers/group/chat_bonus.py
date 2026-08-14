@@ -2,6 +2,7 @@ import logging
 import re
 import time
 from decimal import Decimal
+from types import SimpleNamespace
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
@@ -27,7 +28,7 @@ from bot.keyboards.group.chat_bonus import (
 )
 from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_eligibility import credit_stars, debit_stars_if_enough, eligibility_reason
-from bot.services.telegram_chat import is_subscribed
+from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 from bot.states.group import ChatOwnerBonusStates, PendingSponsorAddStates
 
 router = Router()
@@ -234,7 +235,9 @@ async def _start_new_sponsor_flow(
     await callback.message.answer(
         f"Добавьте бота администратором в нужный {label} по кнопке ниже — я запрошу только права, "
         f"необходимые для проверки подписки участников. Как только вы это сделаете, спонсор "
-        f"автоматически появится в этом списке.",
+        f"автоматически появится в этом списке.\n\n"
+        f"Бот уже администратор там? Пришлите мне его @username (или перешлите любое "
+        f"сообщение оттуда) — я сам проверю права.",
         reply_markup=bonus_sponsor_deeplink_kb(settings.bot_username, sponsor_type),
     )
     await callback.answer()
@@ -538,6 +541,101 @@ async def try_link_pending_sponsor(
     except Exception:
         pass
     return True
+
+
+def _resolve_forwarded_chat_id(message: Message) -> int | None:
+    """Bot API 7.0+ reports the forward source via forward_origin (a
+    MessageOriginChannel for a channel post, or a MessageOriginChat for a
+    message forwarded on behalf of a group's own identity) -- the older
+    forward_from_chat field it replaced is no longer populated by current
+    clients, but is kept here as a fallback for anything still relying on
+    it."""
+    origin = message.forward_origin
+    if origin is not None:
+        if origin.type == "channel":
+            return origin.chat.id
+        if origin.type == "chat":
+            return origin.sender_chat.id
+        return None
+    if message.forward_from_chat is not None:
+        return message.forward_from_chat.id
+    return None
+
+
+async def try_confirm_pending_sponsor_manually(
+    message: Message, session: AsyncSession, bot: Bot, storage: BaseStorage,
+) -> bool:
+    """Fallback for the exact gap try_link_pending_sponsor can't cover:
+    Telegram's "promote to admin" deep link fires no my_chat_member event
+    when the bot is ALREADY an admin in the target channel/chat for some
+    unrelated reason (never previously used as a sponsor, so
+    list_previously_used_by_owner has nothing to offer as a reuse
+    candidate either) -- the pending add would otherwise wait forever
+    with no way to ever complete. Lets the owner instead forward a
+    message from the channel/chat, or send its @username/t.me link, and
+    verifies both that the bot is an admin there AND that the requester
+    themselves is (same proof of control the my_chat_member path gets for
+    free from Telegram only ever firing that event to whoever actually
+    promoted the bot) -- without the second check, anyone with a pending
+    marker armed could claim any chat/channel the bot happens to already
+    admin for an unrelated reason as their own sponsor.
+
+    Returns False (caller must let the message fall through to normal
+    handling) whenever nothing is pending or the message doesn't look
+    like a channel/chat reference at all -- only a message that DOES look
+    like an attempt is ever answered here."""
+    if message.from_user is None:
+        return False
+    pending = _pending_sponsor_state(storage, bot.id, message.from_user.id)
+    if await pending.get_state() != PendingSponsorAddStates.awaiting_add:
+        return False
+
+    raw_target: int | str | None = _resolve_forwarded_chat_id(message)
+    if raw_target is None and message.text:
+        raw_target = telegram_chat_id(message.text)
+
+    if raw_target is None:
+        # Not a recognizable channel/chat reference (e.g. the owner is
+        # typing something else entirely, unrelated to this pending add)
+        # -- do not swallow it.
+        return False
+
+    try:
+        target_chat = await bot.get_chat(raw_target)
+    except Exception:
+        return False
+
+    try:
+        member = await bot.get_chat_member(target_chat.id, bot.id)
+    except Exception:
+        member = None
+    if member is None or member.status != "administrator":
+        await message.answer(
+            "⚠️ Бот не администратор там. Сначала назначьте его администратором "
+            "(кнопкой выше), затем пришлите @username ещё раз или перешлите сообщение."
+        )
+        return True
+
+    try:
+        requester = await bot.get_chat_member(target_chat.id, message.from_user.id)
+    except Exception:
+        requester = None
+    if requester is None or requester.status not in ("administrator", "creator"):
+        await message.answer("⚠️ Вы должны быть администратором этого канала/чата, чтобы добавить его спонсором.")
+        return True
+
+    fake_event = SimpleNamespace(
+        chat=SimpleNamespace(
+            id=target_chat.id,
+            type=target_chat.type,
+            title=target_chat.title or "",
+            username=target_chat.username,
+        ),
+        new_chat_member=SimpleNamespace(status="administrator"),
+        old_chat_member=SimpleNamespace(status="left"),
+        from_user=message.from_user,
+    )
+    return await try_link_pending_sponsor(bot, storage, fake_event, session)
 
 
 @router.message(_matches_bonus_redeem)

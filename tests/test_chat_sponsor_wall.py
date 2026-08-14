@@ -15,7 +15,7 @@ from bot.database.engine import Base
 from bot.database.models import Chat, ChatSponsorWallSponsor, User
 from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.handlers.group.chat_bonus import _origin_state, _pending_sponsor_state, try_link_pending_sponsor
-from bot.handlers.group.chat_sponsor_wall import cb_wall_check
+from bot.handlers.group.chat_sponsor_wall import cb_wall_check, wall_subscribe_kb
 from bot.handlers.group.games_tower import msg_tower_start
 from bot.middlewares.chat_sponsor_wall import ChatSponsorWallMiddleware
 from bot.middlewares.sponsor_wall import settings as sponsor_wall_settings
@@ -475,9 +475,17 @@ class MiddlewareTests(DbTestCase):
 
 
 class CheckCallbackTests(DbTestCase):
-    def _callback(self, chat_id: int, user_id: int) -> SimpleNamespace:
+    def _callback(self, chat_id: int, user_id: int, target_user_id: int | None = None) -> SimpleNamespace:
+        """target_user_id encodes who the wall message was actually shown
+        to (see wall_subscribe_kb's user_id param) -- omitted reproduces a
+        legacy/unscoped button, matching target_user_id=user_id reproduces
+        the normal case of the intended recipient pressing their own
+        button."""
+        data = f"chatwall:check:{chat_id}"
+        if target_user_id is not None:
+            data += f":{target_user_id}"
         return SimpleNamespace(
-            data=f"chatwall:check:{chat_id}",
+            data=data,
             # is_premium/username/language_code: evaluate_provider_wave
             # (the integration-wave check, also run by cb_wall_check now)
             # reads these unconditionally off from_user.
@@ -485,6 +493,77 @@ class CheckCallbackTests(DbTestCase):
             message=SimpleNamespace(edit_text=AsyncMock()),
             answer=AsyncMock(),
         )
+
+    async def test_wrong_presser_is_turned_away_without_running_any_check(self) -> None:
+        """Regression: the check button is scoped to whoever the wall was
+        shown to -- a different chat member pressing the SAME message's
+        button must not have it silently run against their own account."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")  # the intended recipient
+        await self._make_user(21, balance="5")  # a different, unrelated member
+        bot = SimpleNamespace(
+            get_chat_member=AsyncMock(side_effect=AssertionError("must not check membership for the wrong presser")),
+        )
+
+        # Wall was shown to user 20; user 21 presses the same button.
+        callback = self._callback(-1, 21, target_user_id=20)
+        async with self.sessions() as session:
+            await cb_wall_check(callback, session, bot)
+
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+        callback.message.edit_text.assert_not_awaited()
+        async with self.sessions() as session:
+            completed = await ChatSponsorWallRepository(session).is_completed(sponsor.id, 21)
+        self.assertFalse(completed)
+
+    async def test_intended_recipient_can_still_press_their_own_button(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        callback = self._callback(-1, 20, target_user_id=20)
+        async with self.sessions() as session:
+            await cb_wall_check(callback, session, bot)
+
+        async with self.sessions() as session:
+            completed = await ChatSponsorWallRepository(session).is_completed(sponsor.id, 20)
+        self.assertTrue(completed)
+
+    async def test_malformed_recipient_segment_rejected_not_bypassed(self) -> None:
+        """A non-numeric parts[3] (forged/malformed callback_data) must fail
+        closed -- rejecting the check -- not be silently treated as if no
+        recipient had been encoded at all, which would run the check
+        unrestricted for anyone."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(21, balance="5")
+        bot = SimpleNamespace(
+            get_chat_member=AsyncMock(side_effect=AssertionError("must not check membership on malformed data")),
+        )
+
+        callback = SimpleNamespace(
+            data="chatwall:check:-1:notanumber",
+            from_user=SimpleNamespace(id=21, is_premium=False, username=None, language_code="ru"),
+            message=SimpleNamespace(edit_text=AsyncMock()),
+            answer=AsyncMock(),
+        )
+        async with self.sessions() as session:
+            await cb_wall_check(callback, session, bot)
+
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+        callback.message.edit_text.assert_not_awaited()
+        async with self.sessions() as session:
+            completed = await ChatSponsorWallRepository(session).is_completed(sponsor.id, 21)
+        self.assertFalse(completed)
+
+    async def test_wall_subscribe_kb_encodes_the_recipient_into_the_check_button(self) -> None:
+        kb = wall_subscribe_kb([], -1, user_id=20)
+        callback_datas = [btn.callback_data for row in kb.inline_keyboard for btn in row if btn.callback_data]
+        self.assertIn("chatwall:check:-1:20", callback_datas)
 
     async def test_check_resolves_with_zero_owner_sponsors_when_paid_toggle_is_on(self) -> None:
         """The "Стена больше не активна" early-out must not fire just

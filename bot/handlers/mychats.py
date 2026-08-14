@@ -4,6 +4,7 @@ from html import escape, unescape
 from urllib.parse import urlparse
 
 from aiogram import Bot, F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     CallbackQuery,
@@ -38,6 +39,8 @@ from bot.handlers.group.chat_bonus import (
     msg_bonus_limit,
     msg_bonus_reward,
     start_bonus_creation,
+    try_confirm_pending_sponsor_manually,
+    _pending_sponsor_state,
 )
 from bot.handlers.group.chat_promo import msg_chat_promo_code, start_promo_creation
 from bot.handlers.group.chat_sponsor_wall import (
@@ -65,6 +68,7 @@ from bot.states.group import (
     ChatOwnerBroadcastStates,
     ChatOwnerPromoStates,
     ChatOwnerWallStates,
+    PendingSponsorAddStates,
 )
 
 router = Router()
@@ -404,6 +408,20 @@ async def msg_wall_limit(message: Message, state: FSMContext, session: AsyncSess
     if value < 1 or value > MAX_WALL_SPONSORS_HARD_CAP:
         await message.answer(
             f"❌ Лимит должен быть от 1 до {MAX_WALL_SPONSORS_HARD_CAP}:",
+            reply_markup=mychat_back_kb(chat_id),
+        )
+        return
+    # Lowering the limit is a ceiling on future additions, not a retroactive
+    # cut -- it must never silently leave more sponsors ACTIVE than the new
+    # limit allows (that would keep gating chat members on requirements the
+    # owner just tried to shrink). The owner already has explicit ✅/⛔
+    # toggle buttons per sponsor on the wall screen; point them there
+    # instead of guessing which ones to deactivate on their behalf.
+    active_count = len(await ChatSponsorWallRepository(session).list_active(chat_id))
+    if value < active_count:
+        await message.answer(
+            f"❌ Сейчас активно {active_count} спонсоров — лимит нельзя поставить ниже. "
+            f"Сначала отключите лишние (кнопкой ⛔ на стене), затем задайте лимит {value}.",
             reply_markup=mychat_back_kb(chat_id),
         )
         return
@@ -1073,3 +1091,46 @@ router.callback_query.register(
 # needed, ownership is re-checked inside the handlers themselves.
 router.callback_query.register(cb_wall_sponsor_addnew, F.data.startswith("chatwall:addnew:"))
 router.callback_query.register(cb_wall_sponsor_reuse, F.data.startswith("chatwall:reuse:"))
+
+
+async def _pending_sponsor_marker_armed(message: Message, bot: Bot, state: FSMContext) -> bool:
+    """Filter, not a state decorator -- the pending-sponsor slot is a
+    separate, GLOBAL per-user state (see chat_bonus.py's
+    _pending_sponsor_state), not the normal per-chat one aiogram's
+    @router.message(SomeState) filters key off, so it can't be expressed
+    that way. Only needs message/bot/state -- never session -- so it stays
+    cheap and safe to evaluate for every private message, including in
+    contexts with no session middleware wired up at all (e.g. lightweight
+    routing tests): the overwhelming common case (nothing pending) never
+    even reaches the handler below.
+
+    Also requires the requester's own (normal, per-chat) FSM state to be
+    empty. mychats.router is included ahead of several other private
+    routers (withdraw, admin user search, ...) that also read plain-text
+    replies keyed off THEIR OWN state -- without this check, a marker left
+    armed for up to _PENDING_SPONSOR_TIMEOUT_SECONDS could hijack an
+    unrelated in-progress flow's next message before it ever reaches that
+    flow's own handler. The pending-sponsor flow itself never sets this
+    per-chat state (see _start_new_sponsor_flow), so this never blocks the
+    legitimate case."""
+    if message.from_user is None:
+        return False
+    if await state.get_state() is not None:
+        return False
+    pending = _pending_sponsor_state(state.storage, bot.id, message.from_user.id)
+    return await pending.get_state() == PendingSponsorAddStates.awaiting_add
+
+
+async def _msg_pending_sponsor_manual_confirm(
+    message: Message, session: AsyncSession, bot: Bot, state: FSMContext,
+) -> None:
+    """Registered last so every other, more specific handler above still
+    gets first refusal; SkipHandler lets this fall through to them (or to
+    later routers) whenever the message doesn't look like a channel/chat
+    reference at all."""
+    handled = await try_confirm_pending_sponsor_manually(message, session, bot, state.storage)
+    if not handled:
+        raise SkipHandler
+
+
+router.message.register(_msg_pending_sponsor_manual_confirm, _pending_sponsor_marker_armed)

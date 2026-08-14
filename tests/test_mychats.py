@@ -7,20 +7,26 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from aiogram.dispatcher.event.bases import SkipHandler
+
 from bot.database.engine import Base
-from bot.database.models import Chat
+from bot.database.models import Chat, ChatSponsorWallSponsor
 from bot.database.repositories.chat import ChatRepository
+from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.handlers.group.onboarding import on_my_chat_member
 from bot.handlers.mychats import (
+    _msg_pending_sponsor_manual_confirm,
+    _pending_sponsor_marker_armed,
     cb_mychats_bonus_start,
     cb_mychats_broadcast_toggle,
     cb_mychats_list,
     cb_mychats_open,
     cb_mychats_promo_start,
     cb_mychats_wallintegration,
+    msg_wall_limit,
 )
 from bot.keyboards.main import main_menu_kb
-from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates
+from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates, ChatOwnerWallStates
 
 
 def _state():
@@ -33,6 +39,16 @@ def _callback(user_id: int, data: str):
         edit_text=AsyncMock(), answer=AsyncMock(),
     )
     return SimpleNamespace(message=message, from_user=SimpleNamespace(id=user_id), data=data, answer=AsyncMock())
+
+
+def _message(user_id: int, text: str):
+    return SimpleNamespace(
+        from_user=SimpleNamespace(id=user_id),
+        text=text,
+        forward_origin=None,
+        forward_from_chat=None,
+        answer=AsyncMock(),
+    )
 
 
 def _chat_member_updated(chat_id: int, user_id: int, status: str, old_status: str = "left", chat_type: str = "supergroup"):
@@ -304,6 +320,124 @@ class WallIntegrationToggleTests(ChatModelsTestCase):
         async with self.sessions() as session:
             chat = await session.get(Chat, -31)
         self.assertFalse(chat.wall_integration_enabled)  # untouched, still the (opt-in) default
+
+
+class WallLimitTests(ChatModelsTestCase):
+    async def _seed(self, chat_id: int, owner_id: int, *, max_sponsors: int, active_sponsor_chat_ids: list[int]):
+        async with self.sessions() as session:
+            session.add(Chat(
+                chat_id=chat_id, title="T", status="active", owner_user_id=owner_id,
+                sponsor_wall_max_sponsors=max_sponsors,
+            ))
+            for sponsor_chat_id in active_sponsor_chat_ids:
+                session.add(ChatSponsorWallSponsor(
+                    chat_id=chat_id, sponsor_chat_id=sponsor_chat_id, sponsor_type="channel",
+                    title="S", username=None, is_active=True,
+                ))
+            await session.commit()
+
+    async def test_lowering_below_active_count_rejected(self) -> None:
+        await self._seed(-60, 1, max_sponsors=3, active_sponsor_chat_ids=[-900, -901])
+        state = _state()
+        await state.update_data(chat_id=-60)
+        message = _message(1, "1")
+        async with self.sessions() as session:
+            await msg_wall_limit(message, state, session)
+
+        message.answer.assert_awaited_once()
+        self.assertIn("нельзя поставить ниже", message.answer.await_args.args[0])
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -60)
+        self.assertEqual(chat.sponsor_wall_max_sponsors, 3)  # unchanged
+
+    async def test_lowering_to_exactly_active_count_accepted(self) -> None:
+        await self._seed(-61, 1, max_sponsors=5, active_sponsor_chat_ids=[-900, -901])
+        state = _state()
+        await state.update_data(chat_id=-61)
+        message = _message(1, "2")
+        async with self.sessions() as session:
+            await msg_wall_limit(message, state, session)
+
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -61)
+        self.assertEqual(chat.sponsor_wall_max_sponsors, 2)
+
+    async def test_raising_the_limit_still_accepted(self) -> None:
+        await self._seed(-62, 1, max_sponsors=3, active_sponsor_chat_ids=[-900])
+        state = _state()
+        await state.update_data(chat_id=-62)
+        message = _message(1, "10")
+        async with self.sessions() as session:
+            await msg_wall_limit(message, state, session)
+
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -62)
+        self.assertEqual(chat.sponsor_wall_max_sponsors, 10)
+
+
+class PendingSponsorMarkerFilterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_marker_rejected_without_touching_session(self) -> None:
+        message = _message(999, "ping")
+        bot = SimpleNamespace(id=1)
+        state = FSMContext(storage=MemoryStorage(), key=StorageKey(bot_id=1, chat_id=999, user_id=999))
+        self.assertFalse(await _pending_sponsor_marker_armed(message, bot, state))
+
+    async def test_armed_marker_accepted(self) -> None:
+        from bot.handlers.group.chat_bonus import PendingSponsorAddStates, _pending_sponsor_state
+
+        storage = MemoryStorage()
+        pending = _pending_sponsor_state(storage, 1, 42)
+        await pending.set_state(PendingSponsorAddStates.awaiting_add)
+
+        message = _message(42, "@sponsorch")
+        bot = SimpleNamespace(id=1)
+        state = FSMContext(storage=storage, key=StorageKey(bot_id=1, chat_id=42, user_id=42))
+        self.assertTrue(await _pending_sponsor_marker_armed(message, bot, state))
+
+    async def test_armed_marker_yields_to_an_unrelated_in_progress_flow(self) -> None:
+        # e.g. the user is mid-withdrawal (WithdrawStates.enter_recipient_username)
+        # in a router included AFTER mychats.router -- an armed sponsor marker
+        # left over from up to 180s ago must not hijack that flow's own reply.
+        from bot.handlers.group.chat_bonus import PendingSponsorAddStates, _pending_sponsor_state
+
+        storage = MemoryStorage()
+        pending = _pending_sponsor_state(storage, 1, 42)
+        await pending.set_state(PendingSponsorAddStates.awaiting_add)
+
+        message = _message(42, "@sponsorch")
+        bot = SimpleNamespace(id=1)
+        state = FSMContext(storage=storage, key=StorageKey(bot_id=1, chat_id=42, user_id=42))
+        await state.set_state("SomeUnrelatedFlow:waiting")
+        self.assertFalse(await _pending_sponsor_marker_armed(message, bot, state))
+
+
+class PendingSponsorManualConfirmWiringTests(ChatModelsTestCase):
+    async def test_no_pending_marker_skips_to_other_handlers(self) -> None:
+        message = _message(999, "hello")
+        bot = SimpleNamespace(id=1, get_chat=AsyncMock(), get_chat_member=AsyncMock(), send_message=AsyncMock())
+        state = FSMContext(storage=MemoryStorage(), key=StorageKey(bot_id=1, chat_id=999, user_id=999))
+        async with self.sessions() as session:
+            with self.assertRaises(SkipHandler):
+                await _msg_pending_sponsor_manual_confirm(message, session, bot, state)
+
+    async def test_resolved_reference_does_not_skip(self) -> None:
+        from bot.handlers.group.chat_bonus import PendingSponsorAddStates, _pending_sponsor_state
+
+        storage = MemoryStorage()
+        pending = _pending_sponsor_state(storage, 1, 42)
+        await pending.set_state(PendingSponsorAddStates.awaiting_add)
+        await pending.update_data(sponsor_type="channel", origin_chat_id=-50, purpose="bonus")
+
+        message = _message(42, "@sponsorch")
+        bot = SimpleNamespace(
+            id=1,
+            get_chat=AsyncMock(return_value=SimpleNamespace(id=-900, type="channel", title="S", username="sponsorch")),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+            send_message=AsyncMock(),
+        )
+        state = FSMContext(storage=storage, key=StorageKey(bot_id=1, chat_id=42, user_id=42))
+        async with self.sessions() as session:
+            await _msg_pending_sponsor_manual_confirm(message, session, bot, state)  # must not raise
 
 
 if __name__ == "__main__":
