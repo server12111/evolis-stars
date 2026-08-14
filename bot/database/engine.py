@@ -260,10 +260,32 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN sponsor_wall_max_sponsors INTEGER NOT NULL DEFAULT 3")
         )
-    if "wall_integration_enabled" not in chat_columns:
+    wall_integration_enabled_preexisted = "wall_integration_enabled" in chat_columns
+    if not wall_integration_enabled_preexisted:
         connection.execute(
-            text("ALTER TABLE chats ADD COLUMN wall_integration_enabled BOOLEAN NOT NULL DEFAULT 1")
+            text("ALTER TABLE chats ADD COLUMN wall_integration_enabled BOOLEAN NOT NULL DEFAULT 0")
         )
+    if wall_integration_enabled_preexisted:
+        # One-time reset, legacy installs only: this toggle briefly shipped
+        # defaulting to True before this same release flipped the product
+        # default to opt-in. The paid-sponsors GATE itself was genuinely
+        # live that whole time for any chat that already had >=1 owner
+        # sponsor (ChatSponsorWallMiddleware and the mychats.py toggle were
+        # both already wired) -- only the "Проверить" confirmation button
+        # was unreachable (see the router-wiring fix alongside this one).
+        # Resetting every chat to the new opt-in default is a deliberate
+        # product decision (confirmed with the user), not a claim that
+        # nothing was ever enforced -- a fresh install has no rows to
+        # reset in the first place, hence gating this on the column
+        # already having existed.
+        already_reset_wall_integration = connection.execute(
+            text("SELECT 1 FROM bot_settings WHERE key = 'wall_integration_opt_in_reset_done'")
+        ).first()
+        if already_reset_wall_integration is None:
+            connection.execute(text("UPDATE chats SET wall_integration_enabled = 0 WHERE wall_integration_enabled != 0"))
+            connection.execute(text(
+                "INSERT INTO bot_settings (key, value) VALUES ('wall_integration_opt_in_reset_done', '1')"
+            ))
     broadcast_msg_columns = {
         column["name"] for column in inspect(connection).get_columns("chat_broadcast_messages")
     }

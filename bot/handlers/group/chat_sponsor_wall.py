@@ -271,9 +271,12 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
         return
 
     chat = await ChatRepository(session).get(chat_id)
+    if chat is None:
+        await callback.answer("✅ Стена больше не активна.", show_alert=True)
+        return
     wall_repo = ChatSponsorWallRepository(session)
     active = await wall_repo.list_active(chat_id)
-    if not active or chat is None:
+    if not active and not chat.wall_integration_enabled:
         await callback.answer("✅ Стена больше не активна.", show_alert=True)
         return
 

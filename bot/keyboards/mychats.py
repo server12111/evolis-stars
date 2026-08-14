@@ -110,7 +110,7 @@ def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
 
 
 def mychat_wall_kb(
-    chat_id: int, sponsors: list, max_sponsors: int, integration_enabled: bool = True,
+    chat_id: int, sponsors: list, max_sponsors: int, integration_enabled: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     active_count = 0

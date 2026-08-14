@@ -284,13 +284,13 @@ class WallIntegrationToggleTests(ChatModelsTestCase):
             await cb_mychats_wallintegration(cb, session)
         async with self.sessions() as session:
             chat = await session.get(Chat, -30)
-        self.assertFalse(chat.wall_integration_enabled)
+        self.assertTrue(chat.wall_integration_enabled)  # opt-in default is off -> first press turns it on
 
         async with self.sessions() as session:
             await cb_mychats_wallintegration(cb, session)
         async with self.sessions() as session:
             chat = await session.get(Chat, -30)
-        self.assertTrue(chat.wall_integration_enabled)
+        self.assertFalse(chat.wall_integration_enabled)
 
     async def test_denied_for_non_owner(self) -> None:
         async with self.sessions() as session:
@@ -303,7 +303,7 @@ class WallIntegrationToggleTests(ChatModelsTestCase):
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -31)
-        self.assertTrue(chat.wall_integration_enabled)  # untouched, still the default
+        self.assertFalse(chat.wall_integration_enabled)  # untouched, still the (opt-in) default
 
 
 if __name__ == "__main__":

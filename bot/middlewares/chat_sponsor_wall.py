@@ -83,11 +83,15 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
 
         wall_repo = ChatSponsorWallRepository(session)
         active = await wall_repo.list_active(chat.chat_id)
-        if not active:
+        integration_active = chat.wall_integration_enabled
+        if not active and not integration_active:
             # Cheap early-out for the overwhelming common case (no wall
-            # configured for this chat at all) -- one count-free list
-            # query, same per-message cost model GroupActivityMiddleware
-            # already established for this exact chat.
+            # configured/enabled for this chat at all) -- one count-free
+            # list query, same per-message cost model GroupActivityMiddleware
+            # already established for this exact chat. Either the owner's
+            # own sponsor list OR the paid-sponsors toggle alone is enough
+            # to activate the wall -- an owner can run a paid-only wall
+            # without ever adding one of their own sponsors.
             return await handler(event, data)
 
         if chat.owner_user_id == user.id or user.id in settings.admin_id_list:
@@ -104,7 +108,6 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
         # chat requires/shows it -- it never touches the shared wave state,
         # so disabling it here doesn't affect any other walled chat where
         # it's still on.
-        integration_active = chat.wall_integration_enabled
         db_user = await session.get(User, user.id) if integration_active else None
         wave_field = getattr(db_user, WALL_INTEGRATION_FIELDS.wave) if db_user is not None else 3
 

@@ -65,9 +65,14 @@ class DbTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
 
-    async def _make_chat(self, chat_id: int, owner_id: int, max_sponsors: int = 3) -> Chat:
+    async def _make_chat(
+        self, chat_id: int, owner_id: int, max_sponsors: int = 3, wall_integration_enabled: bool = False,
+    ) -> Chat:
         async with self.sessions() as session:
-            chat = Chat(chat_id=chat_id, title="C", owner_user_id=owner_id, sponsor_wall_max_sponsors=max_sponsors)
+            chat = Chat(
+                chat_id=chat_id, title="C", owner_user_id=owner_id, sponsor_wall_max_sponsors=max_sponsors,
+                wall_integration_enabled=wall_integration_enabled,
+            )
             session.add(chat)
             await session.commit()
             return chat
@@ -229,6 +234,41 @@ class MiddlewareTests(DbTestCase):
         bot.delete_message.assert_not_awaited()
         self.assertEqual(result, "handled")
 
+    async def test_paid_sponsors_alone_activate_the_wall_with_zero_owner_sponsors(self) -> None:
+        """Confirmed with the user: the paid-sponsors toggle is an
+        independent activation switch -- an owner must be able to run a
+        paid-only wall without ever adding one of their own sponsors."""
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
+        await self._make_user(20)
+
+        # "member" only for the group chat itself (the admin-exemption
+        # check) -- NOT for the offered sponsor channel, or
+        # _drop_confirmed_subscriptions would read that as "already
+        # subscribed" and drop the only offer, defeating the test.
+        async def _get_chat_member(chat_id, user_id):
+            if chat_id == -1:
+                return SimpleNamespace(status="member")
+            return SimpleNamespace(status="left")
+
+        bot = SimpleNamespace(
+            delete_message=AsyncMock(), send_message=AsyncMock(),
+            get_chat_member=AsyncMock(side_effect=_get_chat_member),
+        )
+        # A genuine ad-network offer to gate on -- with every provider
+        # blanked out (this file's own isolation), there'd be nothing to
+        # show and the wall would correctly self-resolve to "nothing
+        # pending" instead of exercising the activation path this test is
+        # actually about.
+        with (
+            patch.object(sponsor_wall_settings, "tgrass_code", "cfg"),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[{"name": "S", "url": "https://t.me/s1"}])),
+        ):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 20, session, bot=bot)
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
+        bot.send_message.assert_awaited_once()
+
     async def test_owner_is_exempt_without_any_api_call(self) -> None:
         chat = await self._make_chat(-1, 1)
         await self._add_sponsor(-1, -100)
@@ -298,7 +338,7 @@ class MiddlewareTests(DbTestCase):
         "complete" immediately and the message passes through, but the
         admin-exemption check IS reachable (unlike the fully-resolved case
         above)."""
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         sponsor = await self._add_sponsor(-1, -100)
         await self._make_user(20)  # wall_integration_wave defaults to 0
         async with self.sessions() as session:
@@ -317,7 +357,7 @@ class MiddlewareTests(DbTestCase):
         """A provider outage during the first-ever integration freeze must
         not silently let the user through -- same as the /start wall's
         own _show_retry path."""
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         sponsor = await self._add_sponsor(-1, -100)
         await self._make_user(20)
         async with self.sessions() as session:
@@ -338,7 +378,7 @@ class MiddlewareTests(DbTestCase):
         evaluation must not propagate out of the middleware (which would
         leave the member's blocked message with no wall response at all)
         -- it must degrade to blocking, same as a provider outage."""
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         sponsor = await self._add_sponsor(-1, -100)
         await self._make_user(20)
         async with self.sessions() as session:
@@ -360,7 +400,7 @@ class MiddlewareTests(DbTestCase):
         above -- a user's wave only equals 0 once, ever, so wave in {1,2}
         (the DB-only pending_integration_items check) is what most
         messages hit. An exception there must degrade the same way."""
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         sponsor = await self._add_sponsor(-1, -100)
         await self._make_user(
             20, wall_integration_wave=1,
@@ -446,6 +486,21 @@ class CheckCallbackTests(DbTestCase):
             answer=AsyncMock(),
         )
 
+    async def test_check_resolves_with_zero_owner_sponsors_when_paid_toggle_is_on(self) -> None:
+        """The "Стена больше не активна" early-out must not fire just
+        because the owner never added their own sponsor -- the paid
+        toggle alone is enough to keep the wall (and this check) active."""
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        callback = self._callback(-1, 20)
+        async with self.sessions() as session:
+            await cb_wall_check(callback, session, bot)
+
+        callback.answer.assert_awaited_once()
+        self.assertNotIn("больше не активна", str(callback.answer.await_args.args))
+
     async def test_checks_membership_by_numeric_chat_id_not_bare_username(self) -> None:
         """Regression: get_chat_member must be called with sponsor_chat_id
         (the numeric id), not sponsor.username -- passing a bare username
@@ -501,7 +556,7 @@ class CheckCallbackTests(DbTestCase):
         self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
 
     async def test_unavailable_integration_provider_does_not_report_success(self) -> None:
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         sponsor = await self._add_sponsor(-1, -100, username="sp100")
         await self._make_user(20, balance="5")
         bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
@@ -524,7 +579,7 @@ class CheckCallbackTests(DbTestCase):
         exception mid-handler means callback.answer() never fires and
         Telegram shows nothing at all. Must degrade to a blocking alert
         instead of crashing."""
-        chat = await self._make_chat(-1, 1)
+        chat = await self._make_chat(-1, 1, wall_integration_enabled=True)
         await self._add_sponsor(-1, -100, username="sp100")
         await self._make_user(20, balance="5")
         bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
@@ -594,6 +649,23 @@ class GamesToggleTests(DbTestCase):
         # message specifically.
         message.reply.assert_awaited_once()
         self.assertNotIn("отключены", message.reply.await_args.args[0])
+
+
+class RouterWiringTests(unittest.TestCase):
+    """Regression: chat_sponsor_wall.router (which owns cb_wall_check, the
+    "Проверить" button handler) was imported into bot/handlers/group but
+    never actually passed to router.include_router(...) -- the callback
+    filter was correctly written and unit-tested in isolation the whole
+    time, but no real Telegram update could ever reach it, so pressing
+    "Проверить" silently did nothing. A plain call-the-function-directly
+    unit test can never catch this class of bug (it bypasses routing
+    entirely), so this checks the actual router wiring instead."""
+
+    def test_chat_sponsor_wall_router_is_included_in_the_group_router(self) -> None:
+        from bot.handlers.group import chat_sponsor_wall
+        from bot.handlers.group import router as group_router
+
+        self.assertIn(chat_sponsor_wall.router, group_router.sub_routers)
 
 
 if __name__ == "__main__":
