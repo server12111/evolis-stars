@@ -17,6 +17,7 @@ from bot.handlers.mychats import (
     cb_mychats_list,
     cb_mychats_open,
     cb_mychats_promo_start,
+    cb_mychats_wallintegration,
 )
 from bot.keyboards.main import main_menu_kb
 from bot.states.group import ChatOwnerBonusStates, ChatOwnerPromoStates
@@ -151,8 +152,8 @@ class AccessControlTests(ChatModelsTestCase):
         # must be handled gracefully, not raise.
         for data in (
             "mychats:list", "mychats:open:-1", "mychats:refresh:-1",
-            "mychats:broadcast:-1", "mychats:stats:-1", "mychats:top:-1",
-            "mychats:log:-1", "mychats:games:-1", "mychats:promo:-1", "mychats:bonus:-1",
+            "mychats:broadcast:-1", "mychats:stats:-1",
+            "mychats:games:-1", "mychats:promo:-1", "mychats:bonus:-1",
         ):
             cb = SimpleNamespace(message=None, from_user=SimpleNamespace(id=1), data=data, answer=AsyncMock())
             async with self.sessions() as session:
@@ -165,8 +166,6 @@ class AccessControlTests(ChatModelsTestCase):
                     "mychats:refresh:-1": "cb_mychats_refresh",
                     "mychats:broadcast:-1": "cb_mychats_broadcast_toggle",
                     "mychats:stats:-1": "cb_mychats_stats",
-                    "mychats:top:-1": "cb_mychats_top",
-                    "mychats:log:-1": "cb_mychats_log",
                     "mychats:games:-1": "cb_mychats_games",
                     "mychats:promo:-1": "cb_mychats_promo_start",
                     "mychats:bonus:-1": "cb_mychats_bonus_start",
@@ -272,6 +271,39 @@ class ConnectInstructionsTests(ChatModelsTestCase):
         async with self.sessions() as session:
             await on_my_chat_member(event, bot, session, _state())
         bot.send_message.assert_not_awaited()
+
+
+class WallIntegrationToggleTests(ChatModelsTestCase):
+    async def test_owner_can_toggle_off_then_on(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-30, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        cb = _callback(1, "mychats:wallintegration:-30")
+        async with self.sessions() as session:
+            await cb_mychats_wallintegration(cb, session)
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -30)
+        self.assertFalse(chat.wall_integration_enabled)
+
+        async with self.sessions() as session:
+            await cb_mychats_wallintegration(cb, session)
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -30)
+        self.assertTrue(chat.wall_integration_enabled)
+
+    async def test_denied_for_non_owner(self) -> None:
+        async with self.sessions() as session:
+            session.add(Chat(chat_id=-31, title="T", status="active", owner_user_id=1))
+            await session.commit()
+
+        cb = _callback(999, "mychats:wallintegration:-31")
+        async with self.sessions() as session:
+            await cb_mychats_wallintegration(cb, session)
+
+        async with self.sessions() as session:
+            chat = await session.get(Chat, -31)
+        self.assertTrue(chat.wall_integration_enabled)  # untouched, still the default
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ from bot.services.chat_wall_integrations import (
     evaluate_and_credit_integration_wave,
     integration_item_key,
     pending_integration_items,
+    safe_evaluate_and_credit_integration_wave,
+    safe_pending_integration_items,
 )
 
 
@@ -218,6 +220,76 @@ class EvaluateAndCreditTests(DbTestCase):
             completed = await ChatWallIntegrationRepository(session).is_completed(1, "tgrass", "https://t.me/tg0")
         self.assertEqual(float(saved.stars_balance), 0.0)
         self.assertFalse(completed)
+
+
+class SafeWrapperTests(DbTestCase):
+    """The safe_* wrappers are what every real call site (the mandatory
+    gate middleware + the "Проверить" callback) actually calls -- an
+    unhandled exception in the underlying function must never propagate,
+    since that's exactly what made "нажимаешь проверить, а оно не
+    проверяется" look like a silent no-op to the user."""
+
+    async def test_safe_evaluate_swallows_exceptions_and_reports_unavailable(self) -> None:
+        await self._make_user(1)
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                user = await session.get(User, 1)
+                wave_state, credited = await safe_evaluate_and_credit_integration_wave(
+                    inner(1), user, session, None,
+                )
+        self.assertEqual(wave_state.status, "unavailable")
+        self.assertEqual(credited, 0)
+
+    async def test_safe_evaluate_rolls_back_a_dirty_session_after_failure(self) -> None:
+        """A failure mid-write (not just a network call) can leave the
+        session's transaction unusable until rolled back -- the wrapper
+        must do this itself so the caller can safely keep using session
+        afterward (e.g. to still delete the blocked message)."""
+        await self._make_user(1)
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                user = await session.get(User, 1)
+                await safe_evaluate_and_credit_integration_wave(inner(1), user, session, None)
+                # The session must still be usable for a completely
+                # unrelated query right after -- would raise
+                # PendingRollbackError if the wrapper hadn't rolled back.
+                still_usable = await session.get(User, 1)
+        self.assertIsNotNone(still_usable)
+
+    async def test_safe_pending_swallows_exceptions_and_reports_unavailable(self) -> None:
+        await self._make_user(1, wall_integration_wave=1, wall_integration_wave_one='[{"provider":"tgrass","url":"https://t.me/a"}]')
+        with patch(
+            "bot.services.chat_wall_integrations.pending_integration_items",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                user = await session.get(User, 1)
+                items, unavailable = await safe_pending_integration_items(user, session)
+        self.assertEqual(items, [])
+        self.assertTrue(unavailable)
+
+    async def test_safe_wrappers_are_transparent_on_success(self) -> None:
+        await self._make_user(1)
+        with patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=offers("tg", 2))):
+            async with self.sessions() as session:
+                user = await session.get(User, 1)
+                wave_state, credited = await safe_evaluate_and_credit_integration_wave(
+                    inner(1), user, session, None,
+                )
+        self.assertEqual(wave_state.status, "pending")
+        self.assertEqual(credited, 0)
+
+        async with self.sessions() as session:
+            user = await session.get(User, 1)
+            items, unavailable = await safe_pending_integration_items(user, session)
+        self.assertEqual(len(items), 2)
+        self.assertFalse(unavailable)
 
 
 class RepositoryRaceSafetyTests(DbTestCase):

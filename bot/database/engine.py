@@ -260,6 +260,10 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(
             text("ALTER TABLE chats ADD COLUMN sponsor_wall_max_sponsors INTEGER NOT NULL DEFAULT 3")
         )
+    if "wall_integration_enabled" not in chat_columns:
+        connection.execute(
+            text("ALTER TABLE chats ADD COLUMN wall_integration_enabled BOOLEAN NOT NULL DEFAULT 1")
+        )
     broadcast_msg_columns = {
         column["name"] for column in inspect(connection).get_columns("chat_broadcast_messages")
     }

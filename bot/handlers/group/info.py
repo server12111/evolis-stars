@@ -91,8 +91,8 @@ async def msg_info(message: Message) -> None:
 
 
 async def render_top_users_text(session: AsyncSession, chat_id: int) -> str | None:
-    """Shared by the in-group "топ" command and the private chat panel.
-    Returns None if this chat has no members with a balance yet."""
+    """Backs the in-group "топ" command. Returns None if this chat has no
+    members with a balance yet."""
     users = await ChatMembershipRepository(session).top_users_by_balance(chat_id, 10)
     if not users:
         return None
@@ -114,8 +114,8 @@ async def msg_top_users(message: Message, session: AsyncSession) -> None:
 
 
 async def render_roulette_log_text(session: AsyncSession, chat_id: int) -> str | None:
-    """Shared by the in-group "лог" command and the private chat panel.
-    Returns None if this chat has no roulette history yet."""
+    """Backs the in-group "лог" command. Returns None if this chat has no
+    roulette history yet."""
     result = await session.execute(
         select(
             GameSession.bet, GameSession.result_choice, GameSession.result, GameSession.payout,

@@ -512,6 +512,12 @@ class Chat(Base):
     # this chat's sponsor wall (see ChatSponsorWallSponsor below) -- unlike
     # MAX_BONUS_SPONSORS, this is per-chat, not a single bot-wide number.
     sponsor_wall_max_sponsors: Mapped[int] = mapped_column(Integer, default=3)
+    # Owner toggle for the wall's PAID side (ad-network integration offers,
+    # see bot.services.chat_wall_integrations) -- independent of the wall's
+    # own sponsor list above, which always stays on whenever the owner has
+    # added at least one sponsor. Default on: matches the wall's existing
+    # behavior for every chat before this toggle existed.
+    wall_integration_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class ChatMembership(Base):

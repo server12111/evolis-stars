@@ -333,6 +333,88 @@ class MiddlewareTests(DbTestCase):
         handler.assert_not_awaited()
         bot.delete_message.assert_awaited_once()
 
+    async def test_unexpected_exception_during_integration_eval_still_blocks_not_crashes(self) -> None:
+        """Regression: an unexpected exception inside the integration-wave
+        evaluation must not propagate out of the middleware (which would
+        leave the member's blocked message with no wall response at all)
+        -- it must degrade to blocking, same as a provider outage."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 20, session)
+
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
+        bot.send_message.assert_awaited_once()
+
+    async def test_unexpected_exception_on_the_db_only_hot_path_still_blocks_not_crashes(self) -> None:
+        """Regression: this is the MORE common path than the wave==0 one
+        above -- a user's wave only equals 0 once, ever, so wave in {1,2}
+        (the DB-only pending_integration_items check) is what most
+        messages hit. An exception there must degrade the same way."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(
+            20, wall_integration_wave=1,
+            wall_integration_wave_one='[{"provider":"tgrass","url":"https://t.me/a"}]',
+        )
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+
+        with patch(
+            "bot.services.chat_wall_integrations.pending_integration_items",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 20, session)
+
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
+        bot.send_message.assert_awaited_once()
+
+    async def test_integration_disabled_for_chat_skips_it_entirely(self) -> None:
+        """The owner's per-chat toggle must fully exempt the integration
+        side -- no User lookup, no wave touched, no blocking on it -- while
+        the owner-sponsor gate keeps working as normal."""
+        chat = await self._make_chat(-1, 1)
+        sponsor = await self._add_sponsor(-1, -100)
+        await self._make_user(20)
+        async with self.sessions() as session:
+            saved_chat = await session.get(Chat, -1)
+            saved_chat.wall_integration_enabled = False
+            await session.commit()
+
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=AssertionError("must not be called when integration is disabled")),
+        ):
+            async with self.sessions() as session:
+                chat = await session.get(Chat, -1)
+                handler, bot, result = await self._run(chat, 20, session)
+
+        # Owner sponsor is still unsatisfied -> still blocked, but purely
+        # on the owner side.
+        handler.assert_not_awaited()
+        bot.delete_message.assert_awaited_once()
+
+        async with self.sessions() as session:
+            await ChatSponsorWallRepository(session).mark_completed(sponsor.id, 20)
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=AssertionError("must not be called when integration is disabled")),
+        ):
+            async with self.sessions() as session:
+                handler, bot, result = await self._run(chat, 20, session)
+        handler.assert_awaited_once()
+
     async def test_bot_admin_is_exempt_even_as_a_plain_chat_member(self) -> None:
         from unittest.mock import patch
 
@@ -435,6 +517,51 @@ class CheckCallbackTests(DbTestCase):
         callback.message.edit_text.assert_not_awaited()
         callback.answer.assert_awaited_once()
         self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+
+    async def test_unexpected_exception_still_answers_the_callback(self) -> None:
+        """Regression: this is exactly what 'нажимаешь проверить, а оно не
+        проверяется' looks like from the user's side -- an unhandled
+        exception mid-handler means callback.answer() never fires and
+        Telegram shows nothing at all. Must degrade to a blocking alert
+        instead of crashing."""
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+
+        callback = self._callback(-1, 20)
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with self.sessions() as session:
+                await cb_wall_check(callback, session, bot)
+
+        callback.message.edit_text.assert_not_awaited()
+        callback.answer.assert_awaited_once()
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+
+    async def test_integration_disabled_for_chat_never_evaluated(self) -> None:
+        chat = await self._make_chat(-1, 1)
+        await self._add_sponsor(-1, -100, username="sp100")
+        await self._make_user(20, balance="5")
+        async with self.sessions() as session:
+            saved_chat = await session.get(Chat, -1)
+            saved_chat.wall_integration_enabled = False
+            await session.commit()
+
+        bot = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member")))
+        callback = self._callback(-1, 20)
+        with patch(
+            "bot.services.chat_wall_integrations.evaluate_and_credit_integration_wave",
+            AsyncMock(side_effect=AssertionError("must not be called when integration is disabled")),
+        ):
+            async with self.sessions() as session:
+                await cb_wall_check(callback, session, bot)
+
+        callback.message.edit_text.assert_awaited_once()
+        callback.answer.assert_awaited_once()
+        self.assertNotIn("show_alert", callback.answer.await_args.kwargs)
 
 
 class GamesToggleTests(DbTestCase):

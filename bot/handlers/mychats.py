@@ -46,7 +46,6 @@ from bot.handlers.group.chat_sponsor_wall import (
     cb_wall_sponsor_reuse,
     start_wall_sponsor_flow,
 )
-from bot.handlers.group.info import render_roulette_log_text, render_top_users_text
 from bot.handlers.group.owner_menu import render_chat_panel_text
 from bot.keyboards.mychats import (
     broadcast_ask_buttons_kb,
@@ -240,13 +239,18 @@ async def cb_mychats_gamestoggle(callback: CallbackQuery, session: AsyncSession)
 async def _render_wall(callback: CallbackQuery, session: AsyncSession, chat: Chat) -> None:
     sponsors = await ChatSponsorWallRepository(session).list_all(chat.chat_id)
     active_count = sum(1 for s in sponsors if s.is_active)
+    integration_status = (
+        "включены — 1 RP⭐️ каждому за подписку" if chat.wall_integration_enabled else "выключены"
+    )
     text = (
         f"🚧 <b>Спонсор-стена</b>\n\n"
         f"Пока участник не подпишется на всех активных спонсорах ниже, бот удаляет его сообщения "
-        f"в этом чате. За каждого спонсора участник получает <b>1 RP⭐️</b>.\n\n"
-        f"Активно: <b>{active_count}/{chat.sponsor_wall_max_sponsors}</b>"
+        f"в этом чате.\n\n"
+        f"📢 Свои спонсоры (ниже): подписка бесплатна для вас, RP⭐️ участнику не начисляется.\n"
+        f"⭐️ Платные спонсоры (из рекламных сетей): {integration_status}.\n\n"
+        f"Активно своих: <b>{active_count}/{chat.sponsor_wall_max_sponsors}</b>"
     )
-    kb = mychat_wall_kb(chat.chat_id, sponsors, chat.sponsor_wall_max_sponsors)
+    kb = mychat_wall_kb(chat.chat_id, sponsors, chat.sponsor_wall_max_sponsors, chat.wall_integration_enabled)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
     except Exception as exc:
@@ -317,6 +321,24 @@ async def cb_mychats_walltoggle(callback: CallbackQuery, session: AsyncSession) 
         return
     await _render_wall(callback, session, chat)
     await callback.answer("✅ Включен" if sponsor.is_active else "✅ Выключен")
+
+
+@router.callback_query(F.data.startswith("mychats:wallintegration:"))
+async def cb_mychats_wallintegration(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    chat_id = _parse_chat_id(callback)
+    if chat_id is None:
+        await callback.answer()
+        return
+    chat = await _verify_owned_chat(callback, session, chat_id)
+    if chat is None:
+        return
+    chat.wall_integration_enabled = not chat.wall_integration_enabled
+    await session.commit()
+    await _render_wall(callback, session, chat)
+    await callback.answer("✅ Платные спонсоры включены" if chat.wall_integration_enabled else "✅ Платные спонсоры выключены")
 
 
 @router.callback_query(F.data.startswith("mychats:walldelete:"))
@@ -403,46 +425,6 @@ async def cb_mychats_stats(callback: CallbackQuery, session: AsyncSession) -> No
     if chat is None:
         return
     text = await render_chat_panel_text(ChatRepository(session), chat.chat_id, chat.member_count)
-    kb = mychat_back_kb(chat_id)
-    try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("mychats:top:"))
-async def cb_mychats_top(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.message is None:
-        await callback.answer()
-        return
-    chat_id = _parse_chat_id(callback)
-    if chat_id is None:
-        await callback.answer()
-        return
-    if await _verify_owned_chat(callback, session, chat_id) is None:
-        return
-    text = await render_top_users_text(session, chat_id) or "Пока нет пользователей."
-    kb = mychat_back_kb(chat_id)
-    try:
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
-        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("mychats:log:"))
-async def cb_mychats_log(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.message is None:
-        await callback.answer()
-        return
-    chat_id = _parse_chat_id(callback)
-    if chat_id is None:
-        await callback.answer()
-        return
-    if await _verify_owned_chat(callback, session, chat_id) is None:
-        return
-    text = await render_roulette_log_text(session, chat_id) or "Пока нет сыгранных партий в рулетку."
     kb = mychat_back_kb(chat_id)
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)

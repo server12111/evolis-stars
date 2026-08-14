@@ -11,8 +11,8 @@ from bot.database.models import Chat, User
 from bot.database.repositories.chat_sponsor_wall import ChatSponsorWallRepository
 from bot.services.chat_wall_integrations import (
     WALL_INTEGRATION_FIELDS,
-    evaluate_and_credit_integration_wave,
-    pending_integration_items,
+    safe_evaluate_and_credit_integration_wave,
+    safe_pending_integration_items,
 )
 
 settings = get_settings()
@@ -99,8 +99,13 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
         # Integration (ad-network) offers are global per user, not per
         # chat -- read the User row (may not exist yet for a group member
         # who never started the bot privately; treat that as "nothing to
-        # gate on" rather than blocking on missing data).
-        db_user = await session.get(User, user.id)
+        # gate on" rather than blocking on missing data). The owner's own
+        # toggle (chat.wall_integration_enabled) only controls whether THIS
+        # chat requires/shows it -- it never touches the shared wave state,
+        # so disabling it here doesn't affect any other walled chat where
+        # it's still on.
+        integration_active = chat.wall_integration_enabled
+        db_user = await session.get(User, user.id) if integration_active else None
         wave_field = getattr(db_user, WALL_INTEGRATION_FIELDS.wave) if db_user is not None else 3
 
         if not owner_missing and wave_field == 3:
@@ -127,19 +132,25 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
             if wave_field == 0:
                 # Never frozen for this user -- the one live provider round
                 # a first-ever block is allowed to spend (see
-                # evaluate_and_credit_integration_wave's own docstring).
-                wave_state, _ = await evaluate_and_credit_integration_wave(message, db_user, session, bot)
+                # safe_evaluate_and_credit_integration_wave's own docstring).
+                wave_state, _ = await safe_evaluate_and_credit_integration_wave(message, db_user, session, bot)
                 if wave_state.status == "pending":
                     integration_missing = wave_state.items or []
                 elif wave_state.status == "unavailable":
-                    # A provider outage must still BLOCK (same as the
-                    # /start wall's own _show_retry path) -- silently
+                    # A provider outage (or an unexpected exception, safely
+                    # degraded by the wrapper above) must still BLOCK (same
+                    # as the /start wall's own _show_retry path) -- silently
                     # letting the message through here would bypass the
-                    # paid wall entirely for as long as the outage lasts.
+                    # paid wall entirely for as long as it lasts.
                     integration_unavailable = True
             elif wave_field != 3:
-                # Already frozen -- DB-only, no provider call on this hot path.
-                integration_missing = await pending_integration_items(db_user, session)
+                # Already frozen -- DB-only, no provider call on this hot
+                # path (the common case: a user's wave only equals 0 once,
+                # ever, so this branch is hit far more often than the one
+                # above).
+                integration_missing, integration_unavailable = await safe_pending_integration_items(
+                    db_user, session,
+                )
 
         if not owner_missing and not integration_missing and not integration_unavailable:
             return await handler(event, data)

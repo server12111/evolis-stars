@@ -40,11 +40,7 @@ def mychat_panel_kb(
     builder.row(InlineKeyboardButton(text="📢 Своя рассылка", callback_data=f"mychats:custombc:{chat_id}"))
     builder.row(
         InlineKeyboardButton(text="📊 Статистика", callback_data=f"mychats:stats:{chat_id}"),
-        InlineKeyboardButton(text="👑 Топ", callback_data=f"mychats:top:{chat_id}"),
-    )
-    builder.row(
         InlineKeyboardButton(text="🎰 Игры", callback_data=f"mychats:games:{chat_id}"),
-        InlineKeyboardButton(text="🎰 Лог рулетки", callback_data=f"mychats:log:{chat_id}"),
     )
     games_toggle_label = "🎮 Игры в чате: ✅ вкл" if games_enabled else "🎮 Игры в чате: ❌ выкл"
     builder.row(InlineKeyboardButton(text=games_toggle_label, callback_data=f"mychats:gamestoggle:{chat_id}"))
@@ -113,7 +109,9 @@ def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
     ]])
 
 
-def mychat_wall_kb(chat_id: int, sponsors: list, max_sponsors: int) -> InlineKeyboardMarkup:
+def mychat_wall_kb(
+    chat_id: int, sponsors: list, max_sponsors: int, integration_enabled: bool = True,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     active_count = 0
     for sponsor in sponsors:
@@ -131,6 +129,10 @@ def mychat_wall_kb(chat_id: int, sponsors: list, max_sponsors: int) -> InlineKey
             InlineKeyboardButton(text="👥 Чат", callback_data=f"mychats:walladd:{chat_id}:chat"),
         )
     builder.row(InlineKeyboardButton(text=f"✏️ Лимит: {max_sponsors}", callback_data=f"mychats:walllimit:{chat_id}"))
+    integration_label = (
+        "⭐️ Платные спонсоры: ✅ вкл" if integration_enabled else "⭐️ Платные спонсоры: ❌ выкл"
+    )
+    builder.row(InlineKeyboardButton(text=integration_label, callback_data=f"mychats:wallintegration:{chat_id}"))
     builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"))
     return builder.as_markup()
 

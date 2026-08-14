@@ -270,9 +270,10 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
         await callback.answer()
         return
 
+    chat = await ChatRepository(session).get(chat_id)
     wall_repo = ChatSponsorWallRepository(session)
     active = await wall_repo.list_active(chat_id)
-    if not active:
+    if not active or chat is None:
         await callback.answer("✅ Стена больше не активна.", show_alert=True)
         return
 
@@ -297,11 +298,18 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
     still_missing_integration: list[dict] = []
     integration_unavailable = False
     newly_completed = 0
-    db_user = await session.get(User, callback.from_user.id)
+    db_user = await session.get(User, callback.from_user.id) if chat.wall_integration_enabled else None
     if db_user is not None:
-        from bot.services.chat_wall_integrations import evaluate_and_credit_integration_wave
+        from bot.services.chat_wall_integrations import safe_evaluate_and_credit_integration_wave
 
-        wave_state, newly_completed = await evaluate_and_credit_integration_wave(callback, db_user, session, bot)
+        # Guarded: an unexpected exception here (a real provider/network
+        # failure) must not kill this handler before it ever reaches
+        # callback.answer -- that reads to the user as "I pressed
+        # Проверить and nothing happened at all". Degrades to
+        # "unavailable" (still blocking, see below) instead of crashing.
+        wave_state, newly_completed = await safe_evaluate_and_credit_integration_wave(
+            callback, db_user, session, bot,
+        )
         if wave_state.status == "pending":
             still_missing_integration = wave_state.items or []
         elif wave_state.status == "unavailable":

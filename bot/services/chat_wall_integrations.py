@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal
 
 from aiogram import Bot
@@ -15,6 +16,8 @@ from bot.services.sponsor_waves import (
     is_sponsor_blocked,
     normalize_sponsor_url,
 )
+
+logger = logging.getLogger(__name__)
 
 # A second, independent wave engine run (see bot.services.sponsor_waves.
 # WaveFields) pointed at User.wall_integration_wave* instead of the /start
@@ -129,3 +132,39 @@ async def evaluate_and_credit_integration_wave(
             await credit_stars(session, user.user_id, INTEGRATION_REWARD)
             newly_credited += 1
     return wave_state, newly_credited
+
+
+async def safe_pending_integration_items(user: User, session: AsyncSession) -> tuple[list[dict], bool]:
+    """pending_integration_items, guarded: an unexpected exception (a
+    genuine DB error, not a provider call -- this path never touches a
+    provider) must not crash the caller (the per-message gate's hot path,
+    hit far more often than the wave==0 freeze path since a user's wave
+    only equals 0 once, ever). Returns (items, unavailable) -- unavailable
+    mirrors evaluate_and_credit_integration_wave's own "unavailable"
+    status so callers can treat both paths identically (still blocking,
+    never silently passing the wall)."""
+    try:
+        return await pending_integration_items(user, session), False
+    except Exception:
+        logger.exception("WALL integration pending-check failed uid=%s", user.user_id)
+        await session.rollback()
+        return [], True
+
+
+async def safe_evaluate_and_credit_integration_wave(
+    inner: Message | CallbackQuery, user: User, session: AsyncSession, bot: Bot | None,
+) -> tuple[SponsorWaveState, int]:
+    """evaluate_and_credit_integration_wave, guarded: an unexpected
+    exception (a real provider/network failure, not the internal ones
+    evaluate_provider_wave already swallows) must not crash the caller --
+    from the user's side that looks like pressing "Проверить" and getting
+    no response at all. Degrades to SponsorWaveState("unavailable") (still
+    blocking, never silently passing the wall) instead, and rolls back the
+    session so a mid-write failure (e.g. credit_stars) can't leave it
+    unusable for whatever the caller does next."""
+    try:
+        return await evaluate_and_credit_integration_wave(inner, user, session, bot)
+    except Exception:
+        logger.exception("WALL integration eval failed uid=%s", user.user_id)
+        await session.rollback()
+        return SponsorWaveState("unavailable"), 0
