@@ -54,13 +54,10 @@ NUMERIC_SETTINGS = [
     ("door_coeff_8", "🚪 Двери — множитель 8 уровня"),
     ("door_coeff_9", "🚪 Двери — множитель 9 уровня"),
     ("door_coeff_10", "🚪 Двери — множитель 10 уровня"),
-    ("vc_min_withdrawal", "💎 Мин. вывод VC"),
-    ("vc_max_withdrawal", "💎 Макс. вывод VC"),
-    ("vc_rate_tier1", "💎 Курс VC (10к-25к)"),
-    ("vc_rate_tier2", "💎 Курс VC (25к-50к)"),
-    ("vc_rate_tier3", "💎 Курс VC (50к-100к)"),
-    ("vc_rate_tier4", "💎 Курс VC (100к-300к)"),
-    ("vc_rate_tier5", "💎 Курс VC (300к-500к)"),
+    ("vc_min_withdrawal", "💎 Мин. вывод GRAM"),
+    ("vc_max_withdrawal", "💎 Макс. вывод GRAM"),
+    ("vc_rate_min", "💎 Мин. курс GRAM (при мин. сумме)"),
+    ("vc_rate_max", "💎 Макс. курс GRAM (при макс. сумме)"),
     ("crypto_min_withdrawal", "🪙 Мин. вывод крипты"),
     ("crypto_rp_usd_rate", "🪙 Курс крипты ($ за 1 RP⭐️)"),
 ]
@@ -68,7 +65,7 @@ NUMERIC_SETTINGS = [
 # Текстовые настройки (не числа) — по одной в ряд, тот же generic-флоу
 # редактирования (admin:settings_edit:{key}), просто без float-парсинга.
 TEXT_SETTINGS = [
-    ("vc_mandatory_channel", "💬 Чат для вывода VC"),
+    ("vc_mandatory_channel", "💬 Чат для вывода GRAM"),
 ]
 
 # Переключатели — по два в ряд
@@ -77,7 +74,7 @@ TOGGLE_PAIRS = [
     ("withdraw_enabled", "💸 Вывод"),
     ("games_enabled", "🎮 Игры"),
     ("tasks_enabled", "📋 Задания"),
-    ("withdraw_vc_enabled", "💎 Вывод VC"),
+    ("withdraw_vc_enabled", "💎 Вывод GRAM"),
     ("withdraw_crypto_enabled", "🪙 Вывод крипты"),
 ]
 

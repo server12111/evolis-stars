@@ -132,22 +132,40 @@ class GameCoeffValidationTests(ChatModelsTestCase):
 
 
 class VcSettingsValidationTests(ChatModelsTestCase):
-    async def test_rate_tier_of_zero_is_rejected(self) -> None:
+    async def test_rate_of_zero_is_rejected(self) -> None:
         message = _message("0")
-        state = _state({"setting_key": "vc_rate_tier1"})
+        state = _state({"setting_key": "vc_rate_min"})
         async with self.sessions() as session:
             await msg_setting_value(message, state, session, _admin())
-            saved = await SettingsRepository(session).get("vc_rate_tier1", "unset")
+            saved = await SettingsRepository(session).get("vc_rate_min", "unset")
         self.assertIn("больше 0", message.answer.await_args.args[0])
-        self.assertEqual(saved, "1000")  # untouched default
+        self.assertEqual(saved, "400")  # untouched default
 
-    async def test_rate_tier_positive_is_accepted(self) -> None:
-        message = _message("1100")
-        state = _state({"setting_key": "vc_rate_tier1"})
+    async def test_rate_positive_is_accepted(self) -> None:
+        message = _message("450")
+        state = _state({"setting_key": "vc_rate_min"})
         async with self.sessions() as session:
             await msg_setting_value(message, state, session, _admin())
-            saved = await SettingsRepository(session).get("vc_rate_tier1", "unset")
-        self.assertEqual(saved, "1100.0")
+            saved = await SettingsRepository(session).get("vc_rate_min", "unset")
+        self.assertEqual(saved, "450.0")
+
+    async def test_rate_min_above_max_is_rejected(self) -> None:
+        message = _message("900")
+        state = _state({"setting_key": "vc_rate_min"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_rate_min", "unset")
+        self.assertIn("не может быть больше макс", message.answer.await_args.args[0])
+        self.assertEqual(saved, "400")  # untouched default
+
+    async def test_rate_max_below_min_is_rejected(self) -> None:
+        message = _message("100")
+        state = _state({"setting_key": "vc_rate_max"})
+        async with self.sessions() as session:
+            await msg_setting_value(message, state, session, _admin())
+            saved = await SettingsRepository(session).get("vc_rate_max", "unset")
+        self.assertIn("не может быть меньше мин", message.answer.await_args.args[0])
+        self.assertEqual(saved, "800")  # untouched default
 
     async def test_min_withdrawal_above_max_is_rejected(self) -> None:
         message = _message("600000")

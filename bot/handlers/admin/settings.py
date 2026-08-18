@@ -68,13 +68,10 @@ SETTING_LABELS = {
     "door_coeff_8": ("🚪 Двери — множитель 8 уровня", "число"),
     "door_coeff_9": ("🚪 Двери — множитель 9 уровня", "число"),
     "door_coeff_10": ("🚪 Двери — множитель 10 уровня", "число"),
-    "vc_min_withdrawal": ("💎 Мин. вывод VC", "целое число, напр. 10000"),
-    "vc_max_withdrawal": ("💎 Макс. вывод VC", "целое число, напр. 500000"),
-    "vc_rate_tier1": ("💎 Курс VC (10к-25к) — VC за 1 RP⭐️", "число, напр. 1000"),
-    "vc_rate_tier2": ("💎 Курс VC (25к-50к) — VC за 1 RP⭐️", "число, напр. 1250"),
-    "vc_rate_tier3": ("💎 Курс VC (50к-100к) — VC за 1 RP⭐️", "число, напр. 1500"),
-    "vc_rate_tier4": ("💎 Курс VC (100к-300к) — VC за 1 RP⭐️", "число, напр. 2000"),
-    "vc_rate_tier5": ("💎 Курс VC (300к-500к) — VC за 1 RP⭐️", "число, напр. 2500"),
+    "vc_min_withdrawal": ("💎 Мин. вывод GRAM", "целое число, напр. 10000"),
+    "vc_max_withdrawal": ("💎 Макс. вывод GRAM", "целое число, напр. 500000"),
+    "vc_rate_min": ("💎 Мин. курс GRAM (при мин. сумме) — GRAM за 1 RP⭐️", "число, напр. 400"),
+    "vc_rate_max": ("💎 Макс. курс GRAM (при макс. сумме) — GRAM за 1 RP⭐️", "число, напр. 800"),
     "crypto_min_withdrawal": ("🪙 Мин. вывод крипты", "целое число RP⭐️, напр. 50"),
     "crypto_rp_usd_rate": ("🪙 Курс крипты ($ за 1 RP⭐️)", "число, напр. 0.005"),
 }
@@ -83,7 +80,7 @@ SETTING_LABELS = {
 # simple non-empty-string check for these instead of the float parsing used
 # for everything in SETTING_LABELS.
 TEXT_SETTING_LABELS = {
-    "vc_mandatory_channel": ("💬 Обязательный чат для вывода VC", "ссылка, например https://t.me/VirusikChat"),
+    "vc_mandatory_channel": ("💬 Обязательный чат для вывода GRAM", "ссылка, например https://t.me/VirusikChat"),
 }
 
 TOGGLE_SETTINGS = {
@@ -91,7 +88,7 @@ TOGGLE_SETTINGS = {
     "withdraw_enabled": "🌟 Вывод",
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
-    "withdraw_vc_enabled": "💎 Вывод VC",
+    "withdraw_vc_enabled": "💎 Вывод GRAM",
     "withdraw_crypto_enabled": "🪙 Вывод крипты",
 }
 
@@ -251,17 +248,33 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
                 reply_markup=settings_cancel_kb(),
             )
             return
-    if key.startswith("vc_rate_tier") and val <= 0:
+    if key in ("vc_rate_min", "vc_rate_max") and val <= 0:
         await message.answer(
-            "❌ Курс VC должен быть больше 0:",
+            "❌ Курс GRAM должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
+    if key == "vc_rate_min":
+        current_max = await repo.get_float("vc_rate_max", 800.0)
+        if val > current_max:
+            await message.answer(
+                f"❌ Мин. курс GRAM не может быть больше макс. ({current_max:g}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
+    if key == "vc_rate_max":
+        current_min = await repo.get_float("vc_rate_min", 400.0)
+        if val < current_min:
+            await message.answer(
+                f"❌ Макс. курс GRAM не может быть меньше мин. ({current_min:g}):",
+                reply_markup=settings_cancel_kb(),
+            )
+            return
     if key == "vc_min_withdrawal":
         current_max = await repo.get_int("vc_max_withdrawal", 500000)
         if val > current_max:
             await message.answer(
-                f"❌ Мин. вывод VC не может быть больше макс. ({current_max}):",
+                f"❌ Мин. вывод GRAM не может быть больше макс. ({current_max}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
@@ -269,7 +282,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_min = await repo.get_int("vc_min_withdrawal", 10000)
         if val < current_min:
             await message.answer(
-                f"❌ Макс. вывод VC не может быть меньше мин. ({current_min}):",
+                f"❌ Макс. вывод GRAM не может быть меньше мин. ({current_min}):",
                 reply_markup=settings_cancel_kb(),
             )
             return

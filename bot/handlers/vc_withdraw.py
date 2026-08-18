@@ -33,34 +33,37 @@ logger = logging.getLogger(__name__)
 _VC_QUICK_AMOUNTS = [10_000, 25_000, 50_000, 100_000]
 _VC_MIN_DEFAULT = 10_000
 _VC_MAX_DEFAULT = 500_000
+_VC_RATE_MIN_DEFAULT = 400.0
+_VC_RATE_MAX_DEFAULT = 800.0
 
-# (upper bound inclusive, settings key, default rate) -- ranges are
-# 10k-25k / 25k-50k / 50k-100k / 100k-300k / 300k-500k VC; a boundary
-# value (e.g. exactly 25000) belongs to the LOWER tier since these are
-# scanned in ascending order and the first match wins.
-_VC_TIERS = [
-    (25_000, "vc_rate_tier1", 1000.0),
-    (50_000, "vc_rate_tier2", 1250.0),
-    (100_000, "vc_rate_tier3", 1500.0),
-    (300_000, "vc_rate_tier4", 2000.0),
-    (500_000, "vc_rate_tier5", 2500.0),
-]
+
+async def _vc_rate_bounds(session: AsyncSession) -> tuple[Decimal, Decimal]:
+    repo = SettingsRepository(session)
+    rate_min = Decimal(str(await repo.get_float("vc_rate_min", _VC_RATE_MIN_DEFAULT)))
+    rate_max = Decimal(str(await repo.get_float("vc_rate_max", _VC_RATE_MAX_DEFAULT)))
+    return rate_min, rate_max
 
 
 async def _vc_rate_for_amount(session: AsyncSession, vc_amount: int) -> Decimal:
+    """Linearly interpolated between vc_rate_min (at vc_min_withdrawal)
+    and vc_rate_max (at vc_max_withdrawal) -- bigger withdrawals convert
+    at a better rate with no fixed tier boundaries."""
     repo = SettingsRepository(session)
-    for upper, key, default in _VC_TIERS:
-        if vc_amount <= upper:
-            return Decimal(str(await repo.get_float(key, default)))
-    # Above the highest boundary shouldn't happen (max withdrawal is
-    # enforced before this is ever called) -- fall back to the top tier
-    # rather than error.
-    _, key, default = _VC_TIERS[-1]
-    return Decimal(str(await repo.get_float(key, default)))
+    amt_min = await repo.get_int("vc_min_withdrawal", _VC_MIN_DEFAULT)
+    amt_max = await repo.get_int("vc_max_withdrawal", _VC_MAX_DEFAULT)
+    rate_min, rate_max = await _vc_rate_bounds(session)
+    if amt_max <= amt_min:
+        # Degenerate admin config (min == max, or inverted) -- nothing
+        # sane to interpolate across, fall back to the floor rate.
+        return rate_min
+    clamped = min(max(vc_amount, amt_min), amt_max)
+    fraction = Decimal(clamped - amt_min) / Decimal(amt_max - amt_min)
+    rate = rate_min + fraction * (rate_max - rate_min)
+    return rate.quantize(Decimal("0.01"))
 
 
 def _rp_cost_for_vc(vc_amount: int, rate: Decimal) -> Decimal:
-    """RP⭐️ cost for a VC withdrawal, rounded UP to 2 decimals so the
+    """RP⭐️ cost for a GRAM withdrawal, rounded UP to 2 decimals so the
     house never under-charges due to rounding."""
     from decimal import ROUND_CEILING
     return (Decimal(vc_amount) / rate).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
@@ -79,10 +82,10 @@ def _fmt_rate(rate: Decimal) -> str:
 
 def _confirm_text(vc_amount: int, rate: Decimal, rp_cost: Decimal) -> str:
     return (
-        f"💎 <b>Вывод VC</b>\n\n"
-        f"Курс: 1 RP⭐️ = {_fmt_rate(rate)} VC\n"
+        f"💎 <b>Вывод GRAM</b>\n\n"
+        f"Курс: 1 RP⭐️ = {_fmt_rate(rate)} GRAM\n"
         f"Спишется: <b>{rp_cost} RP⭐️</b>\n"
-        f"Вам пришлют: <b>{vc_amount} VC</b>\n\n"
+        f"Вам пришлют: <b>{vc_amount} GRAM</b>\n\n"
         f"Подтвердить?"
     )
 
@@ -124,24 +127,20 @@ async def cb_withdraw_vc_menu(callback: CallbackQuery, db_user: User, session: A
     await state.clear()
     repo = SettingsRepository(session)
     if not await repo.get_bool("withdraw_vc_enabled", True):
-        await callback.answer("💎 Вывод VC временно недоступен.", show_alert=True)
+        await callback.answer("💎 Вывод GRAM временно недоступен.", show_alert=True)
         return
 
     vc_min = await repo.get_int("vc_min_withdrawal", _VC_MIN_DEFAULT)
     vc_max = await repo.get_int("vc_max_withdrawal", _VC_MAX_DEFAULT)
-    rates = [await repo.get_float(key, default) for _, key, default in _VC_TIERS]
+    rate_min, rate_max = await _vc_rate_bounds(session)
 
     text = (
-        f"💎 <b>Вывод VC</b>\n\n"
+        f"💎 <b>Вывод GRAM</b>\n\n"
         f"Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n\n"
-        f"Курсы (1 RP⭐️ = VC):\n"
-        f"10к-25к VC: <b>{rates[0]:g}</b>\n"
-        f"25к-50к VC: <b>{rates[1]:g}</b>\n"
-        f"50к-100к VC: <b>{rates[2]:g}</b>\n"
-        f"100к-300к VC: <b>{rates[3]:g}</b>\n"
-        f"300к-500к VC: <b>{rates[4]:g}</b>\n\n"
-        f"Мин. вывод: <b>{vc_min}</b> VC, макс: <b>{vc_max}</b> VC\n\n"
-        f"Выбери сумму VC для вывода:"
+        f"Курс: 1 RP⭐️ = {rate_min:g}–{rate_max:g} GRAM "
+        f"(чем больше сумма — тем выгоднее курс)\n\n"
+        f"Мин. вывод: <b>{vc_min}</b> GRAM, макс: <b>{vc_max}</b> GRAM\n\n"
+        f"Выбери сумму GRAM для вывода:"
     )
     await _reply(callback, text, reply_markup=vc_withdraw_amounts_kb(_VC_QUICK_AMOUNTS))
 
@@ -155,7 +154,7 @@ async def _process_vc_amount(
 ) -> None:
     repo = SettingsRepository(session)
     if not await repo.get_bool("withdraw_vc_enabled", True):
-        await _reply(inner, "💎 Вывод VC временно недоступен.", reply_markup=back_to_menu_kb())
+        await _reply(inner, "💎 Вывод GRAM временно недоступен.", reply_markup=back_to_menu_kb())
         return
 
     vc_min = await repo.get_int("vc_min_withdrawal", _VC_MIN_DEFAULT)
@@ -163,7 +162,7 @@ async def _process_vc_amount(
     if amount < vc_min or amount > vc_max:
         await _reply(
             inner,
-            f"❌ Сумма должна быть от {vc_min} до {vc_max} VC. Попробуй ещё раз:",
+            f"❌ Сумма должна быть от {vc_min} до {vc_max} GRAM. Попробуй ещё раз:",
             reply_markup=vc_withdraw_cancel_kb(),
         )
         return
@@ -188,7 +187,7 @@ async def cb_vc_amount(callback: CallbackQuery, db_user: User, session: AsyncSes
     raw = callback.data.split(":")[2]
     if raw == "custom":
         await state.set_state(VcWithdrawStates.enter_amount)
-        await _reply(callback, "✏️ Введите сумму VC для вывода:", reply_markup=vc_withdraw_cancel_kb())
+        await _reply(callback, "✏️ Введите сумму GRAM для вывода:", reply_markup=vc_withdraw_cancel_kb())
         return
     try:
         amount = int(raw)
@@ -202,7 +201,7 @@ async def cb_vc_amount(callback: CallbackQuery, db_user: User, session: AsyncSes
 async def msg_vc_amount_custom(message: Message, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     amount = _parse_vc_amount(message.text or "")
     if amount is None:
-        await message.answer("❌ Введи целое число VC:", reply_markup=vc_withdraw_cancel_kb())
+        await message.answer("❌ Введи целое число GRAM:", reply_markup=vc_withdraw_cancel_kb())
         return
     await _process_vc_amount(message, db_user, session, state, amount)
 
@@ -220,7 +219,7 @@ async def cb_vc_confirm(
         link = await SettingsRepository(session).get("vc_mandatory_channel", "")
         await _reply(
             callback,
-            f"📢 Для вывода VC подпишитесь на канал, затем нажмите «Я подписался»:\n{escape(link)}",
+            f"📢 Для вывода GRAM подпишитесь на канал, затем нажмите «Я подписался»:\n{escape(link)}",
             reply_markup=vc_withdraw_subscribe_kb(link),
         )
         return
@@ -260,7 +259,7 @@ async def _finalize_vc_withdrawal(
 
     repo = SettingsRepository(session)
     if not await repo.get_bool("withdraw_vc_enabled", True):
-        await callback.message.answer("💎 Вывод VC временно недоступен.", reply_markup=back_to_menu_kb())
+        await callback.message.answer("💎 Вывод GRAM временно недоступен.", reply_markup=back_to_menu_kb())
         await callback.answer()
         return
 
@@ -271,7 +270,7 @@ async def _finalize_vc_withdrawal(
     vc_max = await repo.get_int("vc_max_withdrawal", _VC_MAX_DEFAULT)
     if amount < vc_min or amount > vc_max:
         await callback.message.answer(
-            f"❌ Сумма должна быть от {vc_min} до {vc_max} VC. Начните заново.",
+            f"❌ Сумма должна быть от {vc_min} до {vc_max} GRAM. Начните заново.",
             reply_markup=back_to_menu_kb(),
         )
         await callback.answer()
@@ -307,17 +306,17 @@ async def _finalize_vc_withdrawal(
     vip_badge = vip_and_tier_badge(db_user.is_vip, db_user.referral_tier)
     user_display = f"@{escape(db_user.username)}" if db_user.username else str(db_user.user_id)
     request_text = (
-        f"💎 <b>Новая заявка на вывод VC #{withdrawal.display_number}</b>{vip_badge}\n\n"
+        f"💎 <b>Новая заявка на вывод GRAM #{withdrawal.display_number}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {user_display} | ID: <code>{db_user.user_id}</code>\n"
-        f"💎 Получит: <b>{amount} VC</b>\n"
-        f"🔄 Курс: 1 RP⭐️ = {_fmt_rate(rate)} VC\n"
+        f"💎 Получит: <b>{amount} GRAM</b>\n"
+        f"🔄 Курс: 1 RP⭐️ = {_fmt_rate(rate)} GRAM\n"
         f"💰 Списано: <b>{rp_cost} RP⭐️</b>\n"
         f"⏳ Статус: На рассмотрении"
     )
 
     # Send to public payments channel first (mirrors withdraw.py's stars
     # flow) -- same channel, so admins and users see both currencies as one
-    # continuous stream instead of VC requests being invisible there.
+    # continuous stream instead of GRAM requests being invisible there.
     ch_msg_id = None
     if payments_channel_id:
         try:
@@ -362,7 +361,7 @@ async def _finalize_vc_withdrawal(
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await callback.message.answer(
         f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
-        f"Вам пришлют: <b>{amount} VC</b>\n"
+        f"Вам пришлют: <b>{amount} GRAM</b>\n"
         f"Ожидайте обработки.",
         parse_mode="HTML",
         reply_markup=kb,

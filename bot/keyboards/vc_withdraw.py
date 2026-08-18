@@ -5,7 +5,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def vc_withdraw_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     buttons = [
-        InlineKeyboardButton(text=f"💎 {a // 1000}к VC", callback_data=f"vcwithdraw:amount:{a}")
+        InlineKeyboardButton(text=f"💎 {a // 1000}к GRAM", callback_data=f"vcwithdraw:amount:{a}")
         for a in amounts
     ]
     for i in range(0, len(buttons), 2):

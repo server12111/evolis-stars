@@ -97,8 +97,9 @@ def _normalize_username(raw: str) -> str | None:
 async def cb_withdraw_menu(callback: CallbackQuery, state: FSMContext) -> None:
     """Top-level withdrawal entry — choose currency. Telegram Stars keeps
     its exact original flow (see cb_withdraw_stars_menu below), untouched;
-    this is just a new screen in front of it. VC is a wholly separate
-    flow, see bot/handlers/vc_withdraw.py."""
+    this is just a new screen in front of it. GRAM (internal module/key
+    names still say "vc", the currency was renamed in user-facing text
+    only) is a wholly separate flow, see bot/handlers/vc_withdraw.py."""
     await state.clear()
     text = "💸 <b>Вывод средств</b>\n\nВыберите способ вывода:"
     try:

@@ -112,9 +112,9 @@ async def _update_public_vc_withdrawal_status(
     user_display = f"@{html.escape(user.username)}" if user and user.username else str(withdrawal.user_id)
     vip_badge = vip_and_tier_badge(bool(user and user.is_vip), user.referral_tier if user else None)
     text = (
-        f"💎 <b>Запрос на вывод VC #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
+        f"💎 <b>Запрос на вывод GRAM #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Пользователь: {user_display} | ID: <code>{withdrawal.user_id}</code>\n"
-        f"💎 Получит: <b>{float(withdrawal.vc_amount):.0f} VC</b>\n"
+        f"💎 Получит: <b>{float(withdrawal.vc_amount):.0f} GRAM</b>\n"
         f"{status_icon} Статус: <b>{status}</b>"
     )
     try:
@@ -262,7 +262,7 @@ async def cb_vcwithdraw_approve(callback: CallbackQuery, session: AsyncSession) 
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} VC</b>\nСкоро вы получите выплату.",
+            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} GRAM</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:

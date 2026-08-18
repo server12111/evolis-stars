@@ -72,31 +72,51 @@ class DbTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
 
-class VcTierRateTests(DbTestCase):
-    async def test_boundary_values_take_the_lower_tier(self) -> None:
+class VcRateInterpolationTests(DbTestCase):
+    async def test_min_amount_gets_the_floor_rate(self) -> None:
         async with self.sessions() as session:
-            # 25000 is the shared boundary between tier1 (10k-25k, 1000)
-            # and tier2 (25k-50k, 1250) -- must resolve to tier1's rate.
-            rate = await _vc_rate_for_amount(session, 25_000)
-        self.assertEqual(rate, Decimal("1000"))
+            rate = await _vc_rate_for_amount(session, 10_000)
+        self.assertEqual(rate, Decimal("400.00"))
 
-    async def test_each_tier_uses_its_own_default_rate(self) -> None:
+    async def test_max_amount_gets_the_ceiling_rate(self) -> None:
         async with self.sessions() as session:
-            self.assertEqual(await _vc_rate_for_amount(session, 10_000), Decimal("1000"))
-            self.assertEqual(await _vc_rate_for_amount(session, 25_001), Decimal("1250"))
-            self.assertEqual(await _vc_rate_for_amount(session, 50_001), Decimal("1500"))
-            self.assertEqual(await _vc_rate_for_amount(session, 100_001), Decimal("2000"))
-            self.assertEqual(await _vc_rate_for_amount(session, 300_001), Decimal("2500"))
-            self.assertEqual(await _vc_rate_for_amount(session, 500_000), Decimal("2500"))
+            rate = await _vc_rate_for_amount(session, 500_000)
+        self.assertEqual(rate, Decimal("800.00"))
 
-    async def test_admin_configured_rate_overrides_default(self) -> None:
+    async def test_midpoint_amount_gets_the_midpoint_rate(self) -> None:
+        # 255000 is exactly halfway between 10000 and 500000.
         async with self.sessions() as session:
-            with patch(
-                "bot.handlers.vc_withdraw.SettingsRepository.get_float",
-                AsyncMock(return_value=1111.0),
-            ):
-                rate = await _vc_rate_for_amount(session, 10_000)
-        self.assertEqual(rate, Decimal("1111.0"))
+            rate = await _vc_rate_for_amount(session, 255_000)
+        self.assertEqual(rate, Decimal("600.00"))
+
+    async def test_amount_above_max_is_clamped_to_the_ceiling_rate(self) -> None:
+        # Shouldn't normally happen (max withdrawal is enforced before this
+        # is ever called) -- must still degrade gracefully, not error.
+        async with self.sessions() as session:
+            rate = await _vc_rate_for_amount(session, 600_000)
+        self.assertEqual(rate, Decimal("800.00"))
+
+    async def test_admin_configured_bounds_are_honored(self) -> None:
+        async with self.sessions() as session:
+            from bot.database.repositories.settings import SettingsRepository
+            repo = SettingsRepository(session)
+            await repo.set("vc_rate_min", "100")
+            await repo.set("vc_rate_max", "300")
+            rate_at_min = await _vc_rate_for_amount(session, 10_000)
+            rate_at_max = await _vc_rate_for_amount(session, 500_000)
+        self.assertEqual(rate_at_min, Decimal("100.00"))
+        self.assertEqual(rate_at_max, Decimal("300.00"))
+
+    async def test_degenerate_bounds_fall_back_to_the_floor_rate(self) -> None:
+        # An admin setting vc_min_withdrawal == vc_max_withdrawal (or an
+        # inverted min > max) leaves nothing sane to interpolate across.
+        async with self.sessions() as session:
+            from bot.database.repositories.settings import SettingsRepository
+            repo = SettingsRepository(session)
+            await repo.set("vc_min_withdrawal", "10000")
+            await repo.set("vc_max_withdrawal", "10000")
+            rate = await _vc_rate_for_amount(session, 10_000)
+        self.assertEqual(rate, Decimal("400.00"))
 
 
 class RpCostRoundingTests(unittest.TestCase):
@@ -133,8 +153,9 @@ class VcMenuTests(DbTestCase):
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("42.50", rendered)
-        self.assertIn("1000", rendered)
-        self.assertIn("2500", rendered)
+        self.assertIn("400", rendered)
+        self.assertIn("800", rendered)
+        self.assertIn("GRAM", rendered)
 
     async def test_disabled_shows_alert_not_menu(self) -> None:
         cb = callback()
@@ -159,8 +180,8 @@ class VcAmountSelectionTests(DbTestCase):
         self.assertEqual(state._state, VcWithdrawStates.confirm)
         self.assertEqual(state._data["vc_amount"], 10_000)
         rendered = cb.message.edit_text.await_args.args[0]
-        self.assertIn("10000 VC", rendered)
-        self.assertIn("10.00 RP", rendered)  # 10000 / 1000 = 10
+        self.assertIn("10000 GRAM", rendered)
+        self.assertIn("25.00 RP", rendered)  # 10000 / 400 = 25 (floor rate at min amount)
 
     async def test_amount_below_minimum_is_rejected(self) -> None:
         cb = callback("vcwithdraw:amount:custom")
@@ -183,11 +204,11 @@ class VcAmountSelectionTests(DbTestCase):
 
     async def test_custom_amount_accepted_within_range(self) -> None:
         state = FakeState()
-        msg = message("150000")
+        msg = message("255000")  # exact midpoint of 10000-500000 -> rate 600
         async with self.sessions() as session:
             await msg_vc_amount_custom(msg, db_user(), session, state)
-        self.assertEqual(state._data["vc_amount"], 150_000)
-        self.assertIn("2000", msg.answer.await_args.args[0])  # tier4 rate
+        self.assertEqual(state._data["vc_amount"], 255_000)
+        self.assertIn("600", msg.answer.await_args.args[0])
 
     async def test_insufficient_balance_is_rejected(self) -> None:
         cb = callback("vcwithdraw:amount:100000")

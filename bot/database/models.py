@@ -241,11 +241,14 @@ class Withdrawal(Base):
 
 
 # ─── VcWithdrawal ─────────────────────────────────────────────────────────────
-# A second, independent withdrawal currency (VC) alongside Telegram Stars
-# above — deliberately its own table rather than reusing Withdrawal, since
-# the two share almost no fields in common (no recipient_username/fragment-
-# or-gift method; a VC request instead snapshots the tiered RP->VC rate it
-# was created under).
+# A second, independent withdrawal currency (GRAM -- internal table/column
+# names still say "vc", the currency was renamed in user-facing text only)
+# alongside Telegram Stars above — deliberately its own table rather than
+# reusing Withdrawal, since the two share almost no fields in common (no
+# recipient_username/fragment-or-gift method; a GRAM request instead
+# snapshots the RP->GRAM rate it was created under, linearly interpolated
+# between vc_rate_min/vc_rate_max at request time -- see
+# bot/handlers/vc_withdraw.py::_vc_rate_for_amount).
 
 class VcWithdrawal(Base):
     __tablename__ = "vc_withdrawals"
