@@ -17,9 +17,12 @@ from bot.states.admin import AdminSettingsStates
 router = Router()
 
 SETTING_LABELS = {
-    "referral_reward": ("🎁 Награда за реферала (3-5 спонсоров)", "число RP⭐️"),
-    "referral_reward_above_5": ("🎁 Награда за реферала (6-8 спонсоров)", "число RP⭐️"),
-    "referral_reward_top": ("🎁 Награда за реферала (9+ спонсоров)", "число RP⭐️"),
+    "referral_reward_0_3": ("🎁 Награда за реферала (0-3 спонсора)", "число RP⭐️"),
+    "referral_reward_4_5": ("🎁 Награда за реферала (4-5 спонсоров)", "число RP⭐️"),
+    "referral_reward_6_7": ("🎁 Награда за реферала (6-7 спонсоров)", "число RP⭐️"),
+    "referral_reward_8_9": ("🎁 Награда за реферала (8-9 спонсоров)", "число RP⭐️"),
+    "referral_reward_10_12": ("🎁 Награда за реферала (10-12 спонсоров)", "число RP⭐️"),
+    "referral_reward_13_16": ("🎁 Награда за реферала (13-16 спонсоров)", "число RP⭐️"),
     "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число RP⭐️"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
     "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число RP⭐️"),
@@ -98,9 +101,9 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
     if not _is_admin(db_user): return
     await state.clear()
     repo = SettingsRepository(session)
-    referral_reward = await repo.get_float("referral_reward", 3.0)
-    referral_reward_above_5 = await repo.get_float("referral_reward_above_5", 3.5)
-    referral_reward_premium = await repo.get_float("referral_reward_premium", 4.5)
+    referral_reward_min = await repo.get_float("referral_reward_4_5", 6.0)
+    referral_reward_max = await repo.get_float("referral_reward_13_16", 18.0)
+    referral_reward_premium = await repo.get_float("referral_reward_premium", 15.0)
     min_sponsors = await repo.get_int("min_sponsors_for_reward", 3)
     bonus_min = await repo.get_float("bonus_min", 0.1)
     bonus_max = await repo.get_float("bonus_max", 1.0)
@@ -112,7 +115,7 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
 
     text = (
         f"⚙️ <b>Глобальные настройки</b>\n\n"
-        f"🎁 Награда за реферала: 3-5сп <b>{referral_reward:.2f}</b> / 6+сп <b>{referral_reward_above_5:.2f}</b> RP⭐️\n"
+        f"🎁 Награда за реферала: <b>{referral_reward_min:.2f}–{referral_reward_max:.2f} RP⭐️</b> (по кол-ву спонсоров, 0-3 = 0)\n"
         f"💎 Награда за Premium-реферала: <b>{referral_reward_premium:.2f} RP⭐️</b> (фикс.)\n"
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} RP⭐️</b>\n"

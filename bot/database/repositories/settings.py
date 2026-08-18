@@ -6,10 +6,16 @@ from bot.database.models import BotSettings
 from bot.database.repositories.base import BaseRepository
 
 DEFAULT_SETTINGS: dict[str, str] = {
-    "referral_reward": "9",
-    "referral_reward_above_5": "10.5",
-    "referral_reward_top": "13.5",
-    "referral_reward_premium": "13.5",
+    # Flat reward per sponsor-count bucket a referral subscribed to (see
+    # bot/services/referral.py::_REFERRAL_REWARD_TIERS for the exact
+    # boundaries: 0-3/4-5/6-7/8-9/10-12/13-16).
+    "referral_reward_0_3": "0",
+    "referral_reward_4_5": "6",
+    "referral_reward_6_7": "9",
+    "referral_reward_8_9": "12",
+    "referral_reward_10_12": "15",
+    "referral_reward_13_16": "18",
+    "referral_reward_premium": "15",
     "min_sponsors_for_reward": "3",
     "referral_bonus_10": "0.1",
     "referral_bonus_20": "0.2",

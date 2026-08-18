@@ -35,7 +35,7 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
 class PremiumReferralRewardTests(ChatModelsTestCase):
     async def test_get_referral_reward_reads_premium_setting_when_flagged(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
+            session.add(BotSettings(key="referral_reward_0_3", value="4"))
             session.add(BotSettings(key="referral_reward_premium", value="9"))
             await session.commit()
             normal = await get_referral_reward(session, 3)
@@ -46,7 +46,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
     async def test_get_referral_reward_premium_falls_back_to_default(self) -> None:
         async with self.sessions() as session:
             premium = await get_referral_reward(session, 3, is_premium=True)
-        self.assertEqual(premium, Decimal("13.5"))
+        self.assertEqual(premium, Decimal("15"))
 
     async def test_premium_reward_ignores_sponsor_count(self) -> None:
         async with self.sessions() as session:
@@ -57,22 +57,32 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
         self.assertEqual(low, high)
         self.assertEqual(low, Decimal("9"))
 
-    async def test_reward_has_three_flat_tiers(self) -> None:
+    async def test_reward_has_six_flat_tiers(self) -> None:
         async with self.sessions() as session:
+            r0 = await get_referral_reward(session, 0)
             r3 = await get_referral_reward(session, 3)
             r4 = await get_referral_reward(session, 4)
             r5 = await get_referral_reward(session, 5)
             r6 = await get_referral_reward(session, 6)
+            r7 = await get_referral_reward(session, 7)
             r8 = await get_referral_reward(session, 8)
             r9 = await get_referral_reward(session, 9)
+            r10 = await get_referral_reward(session, 10)
+            r12 = await get_referral_reward(session, 12)
+            r13 = await get_referral_reward(session, 13)
+            r16 = await get_referral_reward(session, 16)
             r_high = await get_referral_reward(session, 20)
-        self.assertEqual((r3, r4, r5), (Decimal("9"), Decimal("9"), Decimal("9")))
-        self.assertEqual((r6, r8), (Decimal("10.5"), Decimal("10.5")))
-        self.assertEqual((r9, r_high), (Decimal("13.5"), Decimal("13.5")))
+        self.assertEqual((r0, r3), (Decimal("0"), Decimal("0")))
+        self.assertEqual((r4, r5), (Decimal("6"), Decimal("6")))
+        self.assertEqual((r6, r7), (Decimal("9"), Decimal("9")))
+        self.assertEqual((r8, r9), (Decimal("12"), Decimal("12")))
+        self.assertEqual((r10, r12), (Decimal("15"), Decimal("15")))
+        # 13-16 is the open-ended top bucket -- anything above 16 (20 here)
+        # also falls back to its rate rather than erroring.
+        self.assertEqual((r13, r16, r_high), (Decimal("18"), Decimal("18"), Decimal("18")))
 
     async def test_premium_referred_user_pays_the_premium_rate(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
             session.add(BotSettings(key="referral_reward_premium", value="9"))
             referrer = User(user_id=900, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
@@ -97,7 +107,7 @@ class PremiumReferralRewardTests(ChatModelsTestCase):
 
     async def test_non_premium_referred_user_pays_the_normal_rate(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
+            session.add(BotSettings(key="referral_reward_0_3", value="4"))
             session.add(BotSettings(key="referral_reward_premium", value="9"))
             referrer = User(user_id=910, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(

@@ -21,7 +21,7 @@ class ChatModelsTestCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
 
-REWARD_KEYS = ["referral_reward", "referral_reward_above_5", "referral_reward_premium"]
+REWARD_KEYS = ["referral_reward_0_3", "referral_reward_4_5", "referral_reward_premium"]
 
 
 class ReferralRewardPremiumSettingTests(unittest.TestCase):

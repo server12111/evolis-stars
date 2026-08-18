@@ -32,7 +32,7 @@ class ReferralDoublePaymentRaceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_second_stale_call_does_not_double_pay(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
+            session.add(BotSettings(key="referral_reward_0_3", value="4"))
             referrer = User(user_id=950, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=951,
@@ -74,7 +74,7 @@ class ReferralDoublePaymentRaceTests(unittest.IsolatedAsyncioTestCase):
         FRESH (non-stale) copy loaded after the first payment must also
         stay a no-op via the normal in-memory guard."""
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
+            session.add(BotSettings(key="referral_reward_0_3", value="4"))
             referrer = User(user_id=960, first_name="Referrer", stars_balance=Decimal(0))
             referred = User(
                 user_id=961,
@@ -103,7 +103,7 @@ class ReferralDoublePaymentRaceTests(unittest.IsolatedAsyncioTestCase):
         True forever with no referrer ever actually paid) -- and a later
         retry (e.g. once the referrer row exists) must still succeed."""
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4"))
+            session.add(BotSettings(key="referral_reward_0_3", value="4"))
             referred = User(
                 user_id=971,
                 first_name="Referred",

@@ -43,10 +43,15 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         cutoff,
         limit=1,
     )
-    reward_base = await get_referral_reward(session, 3)
-    reward_above_5 = await get_referral_reward(session, 6)
-    reward_top = await get_referral_reward(session, 9)
+    reward_4_5 = await get_referral_reward(session, 5)
+    reward_6_7 = await get_referral_reward(session, 7)
+    reward_8_9 = await get_referral_reward(session, 9)
+    reward_10_12 = await get_referral_reward(session, 12)
+    reward_13_16 = await get_referral_reward(session, 16)
     reward_premium = await get_referral_reward(session, 0, is_premium=True)
+    # "Base" reward for the returning-referral half-reward calc below --
+    # the lowest bucket that actually pays anything (0-3 always pays 0).
+    reward_base = reward_4_5
     min_sponsors = await get_min_sponsors_for_reward(session)
     milestone_bonuses = {
         threshold: await get_milestone_bonus(session, threshold)
@@ -73,9 +78,14 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         recurring_400=format_stars(recurring_400),
         recurring_500=format_stars(recurring_500),
         reward=format_stars(reward_base),  # fallback for old templates
-        referral_reward=format_stars(reward_base),
-        referral_reward_above_5=format_stars(reward_above_5),
-        referral_reward_top=format_stars(reward_top),
+        referral_reward=format_stars(reward_base),  # fallback for old templates
+        referral_reward_above_5=format_stars(reward_6_7),  # fallback for old templates
+        referral_reward_top=format_stars(reward_13_16),  # fallback for old templates
+        referral_reward_4_5=format_stars(reward_4_5),
+        referral_reward_6_7=format_stars(reward_6_7),
+        referral_reward_8_9=format_stars(reward_8_9),
+        referral_reward_10_12=format_stars(reward_10_12),
+        referral_reward_13_16=format_stars(reward_13_16),
         referral_reward_premium=format_stars(reward_premium),
         return_reward=format_stars(reward_base / Decimal("2")),
         returnable=returnable_count,
@@ -157,7 +167,10 @@ async def cb_return_referrals(
             limit=RETURN_PAGE_SIZE,
         )
 
-    referral_reward = await get_referral_reward(session, 3)
+    # Lowest bucket that actually pays anything (0-3 sponsors always pays
+    # 0) -- same anchor cb_earn above uses for its own illustrative
+    # "half of the current reward" text.
+    referral_reward = await get_referral_reward(session, 5)
     return_reward = referral_reward / 2
     without_username = max(0, total - contactable)
     if referrals:

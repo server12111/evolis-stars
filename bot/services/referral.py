@@ -134,24 +134,37 @@ async def _get_decimal_setting(session: AsyncSession, key: str, default: str) ->
     return max(Decimal("0"), value).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
 
 
-REFERRAL_REWARD_UPPER_TIER_THRESHOLD = 5
-REFERRAL_REWARD_TOP_TIER_THRESHOLD = 8
+# (upper bound inclusive, settings key, default reward) -- 0-3/4-5/6-7/8-9/
+# 10-12/13-16 sponsor-count buckets, scanned in ascending order with the
+# first match winning. sponsor_count above the top bucket's bound falls
+# back to its rate (see get_referral_reward) rather than erroring --
+# shouldn't happen in practice since sponsor_max_channels caps how many
+# sponsors a referral could ever subscribe to.
+_REFERRAL_REWARD_TIERS: list[tuple[int, str, str]] = [
+    (3, "referral_reward_0_3", "0"),
+    (5, "referral_reward_4_5", "6"),
+    (7, "referral_reward_6_7", "9"),
+    (9, "referral_reward_8_9", "12"),
+    (12, "referral_reward_10_12", "15"),
+    (16, "referral_reward_13_16", "18"),
+]
 
 
 async def get_referral_reward(session: AsyncSession, sponsor_count: int, is_premium: bool = False) -> Decimal:
     """Premium referrals pay one flat, separately configurable amount
-    regardless of sponsor count. Regular referrals pay a flat base reward
-    for 3-5 sponsors, a higher flat reward for 6-8, and a top flat reward
-    for 9+. The min-sponsors-for-reward gate (see
-    get_min_sponsors_for_reward) still applies to all three before any of
-    them is even reached."""
+    regardless of sponsor count. Regular referrals pay a flat reward per
+    sponsor-count bucket (see _REFERRAL_REWARD_TIERS) -- the min-sponsors-
+    for-reward gate (see get_min_sponsors_for_reward) still applies before
+    any of this is even reached, so in practice only the exact minimum
+    (currently 3) ever lands in the 0-3 bucket; anything below it is
+    blocked earlier and never counted as a referral at all."""
     if is_premium:
-        return await _get_decimal_setting(session, "referral_reward_premium", "13.5")
-    if sponsor_count > REFERRAL_REWARD_TOP_TIER_THRESHOLD:
-        return await _get_decimal_setting(session, "referral_reward_top", "13.5")
-    if sponsor_count > REFERRAL_REWARD_UPPER_TIER_THRESHOLD:
-        return await _get_decimal_setting(session, "referral_reward_above_5", "10.5")
-    return await _get_decimal_setting(session, "referral_reward", "9")
+        return await _get_decimal_setting(session, "referral_reward_premium", "15")
+    for upper, key, default in _REFERRAL_REWARD_TIERS:
+        if sponsor_count <= upper:
+            return await _get_decimal_setting(session, key, default)
+    _, key, default = _REFERRAL_REWARD_TIERS[-1]
+    return await _get_decimal_setting(session, key, default)
 
 
 async def get_min_sponsors_for_reward(session: AsyncSession) -> int:

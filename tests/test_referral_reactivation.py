@@ -47,9 +47,9 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_referral_reward_rounds_to_stars_precision(self) -> None:
         async with self.sessions() as session:
-            session.add(BotSettings(key="referral_reward", value="4.005"))
+            session.add(BotSettings(key="referral_reward_4_5", value="4.005"))
             await session.commit()
-            reward = await get_referral_reward(session, 3)
+            reward = await get_referral_reward(session, 5)
         self.assertEqual(reward, Decimal("4.01"))
 
     async def test_same_return_cycle_is_rewarded_only_once(self) -> None:
@@ -63,7 +63,9 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
                 referral_counted=True,
                 referral_reward_given=True,
                 last_seen_at=inactive_since,
-                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+                sponsor_wave_one=_wave_json(
+                    "https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d", "https://t.me/e"
+                ),
             )
             session.add_all((referrer, referred))
             await session.commit()
@@ -81,10 +83,10 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
                 await session.execute(select(func.count(ReferralReactivation.id)))
             ).scalar_one()
 
-        # 3-sponsor tier (9 RP⭐️), halved.
-        self.assertEqual(first, Decimal("4.50"))
+        # 4-5 sponsor tier (6 RP⭐️), halved.
+        self.assertEqual(first, Decimal("3.00"))
         self.assertIsNone(second)
-        self.assertEqual(float(saved_referrer.stars_balance), 4.5)
+        self.assertEqual(float(saved_referrer.stars_balance), 3.0)
         self.assertEqual(ledger_count, 1)
 
     async def test_reactivation_pays_nothing_below_the_minimum_sponsors(self) -> None:
@@ -157,7 +159,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
                 referrer_id=710,
                 sponsors_verified=True,
                 sponsor_wave_one=_wave_json(
-                    "https://t.me/a", "https://t.me/b", "https://t.me/c"
+                    "https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d", "https://t.me/e"
                 ),
             )
             session.add_all((referrer, referred))
@@ -170,9 +172,9 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 710)
             saved_referred = await session.get(User, 711)
 
-        # 3-sponsor tier reward (9 RP⭐️), paid exactly once regardless of how
-        # many times check_referral_reward is called afterwards.
-        self.assertEqual(float(saved_referrer.stars_balance), 9.0)
+        # 4-5 sponsor tier reward (6 RP⭐️), paid exactly once regardless of
+        # how many times check_referral_reward is called afterwards.
+        self.assertEqual(float(saved_referrer.stars_balance), 6.0)
         self.assertEqual(saved_referrer.referrals_count, 1)
         self.assertTrue(saved_referred.referral_reward_given)
         self.assertTrue(saved_referred.referral_counted)
@@ -209,11 +211,13 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         notified_ids = {call.args[0] for call in bot.send_message.await_args_list}
         self.assertEqual(notified_ids, {720, 721})
 
-        # Once the referred user reaches the minimum (3) sponsors, the
-        # payout goes through — the 3-sponsor tier reward.
+        # Once the referred user reaches 5 sponsors, the payout goes
+        # through — the 4-5 sponsor tier reward.
         async with self.sessions() as session:
             saved_referred = await session.get(User, 721)
-            saved_referred.sponsor_wave_two = _wave_json("https://t.me/b", "https://t.me/c")
+            saved_referred.sponsor_wave_two = _wave_json(
+                "https://t.me/b", "https://t.me/c", "https://t.me/d", "https://t.me/e"
+            )
             await session.commit()
             await check_referral_reward(saved_referred, session)
 
@@ -221,7 +225,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 720)
             saved_referred = await session.get(User, 721)
 
-        self.assertEqual(float(saved_referrer.stars_balance), 9.0)
+        self.assertEqual(float(saved_referrer.stars_balance), 6.0)
         self.assertEqual(saved_referrer.referrals_count, 1)
         self.assertTrue(saved_referred.referral_reward_given)
 
@@ -236,7 +240,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
                 first_name="Referred",
                 referrer_id=730,
                 sponsors_verified=True,
-                sponsor_wave_one=_wave_json(*[f"https://t.me/tg{i}" for i in range(3)]),
+                sponsor_wave_one=_wave_json(*[f"https://t.me/tg{i}" for i in range(5)]),
             )
             session.add_all((referrer, referred))
             await session.commit()
@@ -245,7 +249,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 730)
-        self.assertEqual(float(saved_referrer.stars_balance), 9.0)
+        self.assertEqual(float(saved_referrer.stars_balance), 6.0)
         self.assertEqual(saved_referrer.referrals_count, 1)
 
         # Simulate the recheck scheduler unlocking brand-new sponsors after
@@ -260,12 +264,12 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 730)
 
         # No second payout, no second milestone increment.
-        self.assertEqual(float(saved_referrer.stars_balance), 9.0)
+        self.assertEqual(float(saved_referrer.stars_balance), 6.0)
         self.assertEqual(saved_referrer.referrals_count, 1)
 
     async def test_returning_referral_reward_uses_fresh_count_not_stale_wave(self) -> None:
-        """Item: a returning referral subscribed to just 3 sponsors on this
-        visit, but the reactivation reward priced it as if for 6-8 —
+        """Item: a returning referral subscribed to just 5 sponsors on this
+        visit, but the reactivation reward priced it as if for 6-7 —
         because it was reading sponsor_count straight off the frozen wave
         saved back when this referral FIRST completed the sponsor wall
         (months ago), with no re-verification that those sponsors are
@@ -286,19 +290,18 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             session.add_all((referrer, referred))
             await session.commit()
 
-            # Bot-confirmed: the user has since left all but 3 of the old
-            # sponsors — only 3 are genuinely current right now (still
-            # clears the new min-sponsors floor).
-            bot = _bot(confirmed_statuses={f"@old{i}": "left" for i in range(3, 7)})
+            # Bot-confirmed: the user has since left 2 of the old sponsors —
+            # only 5 are genuinely current right now (still clears the
+            # min-sponsors floor).
+            bot = _bot(confirmed_statuses={f"@old{i}": "left" for i in range(5, 7)})
             reward = await reward_returning_referral(
                 referred, referrer.user_id, inactive_since, session, bot,
             )
 
-        # Base tier for 3 sponsors is the flat "referral_reward" (9),
-        # halved for reactivation -> 4.50. Must NOT be the 6-8 tier
-        # (referral_reward_top, 13.5 -> 6.75) the stale 7-item wave would
-        # have produced.
-        self.assertEqual(reward, Decimal("4.50"))
+        # The 4-5 tier (referral_reward_4_5, 6), halved for reactivation ->
+        # 3.00. Must NOT be the 6-7 tier (referral_reward_6_7, 9 -> 4.50)
+        # the stale 7-item wave would have produced.
+        self.assertEqual(reward, Decimal("3.00"))
 
     async def test_bot_side_verification_excludes_unconfirmed_tg_sponsor(self) -> None:
         async with self.sessions() as session:
@@ -322,9 +325,11 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 740)
             saved_referred = await session.get(User, 741)
 
-        # 3 of the 4 sponsors are bot-confirmed, meeting the minimum (3) —
-        # the 3-sponsor tier reward is paid despite the unconfirmed 4th.
-        self.assertEqual(float(saved_referrer.stars_balance), 9.0)
+        # 3 of the 4 sponsors are bot-confirmed, meeting the minimum (3) --
+        # the reward is counted (referral_reward_given flips) using the
+        # CONFIRMED count (3, the 0-3 tier, pays 0) despite the unconfirmed
+        # 4th -- must not use the gross count (4, the 4-5 tier, pays 6).
+        self.assertEqual(float(saved_referrer.stars_balance), 0.0)
         self.assertTrue(saved_referred.referral_reward_given)
 
     async def test_unconfirmed_sponsor_can_drop_total_below_minimum(self) -> None:
@@ -370,7 +375,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
                 referrer_id=760,
                 sponsors_verified=True,
                 sponsor_wave_one=_wave_json(
-                    "https://t.me/a", "https://t.me/b", "https://t.me/c"
+                    "https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d", "https://t.me/e"
                 ),
             )
             session.add_all((referrer, referred))
@@ -381,8 +386,8 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 760)
 
-        # 3-sponsor tier reward (9) + the 10-referral milestone bonus (0.1).
-        self.assertEqual(float(saved_referrer.stars_balance), 9.1)
+        # 4-5 sponsor tier reward (6) + the 10-referral milestone bonus (0.1).
+        self.assertEqual(float(saved_referrer.stars_balance), 6.1)
         self.assertEqual(saved_referrer.referrals_count, 10)
 
     async def test_100_is_a_one_time_milestone_not_an_infinite_recurring_bonus(self) -> None:
@@ -397,7 +402,7 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             )
             referred = User(
                 user_id=781, first_name="Referred", referrer_id=780, sponsors_verified=True,
-                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d", "https://t.me/e"),
             )
             session.add_all((referrer, referred))
             await session.commit()
@@ -405,14 +410,14 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 780)
-        # 99 -> 100 hits the one-time milestone: tier reward (9) + 1.
-        self.assertEqual(float(saved_referrer.stars_balance), 10.0)
+        # 99 -> 100 hits the one-time milestone: 4-5 tier reward (6) + 1.
+        self.assertEqual(float(saved_referrer.stars_balance), 7.0)
         self.assertEqual(saved_referrer.referrals_count, 100)
 
         async with self.sessions() as session:
             referred_2 = User(
                 user_id=782, first_name="Referred2", referrer_id=780, sponsors_verified=True,
-                sponsor_wave_one=_wave_json("https://t.me/d", "https://t.me/e", "https://t.me/f"),
+                sponsor_wave_one=_wave_json("https://t.me/f", "https://t.me/g", "https://t.me/h", "https://t.me/i", "https://t.me/j"),
             )
             session.add(referred_2)
             await session.commit()
@@ -421,8 +426,8 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         async with self.sessions() as session:
             saved_referrer = await session.get(User, 780)
         # 101st referral is below the new 200+ recurring floor: only the
-        # base tier reward (9), no milestone/recurring bonus on top.
-        self.assertEqual(float(saved_referrer.stars_balance), 19.0)
+        # 4-5 tier reward (6), no milestone/recurring bonus on top.
+        self.assertEqual(float(saved_referrer.stars_balance), 13.0)
         self.assertEqual(saved_referrer.referrals_count, 101)
 
     async def test_vip_flag_flips_silently_with_no_special_message(self) -> None:
@@ -648,6 +653,7 @@ class ReactivationWallTests(unittest.IsolatedAsyncioTestCase):
             user.sponsor_wave = 3
             user.sponsor_wave_one = _wave_json(
                 "https://t.me/new-a", "https://t.me/new-b", "https://t.me/new-c",
+                "https://t.me/new-d", "https://t.me/new-e",
             )
             await session.commit()
             await resolve_pending_reactivation(user, session)
@@ -659,7 +665,7 @@ class ReactivationWallTests(unittest.IsolatedAsyncioTestCase):
                 await session.execute(select(func.count(ReferralReactivation.id)))
             ).scalar_one()
 
-        self.assertEqual(float(saved_referrer.stars_balance), 4.5)  # 9 (3-sponsor tier) / 2
+        self.assertEqual(float(saved_referrer.stars_balance), 3.0)  # 6 (4-5 sponsor tier) / 2
         self.assertIsNone(saved_referred.pending_reactivation_referrer_id)
         self.assertIsNone(saved_referred.pending_reactivation_since)
         self.assertEqual(ledger_count, 1)
