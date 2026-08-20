@@ -457,10 +457,25 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     total = len(tg_urls) + len(web_urls)
 
     min_sponsors = await get_min_sponsors_for_reward(session)
-    if total < min_sponsors:
+    # Computed here, before the gate, so a sponsor-count bucket that itself
+    # pays 0 (see _REFERRAL_REWARD_TIERS -- by default the 0-3 bucket)
+    # is caught by the SAME "insufficient" branch as total < min_sponsors,
+    # instead of falling through to the claim below and permanently
+    # consuming referral_reward_given for a payout of 0 -- which would
+    # both waste the referral forever and show the referrer a misleading
+    # "you were credited 0 RP" success message.
+    reward = await get_referral_reward(session, total, is_premium=referred_is_premium)
+    if total < min_sponsors or reward <= 0:
+        # The true minimum for ANY payout can be higher than the raw
+        # min_sponsors_for_reward setting whenever the lowest sponsor-count
+        # tier itself pays 0 (the default config: min_sponsors_for_reward=3,
+        # but the 0-3 tier pays 0 RP⭐️, so a referral genuinely needs 4+ to
+        # ever earn anything) -- shown here instead of the raw setting so
+        # this message is never self-contradictory ("minimum 3, had 3").
+        effective_min = max(min_sponsors, _REFERRAL_REWARD_TIERS[0][0] + 1)
         logger.info(
-            "REFERRAL outcome=insufficient referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d",
-            referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, min_sponsors,
+            "REFERRAL outcome=insufficient referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s",
+            referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, effective_min, reward,
         )
         if not user.referral_insufficient_notified:
             user.referral_insufficient_notified = True
@@ -469,7 +484,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                 try:
                     await bot.send_message(
                         referrer_id,
-                        f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {min_sponsors}, было {total})."
+                        f"⚠️ Вашему рефералу было предоставлено недостаточно спонсоров для начисления реферальной награды (минимум {effective_min}, было {total})."
                     )
                 except Exception:
                     pass
@@ -478,7 +493,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
                         referred_user_id,
                         f"⚠️ Твоему другу, который тебя пригласил, не начислилась награда за тебя, "
                         f"т.к. ты подписался на недостаточное количество спонсоров "
-                        f"(минимум {min_sponsors}, было {total}).",
+                        f"(минимум {effective_min}, было {total}).",
                     )
                 except Exception:
                     pass
@@ -531,8 +546,6 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not referrer:
         await _unclaim()
         return
-
-    reward = await get_referral_reward(session, total, is_premium=referred_is_premium)
 
     # referrals_count is read-then-written, so two referrals for the same
     # referrer completing at nearly the same moment (plausible with the

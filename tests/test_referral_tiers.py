@@ -152,12 +152,15 @@ class ReferralTierPersistenceTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
 
     async def _pay_one_referral(self, referrer_id: int, referred_id: int) -> None:
+        # 4 sponsors, not 3 -- the 0-3 tier pays 0 RP⭐️ by design (see
+        # _REFERRAL_REWARD_TIERS), so 3 would be treated as insufficient
+        # and never actually reach/count the referral at all.
         referred = User(
             user_id=referred_id,
             first_name="Referred",
             referrer_id=referrer_id,
             sponsors_verified=True,
-            sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d"),
         )
         async with self.sessions() as session:
             session.add(referred)

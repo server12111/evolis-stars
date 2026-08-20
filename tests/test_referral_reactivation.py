@@ -325,12 +325,11 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             saved_referrer = await session.get(User, 740)
             saved_referred = await session.get(User, 741)
 
-        # 3 of the 4 sponsors are bot-confirmed, meeting the minimum (3) --
-        # the reward is counted (referral_reward_given flips) using the
-        # CONFIRMED count (3, the 0-3 tier, pays 0) despite the unconfirmed
-        # 4th -- must not use the gross count (4, the 4-5 tier, pays 6).
+        # Must use the CONFIRMED count (3, the 0-3 tier -- pays 0, treated
+        # as insufficient, never counted) rather than the gross count (4,
+        # the 4-5 tier, which would pay 6 RP⭐️ and count the referral).
         self.assertEqual(float(saved_referrer.stars_balance), 0.0)
-        self.assertTrue(saved_referred.referral_reward_given)
+        self.assertFalse(saved_referred.referral_reward_given)
 
     async def test_unconfirmed_sponsor_can_drop_total_below_minimum(self) -> None:
         async with self.sessions() as session:
@@ -358,6 +357,45 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
         # no payout happens even though the bot never goes negative for it.
         self.assertEqual(float(saved_referrer.stars_balance), 0.0)
         self.assertFalse(saved_referred.referral_reward_given)
+
+    async def test_exactly_3_sponsors_is_not_counted_despite_passing_the_raw_gate(self) -> None:
+        """Regression: 3 sponsors clears the raw min_sponsors_for_reward
+        gate (default 3) but lands in the 0-3 reward tier, which pays 0
+        RP⭐️ by design. Must be treated exactly like "insufficient
+        sponsors" -- NOT silently counted (referral_reward_given=True) for
+        a zero payout, which would permanently waste the referral and show
+        the referrer a misleading "credited 0 RP" success message instead
+        of ever getting a real reward for this referral later."""
+        async with self.sessions() as session:
+            referrer = User(user_id=752, first_name="Referrer", stars_balance=Decimal(0))
+            referred = User(
+                user_id=753,
+                first_name="Referred",
+                referrer_id=752,
+                sponsors_verified=True,
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+            )
+            session.add_all((referrer, referred))
+            await session.commit()
+
+            bot = _bot()
+            await check_referral_reward(referred, session, bot)
+
+        async with self.sessions() as session:
+            saved_referrer = await session.get(User, 752)
+            saved_referred = await session.get(User, 753)
+
+        self.assertEqual(float(saved_referrer.stars_balance), 0.0)
+        self.assertFalse(saved_referred.referral_reward_given)
+        self.assertEqual(saved_referrer.referrals_count, 0)
+        # Both parties get the "insufficient sponsors" notice, not a
+        # misleading "credited 0 RP" success message.
+        self.assertEqual(bot.send_message.await_count, 2)
+        notified_ids = {call.args[0] for call in bot.send_message.await_args_list}
+        self.assertEqual(notified_ids, {752, 753})
+        for call in bot.send_message.await_args_list:
+            self.assertIn("недостаточно", call.args[1].lower())
+            self.assertNotIn("вам начислено", call.args[1].lower())
 
     async def test_milestone_bonus_and_vip_apply_on_top_of_flat_reward(self) -> None:
         async with self.sessions() as session:
@@ -437,7 +475,9 @@ class ReferralRewardTests(unittest.IsolatedAsyncioTestCase):
             )
             referred = User(
                 user_id=791, first_name="Referred", referrer_id=790, sponsors_verified=True,
-                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c"),
+                # 4, not 3 -- the 0-3 tier pays 0 RP⭐️ and would never
+                # actually count this referral at all.
+                sponsor_wave_one=_wave_json("https://t.me/a", "https://t.me/b", "https://t.me/c", "https://t.me/d"),
             )
             session.add_all((referrer, referred))
             await session.commit()
