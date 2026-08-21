@@ -39,12 +39,6 @@ class SponsorWaveState:
     items: list[dict] | None = None
 
 
-def _key(item: dict) -> tuple[str, str]:
-    provider = str(item.get("provider", "")).strip().lower()
-    url = str(item.get("url", "")).strip().rstrip("/").lower()
-    return provider, url
-
-
 def normalize_sponsor_url(url: str) -> str:
     """Canonical form used both for in-wave dedup and for matching against
     the admin blocklist (BlockedSponsorRepository stores/compares the same
@@ -54,6 +48,27 @@ def normalize_sponsor_url(url: str) -> str:
 
 def _url_key(item: dict) -> str:
     return normalize_sponsor_url(item.get("url", ""))
+
+
+def _identity_key(item: dict) -> str:
+    """Stable identity for a sponsor item across repeated provider
+    fetches -- prefers the provider's own opaque ref (Traffy's
+    assignment_id, FlyerHub's signature) when present, over the raw URL.
+    Traffy/FlyerHub reissue a freshly-signed tracking URL for the SAME
+    underlying task on every single fetch (see extract_host's docstring);
+    matching by raw URL instead of ref would treat every re-fetch as a
+    brand new sponsor -- inflating both in-wave "already offered" dedup
+    and, worse, the persisted wave history that referral-reward sponsor
+    counting reads verbatim (see referral.py's total_sponsor_count/
+    _current_sponsor_urls), silently bumping a referral into a higher
+    reward tier than the sponsor count they actually saw. tgrass/botohub
+    items carry no ref and stay URL-identified, matching how they're
+    already keyed elsewhere (see
+    bot/services/chat_wall_integrations.py::integration_item_key)."""
+    ref = str(item.get("ref", "")).strip()
+    if ref:
+        return f"ref:{str(item.get('provider', '')).strip().lower()}:{ref}"
+    return f"url:{_url_key(item)}"
 
 
 def extract_host(url: str) -> str:
@@ -202,12 +217,15 @@ def initialize_waves(
         combined.extend(_decorate(botohub_result, "botohub"))
 
     unique: list[dict] = []
-    seen_urls: set[str] = set()
+    seen: set[str] = set()
     for item in combined:
         url_key = _url_key(item)
-        if not url_key or url_key in seen_urls or is_sponsor_blocked(url_key, blocked_urls, blocked_domains):
+        if not url_key or is_sponsor_blocked(url_key, blocked_urls, blocked_domains):
             continue
-        seen_urls.add(url_key)
+        identity = _identity_key(item)
+        if identity in seen:
+            continue
+        seen.add(identity)
         item["type"] = classify_sponsor_type(url_key)
         unique.append(item)
         if len(unique) >= wave_size * MAX_WAVES:
@@ -318,16 +336,16 @@ def evaluate_waves(
                 items=saved,
             )
 
-        unsubscribed: set[tuple[str, str]] = set()
+        unsubscribed: set[str] = set()
         for provider in required_providers:
             provider_result = results[provider]
             if isinstance(provider_result, list):
                 unsubscribed.update(
-                    _key(item)
+                    _identity_key(item)
                     for item in _decorate(provider_result, provider)
                 )
 
-        remaining = [item for item in saved if _key(item) in unsubscribed]
+        remaining = [item for item in saved if _identity_key(item) in unsubscribed]
 
         # Top up: a sponsor that just got confirmed drops out of `remaining`
         # above, but the user should see a replacement instead of a
@@ -338,15 +356,18 @@ def evaluate_waves(
         # replacement is never one the user is secretly already
         # subscribed to. Never re-offer anything already in `saved`
         # (already shown once this wave, whether resolved or still
-        # pending) or already picked as a replacement. Dedup by URL alone
-        # (matching initialize_waves' own dedup), not the provider-scoped
-        # _key() — the same URL reported by two different providers is
-        # still the same sponsor, and must not be topped up as "new" just
-        # because it's attributed to a different provider than the one
-        # already saved under.
+        # pending) or already picked as a replacement. Deduped by
+        # _identity_key (ref-preferred, see its own docstring), not raw
+        # URL or the provider-scoped tuple this used to be keyed by — the
+        # same URL/ref reported by two different providers, or the same
+        # underlying Traffy/FlyerHub task reissued under a freshly-signed
+        # URL on this very re-fetch, is still the same sponsor and must
+        # never be topped up as "new" (which would both show the user a
+        # fake extra sponsor AND inflate the persisted wave history that
+        # referral-reward sponsor counting reads verbatim).
         if top_up and len(remaining) < wave_size:
-            already_shown = {_url_key(item) for item in saved}
-            picked = {_url_key(item) for item in remaining}
+            already_shown = {_identity_key(item) for item in saved}
+            picked = {_identity_key(item) for item in remaining}
             new_candidates: list[dict] = []
             for provider, provider_result in results.items():
                 if len(remaining) >= wave_size:
@@ -356,17 +377,18 @@ def evaluate_waves(
                 for candidate in _decorate(provider_result, provider):
                     if len(remaining) >= wave_size:
                         break
+                    identity = _identity_key(candidate)
                     url_key = _url_key(candidate)
                     if (
                         not url_key
-                        or url_key in already_shown
-                        or url_key in picked
+                        or identity in already_shown
+                        or identity in picked
                         or is_sponsor_blocked(url_key, blocked_urls, blocked_domains)
                     ):
                         continue
                     new_candidates.append(candidate)
                     remaining.append(candidate)
-                    picked.add(url_key)
+                    picked.add(identity)
 
             if new_candidates:
                 # Append to the FULL saved history (resolved items

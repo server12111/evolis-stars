@@ -12,7 +12,7 @@ from bot.services.sponsor_waves import (
     SponsorWaveState,
     WaveFields,
     _current_items,
-    _key,
+    _identity_key,
     is_sponsor_blocked,
     normalize_sponsor_url,
 )
@@ -115,11 +115,11 @@ async def evaluate_and_credit_integration_wave(
     blocked_urls = frozenset(await blocked_sponsor_repo.url_key_set())
     blocked_domains = frozenset(await blocked_sponsor_repo.domain_key_set())
 
-    still_pending = {_key(item) for item in (wave_state.items or [])}
+    still_pending = {_identity_key(item) for item in (wave_state.items or [])}
     repo = ChatWallIntegrationRepository(session)
     newly_credited = 0
     for item in before_items:
-        if _key(item) in still_pending:
+        if _identity_key(item) in still_pending:
             continue
         if is_sponsor_blocked(item.get("url", ""), blocked_urls, blocked_domains):
             # Auto-dropped by evaluate_waves because it's now admin-

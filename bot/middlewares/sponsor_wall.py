@@ -225,14 +225,14 @@ async def _reinstate_expired_pinned_sponsors(
     if bot is None or getattr(db_user, fields.wave) not in (1, 2):
         return
 
-    from bot.services.sponsor_waves import _current_items, _decorate, _key
+    from bot.services.sponsor_waves import _current_items, _decorate, _identity_key
 
     for item in _current_items(db_user, fields):
         provider = str(item.get("provider", ""))
         provider_result = results.get(provider)
         if not isinstance(provider_result, list):
             continue
-        if _key(item) in {_key(decorated) for decorated in _decorate(provider_result, provider)}:
+        if _identity_key(item) in {_identity_key(decorated) for decorated in _decorate(provider_result, provider)}:
             continue  # provider already reports it as unsubscribed — nothing to do
         if not provider_result:
             continue  # provider reports zero offers outright — trust it, not a rotated batch

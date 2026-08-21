@@ -351,6 +351,43 @@ class TraffyFlyerhubMergeTests(unittest.TestCase):
         )
         self.assertEqual(state.status, "complete")
 
+    def test_traffy_reissued_url_for_the_same_ref_is_not_treated_as_a_new_sponsor(self) -> None:
+        """Regression: Traffy/FlyerHub reissue a freshly-signed tracking
+        URL for the SAME underlying task on every fetch (see
+        _identity_key's own docstring). Matching saved items against the
+        fresh "still unsubscribed" batch by raw URL instead of by ref
+        would wrongly treat the reissued URL as a brand new sponsor: the
+        original entry would look "resolved" (even though the user never
+        actually subscribed) and a "replacement" would be topped up in
+        its place, silently growing the persisted wave -- inflating
+        referral-reward sponsor counting (bot/services/referral.py reads
+        this persisted history verbatim) even though nothing completed."""
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://t.me/s1-sigA", "ref": "assign-1"}],
+            traffy_configured=True,
+        )
+        self.assertEqual(total_sponsor_count(current), 1)
+
+        # Re-check: Traffy still reports assign-1 as pending, but under a
+        # freshly-signed URL.
+        state = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[{"name": "S", "url": "https://t.me/s1-sigB", "ref": "assign-1"}],
+            traffy_configured=True,
+        )
+        self.assertEqual(state.status, "pending")
+        self.assertEqual(len(state.items or []), 1)
+        self.assertEqual((state.items or [])[0]["ref"], "assign-1")
+        # Not topped up with a "new" replacement -- still exactly 1
+        # sponsor in the persisted history, not 2.
+        self.assertEqual(total_sponsor_count(current), 1)
+
     def test_legacy_piarflow_item_in_frozen_wave_auto_resolves(self) -> None:
         """Users whose wave was frozen back when PiarFlow still fed the ОП
         wall must not get stuck on "unavailable" forever now that piarflow
