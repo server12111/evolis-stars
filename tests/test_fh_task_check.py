@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from bot.handlers.tasks import cb_fh_task_check, settings
+from bot.handlers.tasks import _show_fh_task, cb_fh_task_check, settings
 
 
 def callback(signature: str = "sig-1") -> SimpleNamespace:
@@ -112,6 +112,51 @@ class FhTaskCheckStatusTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertAlmostEqual(float(user.stars_balance), 1.3)
         self.assertEqual(user.tasks_completed_count, 1)
+
+
+class FhTaskSelectionBlocklistTests(unittest.IsolatedAsyncioTestCase):
+    """Regression: _show_fh_task used to never consult the admin blocklist
+    at all -- a domain blocked there (e.g. api.flyerpartners.com, which
+    FlyerHub reissues under a freshly-signed URL every time) kept being
+    offered here regardless, since this "Задания" screen's task selection
+    is a completely separate code path from the mandatory sponsor wall's."""
+
+    async def test_blocked_domain_is_skipped_in_favor_of_the_next_task(self) -> None:
+        cb = SimpleNamespace(
+            message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        )
+        user = SimpleNamespace(user_id=1)
+        blocked_task = {
+            "name": "Blocked",
+            "signature": "sig-blocked",
+            "links": ["https://api.flyerpartners.com/search?sign=abc"],
+        }
+        allowed_task = {
+            "name": "Allowed",
+            "signature": "sig-allowed",
+            "links": ["https://t.me/allowed_channel"],
+        }
+
+        with (
+            patch.object(settings, "flyerhub_webapp_url", ""),
+            patch("bot.database.repositories.settings.SettingsRepository.get_float", AsyncMock(return_value=0.3)),
+            patch("bot.database.repositories.settings.SettingsRepository.get", AsyncMock(return_value="")),
+            patch(
+                "bot.handlers.tasks.BlockedSponsorRepository.url_key_set",
+                AsyncMock(return_value=set()),
+            ),
+            patch(
+                "bot.handlers.tasks.BlockedSponsorRepository.domain_key_set",
+                AsyncMock(return_value={"api.flyerpartners.com"}),
+            ),
+        ):
+            await _show_fh_task(
+                cb, user, SimpleNamespace(), fh_tasks=[blocked_task, allowed_task],
+            )
+
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("Allowed", rendered)
+        self.assertNotIn("Blocked", rendered)
 
 
 if __name__ == "__main__":

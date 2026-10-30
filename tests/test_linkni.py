@@ -191,6 +191,8 @@ class LinkniTaskFlowTests(unittest.IsolatedAsyncioTestCase):
             patch("bot.handlers.tasks.SettingsRepository.get_int", AsyncMock(return_value=100)),
             patch("bot.handlers.tasks.SettingsRepository.get", AsyncMock(return_value="")),
             patch("bot.handlers.tasks._show_fh_webapp", AsyncMock()) as show_fh_webapp,
+            patch("bot.handlers.tasks.BlockedSponsorRepository.url_key_set", AsyncMock(return_value=set())),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.domain_key_set", AsyncMock(return_value=set())),
         ):
             await _show_pf_task(cb, db_user(), SimpleNamespace())
 

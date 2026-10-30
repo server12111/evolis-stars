@@ -5,11 +5,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def admin_main_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats"),
-        InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast"),
+        InlineKeyboardButton(text="📈 Статистика", callback_data="admin:stats"),
+        InlineKeyboardButton(text="📢 Рассылка", callback_data="admin:broadcast"),
     )
     builder.row(
-        InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users"),
+        InlineKeyboardButton(text="👥️ Пользователи", callback_data="admin:users"),
         InlineKeyboardButton(text="🎟 Промокоды", callback_data="admin:promo"),
     )
     builder.row(
@@ -18,20 +18,23 @@ def admin_main_kb() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin:settings"),
-        InlineKeyboardButton(text="🖼 Медиа и тексты", callback_data="admin:media"),
+        InlineKeyboardButton(text="📱 Медиа и тексты", callback_data="admin:media"),
     )
     builder.row(
         InlineKeyboardButton(text="📢 Свои спонсоры", callback_data="admin:own_sponsors"),
-        InlineKeyboardButton(text="🚫 Блок-лист спонсоров", callback_data="admin:blocked_sponsors"),
+        InlineKeyboardButton(text="❌️ Блок-лист спонсоров", callback_data="admin:blocked_sponsors"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🎁 Отправить подарок", callback_data="admin:gift"),
     )
     builder.row(
         InlineKeyboardButton(text="💬 Список чатов", callback_data="admin:chatslist"),
-        InlineKeyboardButton(text="📄 Логи", callback_data="admin:logs"),
+        InlineKeyboardButton(text="📋 Логи", callback_data="admin:logs"),
     )
     return builder.as_markup()
 
 
 def back_to_admin_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:main"),
     ]])

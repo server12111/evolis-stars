@@ -101,7 +101,7 @@ class SponsorSkipButtonTests(ChatModelsTestCase):
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("3", rendered)
-        self.assertIn("3⭐", rendered)
+        self.assertIn("3⭐️", rendered)
 
     async def test_skip_price_does_not_grow_or_persist_the_wave(self) -> None:
         """Bug found in review: opening the skip dialog runs the same
@@ -242,7 +242,7 @@ class SuccessfulPaymentTests(ChatModelsTestCase):
             saved = await session.get(User, 13)
         self.assertTrue(saved.sponsors_verified)
         self.assertEqual(saved.sponsor_wave, 3)
-        message.answer.assert_any_call("✅ Спонсоры пропущены, спасибо за оплату!")
+        message.answer.assert_any_call("✔️ Спонсоры пропущены, спасибо за оплату!")
 
     async def test_stale_invoice_paid_after_already_complete_is_refunded(self) -> None:
         """The user already passed (e.g. subscribed for real, or a first

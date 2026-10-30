@@ -54,15 +54,15 @@ async def cb_wheel_bet(callback: CallbackQuery, session: AsyncSession, bot: Bot,
         if not math.isfinite(bet) or bet < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверная ставка.", show_alert=True)
+        await callback.answer("❌️ Неверная ставка.", show_alert=True)
         return
     max_bet = await SettingsRepository(session).get_float("wheel_max_bet", 500.0)
     if bet > max_bet:
-        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} RP⭐️.", show_alert=True)
+        await callback.answer(f"❌️ Макс. ставка: {max_bet:.0f} RP⭐️.", show_alert=True)
         return
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and db_user.stars_balance < bet:
-        await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
+        await callback.answer("❌️ Недостаточно звёзд.", show_alert=True)
         return
     await _spin_and_send(None, callback, session, bot, db_user, bet, free=free)
 
@@ -92,11 +92,11 @@ async def msg_wheel_bet(message: Message, state: FSMContext, session: AsyncSessi
         return
     max_bet = await SettingsRepository(session).get_float("wheel_max_bet", 500.0)
     if bet > max_bet:
-        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=wheel_cancel_kb())
+        await message.answer(f"❌️ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=wheel_cancel_kb())
         return
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and db_user.stars_balance < bet:
-        await message.answer("❌ Недостаточно звёзд.", reply_markup=wheel_cancel_kb())
+        await message.answer("❌️ Недостаточно звёзд.", reply_markup=wheel_cancel_kb())
         return
     await _spin_and_send(message, None, session, bot, db_user, bet, free=free)
 
@@ -131,7 +131,7 @@ async def _spin_and_send(
         )
     else:
         result_text = (
-            f"😔 <b>0.1x — не повезло</b>\n\n"
+            f"😞 <b>0.1x — не повезло</b>\n\n"
             f"Ставка: {bet} RP⭐️\n"
             f"Вернулось: <b>{payout} RP⭐️</b> ({sign}{net} RP⭐️)\n"
             f"💰 Баланс: <b>{float(user.stars_balance):.2f} RP⭐️</b>"

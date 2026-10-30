@@ -8,7 +8,7 @@ from bot.services.broadcast import broadcast
 def _text_message():
     return SimpleNamespace(
         photo=None, video=None, document=None, animation=None,
-        text="Hello ⭐", html_text="Hello ⭐", caption=None,
+        text="Hello ⭐️", html_text="Hello ⭐️", caption=None,
         copy_to=AsyncMock(),
     )
 
@@ -44,7 +44,7 @@ class BroadcastSendDispatchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((success, fail), (2, 0))
         message.copy_to.assert_not_awaited()
         self.assertEqual(bot.send_message.await_count, 2)
-        bot.send_message.assert_any_await(1, "Hello ⭐", parse_mode="HTML", reply_markup=None)
+        bot.send_message.assert_any_await(1, "Hello ⭐️", parse_mode="HTML", reply_markup=None)
 
     async def test_photo_message_uses_send_photo_with_last_size(self) -> None:
         bot = SimpleNamespace(send_photo=AsyncMock())
@@ -72,7 +72,7 @@ class BroadcastSendDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         await broadcast(bot, [1], message, kb)
 
-        bot.send_message.assert_awaited_once_with(1, "Hello ⭐", parse_mode="HTML", reply_markup=kb)
+        bot.send_message.assert_awaited_once_with(1, "Hello ⭐️", parse_mode="HTML", reply_markup=kb)
 
     async def test_failures_are_counted_not_raised(self) -> None:
         bot = SimpleNamespace(send_message=AsyncMock(side_effect=[None, Exception("blocked")]))

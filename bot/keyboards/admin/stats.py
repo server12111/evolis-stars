@@ -8,12 +8,12 @@ def stats_scope_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🤖 Статистика бота", callback_data="admin:stats:bot"),
         InlineKeyboardButton(text="💬 Статистика чатов", callback_data="admin:stats:chats"),
     )
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:main"))
     return builder.as_markup()
 
 
 def stats_back_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="◀️ К статистике", callback_data="admin:stats"))
+    builder.row(InlineKeyboardButton(text="⬅️ К статистике", callback_data="admin:stats"))
     builder.row(InlineKeyboardButton(text="🏠 Админ-панель", callback_data="admin:main"))
     return builder.as_markup()

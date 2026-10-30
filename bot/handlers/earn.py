@@ -19,6 +19,7 @@ from bot.services.referral import (
     REFERRAL_RETURN_DAYS,
     SIGMA_THRESHOLD,
     VIP_THRESHOLD,
+    effective_min_sponsors_for_reward,
     format_stars,
     get_milestone_bonus,
     get_min_sponsors_for_reward,
@@ -53,6 +54,13 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     # the lowest bucket that actually pays anything (0-3 always pays 0).
     reward_base = reward_4_5
     min_sponsors = await get_min_sponsors_for_reward(session)
+    # The true minimum for ANY payout -- can be higher than the raw
+    # min_sponsors_for_reward setting (see effective_min_sponsors_for_
+    # reward's own docstring). Previously this screen used the raw
+    # min_sponsors - 1 directly, showing "0-2 спонсоров — не засчитывается"
+    # while the real gate already required 4+ (0-3 always pays 0), quietly
+    # telling users a lower, wrong number.
+    effective_min = effective_min_sponsors_for_reward(min_sponsors)
     milestone_bonuses = {
         threshold: await get_milestone_bonus(session, threshold)
         for threshold, _ in MILESTONE_SETTINGS
@@ -66,9 +74,9 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
         referrals=db_user.referrals_count,
         link=ref_link,
         balance=float(db_user.stars_balance),
-        min_sponsors=min_sponsors,
-        min_sponsors_minus_1=max(0, min_sponsors - 1),
-        min_sponsors_word=sponsors_word(min_sponsors),
+        min_sponsors=effective_min,
+        min_sponsors_minus_1=max(0, effective_min - 1),
+        min_sponsors_word=sponsors_word(effective_min),
         vip_threshold=VIP_THRESHOLD,
         premium_threshold=PREMIUM_THRESHOLD,
         sigma_threshold=SIGMA_THRESHOLD,
@@ -107,7 +115,7 @@ async def cb_earn(callback: CallbackQuery, db_user: User, session: AsyncSession)
     # let the referral link silently disappear from the screen.
     if ref_link not in text:
         text += (
-            f"\n\n👥 Приглашено: <b>{db_user.referrals_count}</b>\n"
+            f"\n\n👥️ Приглашено: <b>{db_user.referrals_count}</b>\n"
             f"🔗 Твоя ссылка:\n<code>{ref_link}</code>"
         )
     text += (

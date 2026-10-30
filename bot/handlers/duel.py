@@ -92,7 +92,7 @@ async def _resolve_duel(duel: Duel, session: AsyncSession, bot: Bot) -> None:
             )
         duel.winner_id = None
         await session.commit()
-        txt = f"🤝 <b>Дуэль #{duel.id} — Ничья!</b>\n\n🎲 {c_roll} vs {j_roll}\n💫 Ставки возвращены."
+        txt = f"👋 <b>Дуэль #{duel.id} — Ничья!</b>\n\n🎲 {c_roll} vs {j_roll}\n💫 Ставки возвращены."
         await _notify(bot, duel.creator_id, txt, back_to_duel_kb())
         await _notify(bot, duel.joiner_id, txt, back_to_duel_kb())
         return
@@ -123,7 +123,7 @@ async def cb_duel_menu(
     await state.clear()
     min_refs, commission = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
-        await callback.answer(f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}. У тебя: {db_user.referrals_count}", show_alert=True)
+        await callback.answer(f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}. У тебя: {db_user.referrals_count}", show_alert=True)
         return
     text = (f"⚔️ <b>Дуэли</b>\n\n💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n\n"
             f"Бросайте кубик против соперника!\nПобедитель получает <b>{(1 - commission) * 100:.0f}%</b> банка.")
@@ -144,7 +144,7 @@ async def cb_duel_create(
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -166,16 +166,16 @@ async def msg_duel_amount(message: Message, state: FSMContext, session: AsyncSes
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await state.clear()
-        await message.answer(f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.")
+        await message.answer(f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.")
         return
     try:
         amount = float(message.text.strip().replace(",", "."))
         if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:")
+        await message.answer("❌️ Введи положительное число:")
         return
     if db_user.stars_balance < amount:
-        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML")
+        await message.answer(f"❌️ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML")
         return
 
     await state.clear()
@@ -199,10 +199,10 @@ async def cb_duel_cancel(callback: CallbackQuery, session: AsyncSession, db_user
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "waiting":
-        await callback.answer("❌ Нельзя отменить.", show_alert=True)
+        await callback.answer("❌️ Нельзя отменить.", show_alert=True)
         return
     if duel.creator_id != db_user.user_id:
-        await callback.answer("❌ Не ваша дуэль.", show_alert=True)
+        await callback.answer("❌️ Не ваша дуэль.", show_alert=True)
         return
     claim = await session.execute(
         update(Duel)
@@ -212,18 +212,18 @@ async def cb_duel_cancel(callback: CallbackQuery, session: AsyncSession, db_user
     )
     if claim.rowcount != 1:
         await session.rollback()
-        await callback.answer("❌ Нельзя отменить.", show_alert=True)
+        await callback.answer("❌️ Нельзя отменить.", show_alert=True)
         return
     db_user.stars_balance += duel.amount
     duel.status = "cancelled"
     await session.commit()
     try:
         await callback.message.edit_text(
-            f"❌ <b>Дуэль #{duel_id} отменена.</b>\n\n💫 <b>{float(duel.amount):.0f} RP⭐️</b> возвращено.",
+            f"❌️ <b>Дуэль #{duel_id} отменена.</b>\n\n💫 <b>{float(duel.amount):.0f} RP⭐️</b> возвращено.",
             parse_mode="HTML", reply_markup=back_to_duel_kb(),
         )
     except Exception:
-        await callback.message.answer(f"❌ Дуэль #{duel_id} отменена.", reply_markup=back_to_duel_kb())
+        await callback.message.answer(f"❌️ Дуэль #{duel_id} отменена.", reply_markup=back_to_duel_kb())
     await callback.answer()
 
 
@@ -232,7 +232,7 @@ async def cb_duel_active(callback: CallbackQuery, session: AsyncSession, db_user
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
@@ -242,7 +242,7 @@ async def cb_duel_active(callback: CallbackQuery, session: AsyncSession, db_user
         .order_by(Duel.created_at.desc())
     )).scalars().all()
     if not duels:
-        text = "⚔️ <b>Активные дуэли</b>\n\n😔 Нет доступных дуэлей. Создай свою!"
+        text = "⚔️ <b>Активные дуэли</b>\n\n😞 Нет доступных дуэлей. Создай свою!"
         try:
             await callback.message.edit_text(text, parse_mode="HTML", reply_markup=back_to_duel_kb())
         except Exception:
@@ -261,17 +261,17 @@ async def cb_duel_view(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs, commission = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "waiting" or duel.expires_at < datetime.utcnow():
-        await callback.answer("❌ Дуэль недоступна.", show_alert=True)
+        await callback.answer("❌️ Дуэль недоступна.", show_alert=True)
         return
     if duel.creator_id == db_user.user_id:
-        await callback.answer("❌ Нельзя вступить в свою дуэль.", show_alert=True)
+        await callback.answer("❌️ Нельзя вступить в свою дуэль.", show_alert=True)
         return
     creator = await session.get(User, duel.creator_id)
     mins_left = max(0, int((duel.expires_at - datetime.utcnow()).total_seconds() // 60))
@@ -292,20 +292,20 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs, _ = await _duel_rules(session)
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "waiting" or duel.expires_at < datetime.utcnow():
-        await callback.answer("❌ Дуэль недоступна.", show_alert=True)
+        await callback.answer("❌️ Дуэль недоступна.", show_alert=True)
         return
     if duel.creator_id == db_user.user_id:
-        await callback.answer("❌ Нельзя вступить в свою дуэль.", show_alert=True)
+        await callback.answer("❌️ Нельзя вступить в свою дуэль.", show_alert=True)
         return
     if db_user.stars_balance < duel.amount:
-        await callback.answer(f"❌ Нужно {float(duel.amount):.0f} RP⭐️", show_alert=True)
+        await callback.answer(f"❌️ Нужно {float(duel.amount):.0f} RP⭐️", show_alert=True)
         return
 
     expires_at = datetime.utcnow() + timedelta(minutes=CONFIRM_TIMEOUT_MINUTES)
@@ -325,7 +325,7 @@ async def cb_duel_join(callback: CallbackQuery, session: AsyncSession, db_user: 
     )
     if claim.rowcount != 1:
         await session.rollback()
-        await callback.answer("❌ Дуэль уже занята.", show_alert=True)
+        await callback.answer("❌️ Дуэль уже занята.", show_alert=True)
         return
 
     db_user.stars_balance -= duel.amount
@@ -355,7 +355,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "confirming" or duel.creator_id != db_user.user_id:
-        await callback.answer("❌ Недоступно.", show_alert=True)
+        await callback.answer("❌️ Недоступно.", show_alert=True)
         return
     expires_at = datetime.utcnow() + timedelta(minutes=DICE_TIMEOUT_MINUTES)
     claim = await session.execute(
@@ -371,7 +371,7 @@ async def cb_duel_confirm_join(callback: CallbackQuery, session: AsyncSession, d
     )
     if claim.rowcount != 1:
         await session.rollback()
-        await callback.answer("❌ Время подтверждения истекло.", show_alert=True)
+        await callback.answer("❌️ Время подтверждения истекло.", show_alert=True)
         return
     duel.status = "active"
     duel.expires_at = expires_at
@@ -397,7 +397,7 @@ async def cb_duel_decline_join(callback: CallbackQuery, session: AsyncSession, d
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "confirming" or duel.creator_id != db_user.user_id:
-        await callback.answer("❌ Недоступно.", show_alert=True)
+        await callback.answer("❌️ Недоступно.", show_alert=True)
         return
     claim = await session.execute(
         update(Duel)
@@ -411,7 +411,7 @@ async def cb_duel_decline_join(callback: CallbackQuery, session: AsyncSession, d
     )
     if claim.rowcount != 1:
         await session.rollback()
-        await callback.answer("❌ Дуэль уже обработана.", show_alert=True)
+        await callback.answer("❌️ Дуэль уже обработана.", show_alert=True)
         return
     joiner_id = duel.joiner_id
     participant_ids = [duel.creator_id]
@@ -426,11 +426,11 @@ async def cb_duel_decline_join(callback: CallbackQuery, session: AsyncSession, d
     duel.status = "cancelled"
     await session.commit()
     try:
-        await callback.message.edit_text(f"❌ Дуэль #{duel_id} отклонена. Ставка возвращена.", reply_markup=back_to_duel_kb())
+        await callback.message.edit_text(f"❌️ Дуэль #{duel_id} отклонена. Ставка возвращена.", reply_markup=back_to_duel_kb())
     except Exception:
         pass
     await callback.answer()
-    await _notify(callback.bot, joiner_id, f"❌ Дуэль #{duel_id} отклонена создателем. Ставка возвращена.", back_to_duel_kb())
+    await _notify(callback.bot, joiner_id, f"❌️ Дуэль #{duel_id} отклонена создателем. Ставка возвращена.", back_to_duel_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("duel:roll:"))
@@ -438,12 +438,12 @@ async def cb_duel_roll(callback: CallbackQuery, session: AsyncSession, db_user: 
     duel_id = int(callback.data.split(":")[2])
     duel = await session.get(Duel, duel_id)
     if not duel or duel.status != "active":
-        await callback.answer("❌ Дуэль уже завершена.", show_alert=True)
+        await callback.answer("❌️ Дуэль уже завершена.", show_alert=True)
         return
     is_creator = duel.creator_id == db_user.user_id
     is_joiner = duel.joiner_id == db_user.user_id
     if not (is_creator or is_joiner):
-        await callback.answer("❌ Вы не участник.", show_alert=True)
+        await callback.answer("❌️ Вы не участник.", show_alert=True)
         return
     if is_creator and duel.creator_roll is not None:
         await callback.answer("🎲 Вы уже бросили кубик.", show_alert=True)
@@ -505,7 +505,7 @@ async def cb_duel_history(callback: CallbackQuery, session: AsyncSession, db_use
         c_name = escape(f"@{creator.username}" if creator and creator.username else (creator.first_name if creator else "?"))
         j_name = escape(f"@{joiner.username}" if joiner and joiner.username else (joiner.first_name if joiner else "?"))
         if d.winner_id is None:
-            result = "🤝 Ничья"
+            result = "👋 Ничья"
         else:
             winner = await session.get(User, d.winner_id)
             result = f"🏆 {escape(winner.first_name) if winner else '?'}"

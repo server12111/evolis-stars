@@ -56,7 +56,7 @@ class UserMiddleware(BaseMiddleware):
                     inner = event
                 if inner is not None:
                     try:
-                        await inner.answer("❌ Вы заблокированы в боте.")
+                        await inner.answer("❌️ Вы заблокированы в боте.")
                     except Exception:
                         pass
                 return

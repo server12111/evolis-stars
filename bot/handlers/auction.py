@@ -43,8 +43,8 @@ async def _notify_outbid(bot, prev_bidder_id: int, extra: float, round_, now: da
             f"⚠️ <b>Вас перебили в аукционе!</b>\n\n"
             f"Новая ставка: <b>{extra:.2f} RP⭐️</b>\n"
             f"🏆 Призовой фонд: <b>{float(round_.prize_pool):.2f} RP⭐️</b>\n"
-            f"👉 Чтобы вернуть лидерство — сделайте новую ставку (от 1 RP⭐️)\n"
-            f"⏱ До конца аукциона: <b>{time_str}</b>",
+            f"➡️ Чтобы вернуть лидерство — сделайте новую ставку (от 1 RP⭐️)\n"
+            f"⏱️ До конца аукциона: <b>{time_str}</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -57,13 +57,13 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
 
     enabled = await s_repo.get_bool("auction_enabled", True)
     if not enabled:
-        return "🏺 <b>Аукцион</b>\n\nАукцион временно недоступен.", False
+        return "🔨 <b>Аукцион</b>\n\nАукцион временно недоступен.", False
 
     round_ = await repo.get_active()
     if round_ is None:
         # No round yet — will be created by scheduler
         return (
-            "🏺 <b>Аукцион</b>\n\n"
+            "🔨 <b>Аукцион</b>\n\n"
             "Аукцион скоро начнётся. Возвращайтесь позже!",
             False,
         )
@@ -91,7 +91,7 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
     min_next = round(float(round_.current_bid) + 1.0, 2)
 
     text = (
-        f"🏺 <b>Аукцион</b>\n\n"
+        f"🔨 <b>Аукцион</b>\n\n"
         f"Каждая ставка пополняет общий призовой фонд — побеждает тот, "
         f"кто останется лидером к концу отсчёта. Перебитые ставки в фонде "
         f"и не возвращаются, поэтому побеждает только последний лидер.\n\n"
@@ -99,7 +99,7 @@ async def _auction_text(session: AsyncSession, db_user: User) -> tuple[str, bool
         f"💰 Выигрыш победителя ({winner_percent}%): <b>{winner_share:.2f} RP⭐️</b>\n"
         f"{bid_line}\n"
         f"{leader_line}\n"
-        f"⏱ До конца: <b>{time_str}</b>\n\n"
+        f"⏱️ До конца: <b>{time_str}</b>\n\n"
         f"Мин. ставка: <b>{min_next:.2f} RP⭐️</b>\n"
         f"💰 Ваш баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"
     )
@@ -126,7 +126,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         if not math.isfinite(extra) or extra < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Минимальное повышение ставки: 1 RP⭐️.", show_alert=True)
+        await callback.answer("❌️ Минимальное повышение ставки: 1 RP⭐️.", show_alert=True)
         return
 
     repo = AuctionRepository(session)
@@ -143,7 +143,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
 
     now = datetime.utcnow()
     if now >= round_.end_at:
-        await callback.answer("🏁 Аукцион уже завершён.", show_alert=True)
+        await callback.answer("🎉 Аукцион уже завершён.", show_alert=True)
         return
 
     min_bid = round(float(round_.current_bid) + 1.0, 2)
@@ -152,7 +152,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         total_bid = min_bid
 
     if float(db_user.stars_balance) < extra:
-        await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
+        await callback.answer("❌️ Недостаточно звёзд.", show_alert=True)
         return
 
     prev_bidder_id = round_.current_bidder_id
@@ -181,7 +181,7 @@ async def cb_auction_bid(callback: CallbackQuery, db_user: User, session: AsyncS
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=auction_kb(has_active))
     except Exception:
         pass
-    await callback.answer(f"✅ Ставка {total_bid:.2f} RP⭐️ принята!")
+    await callback.answer(f"✔️ Ставка {total_bid:.2f} RP⭐️ принята!")
 
 
 @router.callback_query(lambda c: c.data == "auction:bid:custom")
@@ -189,12 +189,12 @@ async def cb_auction_bid_custom(callback: CallbackQuery, state: FSMContext) -> N
     await state.set_state(AuctionStates.enter_custom_bid)
     try:
         await callback.message.edit_text(
-            "🏺 Введи сумму (сколько добавить к своей ставке):",
+            "🔨 Введи сумму (сколько добавить к своей ставке):",
             reply_markup=auction_cancel_kb(),
         )
     except Exception:
         await callback.message.answer(
-            "🏺 Введи сумму (сколько добавить к своей ставке):",
+            "🔨 Введи сумму (сколько добавить к своей ставке):",
             reply_markup=auction_cancel_kb(),
         )
     await callback.answer()
@@ -210,7 +210,7 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
         if extra < 1:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Минимальное повышение — 1 RP⭐️:", reply_markup=auction_cancel_kb())
+        await message.answer("❌️ Минимальное повышение — 1 RP⭐️:", reply_markup=auction_cancel_kb())
         return
 
     repo = AuctionRepository(session)
@@ -229,12 +229,12 @@ async def msg_auction_custom(message: Message, state: FSMContext, db_user: User,
 
     now = datetime.utcnow()
     if now >= round_.end_at:
-        await message.answer("🏁 Аукцион уже завершён.")
+        await message.answer("🎉 Аукцион уже завершён.")
         await state.clear()
         return
 
     if float(db_user.stars_balance) < extra:
-        await message.answer("❌ Недостаточно звёзд.", reply_markup=auction_cancel_kb())
+        await message.answer("❌️ Недостаточно звёзд.", reply_markup=auction_cancel_kb())
         return
 
     prev_bidder_id = round_.current_bidder_id

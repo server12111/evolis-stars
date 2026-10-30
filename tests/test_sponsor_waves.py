@@ -139,6 +139,59 @@ class SponsorWaveTests(unittest.TestCase):
         )
         self.assertEqual((new_offers.status, current.sponsor_wave), ("pending", 1))
 
+    def test_reopening_a_complete_wave_never_loses_resolved_history(self) -> None:
+        """Confirmed live: two evaluate_provider_wave calls for the same
+        user close together (a double-tap on "Я подписался", or the
+        periodic sponsor_recheck_scheduler reopening an already-complete
+        wave) both reach initialize_waves with sponsor_wave==3. The old
+        behavior rebuilt sponsor_wave_one/two FROM SCRATCH using whatever
+        was unsubscribed at that exact instant -- silently erasing every
+        sponsor already resolved (and payable) before it, since referral-
+        reward counting reads this persisted history directly (see
+        total_sponsor_count/referral.py's _current_sponsor_urls), not just
+        the wall's current pending state. A real referral lost their
+        referrer's reward this way: subscribed to and resolved 9 sponsors
+        across traffy+tgrass, but a second concurrent recheck reset to a
+        fresh 3-sponsor FlyerHub batch, leaving only 3 in the frozen
+        history -- below the payout floor."""
+        current = user()
+        evaluate_waves(
+            current,
+            tgrass_result=offers("tg", 3),
+            botohub_result=[],
+            traffy_result=offers("traffy", 2),
+            traffy_configured=True,
+        )
+        self.assertEqual(total_sponsor_count(current), 5)
+
+        # Wave resolves fully -- every provider now reports nothing left.
+        completed = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=[],
+            traffy_result=[],
+            traffy_configured=True,
+        )
+        self.assertEqual((completed.status, current.sponsor_wave), ("complete", 3))
+        self.assertEqual(total_sponsor_count(current), 5)
+
+        # Reopened (periodic recheck, or a racing duplicate call) -- a
+        # totally different, unrelated provider now has fresh offers.
+        reopened = evaluate_waves(
+            current,
+            tgrass_result=[],
+            botohub_result=offers("bh", 2),
+            traffy_result=[],
+            traffy_configured=True,
+        )
+        self.assertEqual(reopened.status, "pending")
+        # The 5 already-resolved sponsors must still be there -- reopening
+        # must only ever ADD the 2 new botohub offers on top, total 7.
+        self.assertEqual(total_sponsor_count(current), 7)
+        saved_urls = {item["url"] for item in json.loads(current.sponsor_wave_one)}
+        self.assertTrue({f"https://t.me/tg{i}" for i in range(3)}.issubset(saved_urls))
+        self.assertTrue({f"https://t.me/traffy{i}" for i in range(2)}.issubset(saved_urls))
+
     def test_failure_of_current_provider_never_skips_wave(self) -> None:
         current = user()
         evaluate_waves(

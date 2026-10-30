@@ -67,11 +67,11 @@ async def _update_public_withdrawal_status(
     method_line = ""
     if float(withdrawal.amount) >= _METHOD_CHOICE_THRESHOLD:
         method_label = _METHOD_LABELS_ADMIN.get(withdrawal.withdrawal_method or "fragment", "Fragment")
-        method_line = f"🔧 Способ вывода: <b>{method_label}</b>\n"
+        method_line = f"🔨 Способ вывода: <b>{method_label}</b>\n"
     text = (
         f"📌 <b>Запрос на вывод #{withdrawal.display_number or withdrawal.id}</b>{vip_badge}\n\n"
         f"👤 Получатель: {username_display} | ID: <code>{withdrawal.user_id}</code>\n"
-        f"💫 Получит: <b>{float(withdrawal.amount):.0f} Telegram ⭐</b>\n"
+        f"💫 Получит: <b>{float(withdrawal.amount):.0f} Telegram ⭐️</b>\n"
         f"{method_line}"
         f"{status_icon} Статус: <b>{status}</b>"
     )
@@ -181,17 +181,17 @@ async def _update_public_crypto_withdrawal_status(
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:withdraw_approve:"))
 async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w_repo = WithdrawalRepository(session)
     w = await w_repo.approve(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n✅ <b>Принято</b>",
+            callback.message.text + "\n\n✔️ <b>Принято</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -199,31 +199,31 @@ async def cb_withdraw_approve(callback: CallbackQuery, session: AsyncSession) ->
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.amount):.0f} Telegram ⭐</b>\nСкоро вы получите выплату.",
+            f"✔️ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.amount):.0f} Telegram ⭐️</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_withdrawal_status(callback, session, w, "Принято", "✅")
-    await callback.answer("✅ Одобрено")
+    await _update_public_withdrawal_status(callback, session, w, "Принято", "✔️")
+    await callback.answer("✔️ Одобрено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:withdraw_reject:"))
 async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w_repo = WithdrawalRepository(session)
     w = await w_repo.reject(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     await session.commit()
 
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n❌ <b>Отклонено</b>",
+            callback.message.text + "\n\n❌️ <b>Отклонено</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -232,29 +232,29 @@ async def cb_withdraw_reject(callback: CallbackQuery, session: AsyncSession) -> 
         rp_debited = w.rp_debited if w.rp_debited is not None else w.amount * 3
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
+            f"❌️ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
             f"Списанные <b>{float(rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌")
-    await callback.answer("❌ Отклонено")
+    await _update_public_withdrawal_status(callback, session, w, "Отклонено", "❌️")
+    await callback.answer("❌️ Отклонено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:vcwithdraw_approve:"))
 async def cb_vcwithdraw_approve(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w = await VcWithdrawalRepository(session).approve(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n✅ <b>Принято</b>",
+            callback.message.text + "\n\n✔️ <b>Принято</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -262,31 +262,31 @@ async def cb_vcwithdraw_approve(callback: CallbackQuery, session: AsyncSession) 
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} GRAM</b>\nСкоро вы получите выплату.",
+            f"✔️ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\nВы получите: <b>{float(w.vc_amount):.0f} GRAM</b>\nСкоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_vc_withdrawal_status(callback, session, w, "Принято", "✅")
-    await callback.answer("✅ Одобрено")
+    await _update_public_vc_withdrawal_status(callback, session, w, "Принято", "✔️")
+    await callback.answer("✔️ Одобрено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:vcwithdraw_reject:"))
 async def cb_vcwithdraw_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w_repo = VcWithdrawalRepository(session)
     w = await w_repo.reject(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     await session.commit()
 
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n❌ <b>Отклонено</b>",
+            callback.message.text + "\n\n❌️ <b>Отклонено</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -294,29 +294,29 @@ async def cb_vcwithdraw_reject(callback: CallbackQuery, session: AsyncSession) -
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
+            f"❌️ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
             f"Списанные <b>{float(w.rp_debited):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_vc_withdrawal_status(callback, session, w, "Отклонено", "❌")
-    await callback.answer("❌ Отклонено")
+    await _update_public_vc_withdrawal_status(callback, session, w, "Отклонено", "❌️")
+    await callback.answer("❌️ Отклонено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:cryptowithdraw_approve:"))
 async def cb_cryptowithdraw_approve(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w = await CryptoWithdrawalRepository(session).approve(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n✅ <b>Принято</b>",
+            callback.message.text + "\n\n✔️ <b>Принято</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -328,33 +328,33 @@ async def cb_cryptowithdraw_approve(callback: CallbackQuery, session: AsyncSessi
         # a "sending here" confirmation.
         await callback.bot.send_message(
             w.user_id,
-            f"✅ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\n"
+            f"✔️ <b>Заявка #{w.display_number or w.id} одобрена!</b>\n\n"
             f"Вы получите: <b>{_fmt_crypto_payout(w)}</b> на <code>{w.recipient}</code>\n"
             f"Скоро вы получите выплату.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_crypto_withdrawal_status(callback, session, w, "Принято", "✅")
-    await callback.answer("✅ Одобрено")
+    await _update_public_crypto_withdrawal_status(callback, session, w, "Принято", "✔️")
+    await callback.answer("✔️ Одобрено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:cryptowithdraw_reject:"))
 async def cb_cryptowithdraw_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     wid = int(callback.data.split(":")[2])
     w_repo = CryptoWithdrawalRepository(session)
     w = await w_repo.reject(wid)
     if not w:
-        await callback.answer("❌ Заявка уже обработана.", show_alert=True)
+        await callback.answer("❌️ Заявка уже обработана.", show_alert=True)
         return
     await session.commit()
 
     try:
         await callback.message.edit_text(
-            callback.message.text + "\n\n❌ <b>Отклонено</b>",
+            callback.message.text + "\n\n❌️ <b>Отклонено</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -362,20 +362,20 @@ async def cb_cryptowithdraw_reject(callback: CallbackQuery, session: AsyncSessio
     try:
         await callback.bot.send_message(
             w.user_id,
-            f"❌ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
+            f"❌️ <b>Заявка #{w.display_number or w.id} отклонена.</b>\n\n"
             f"Списанные <b>{float(w.rp_amount):.0f} RP⭐️</b> не возвращены на баланс.",
             parse_mode="HTML",
         )
     except Exception:
         pass
-    await _update_public_crypto_withdrawal_status(callback, session, w, "Отклонено", "❌")
-    await callback.answer("❌ Отклонено")
+    await _update_public_crypto_withdrawal_status(callback, session, w, "Отклонено", "❌️")
+    await callback.answer("❌️ Отклонено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("broadcast_mod:approve:"))
 async def cb_broadcast_mod_approve(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     if callback.message is None:
         await callback.answer()
@@ -383,12 +383,12 @@ async def cb_broadcast_mod_approve(callback: CallbackQuery, session: AsyncSessio
     message_id = int(callback.data.split(":")[2])
     broadcast_msg = await ChatBroadcastRepository(session).approve(message_id)
     if not broadcast_msg:
-        await callback.answer("❌ Уже обработано.", show_alert=True)
+        await callback.answer("❌️ Уже обработано.", show_alert=True)
         return
 
     try:
         await callback.message.edit_text(
-            (callback.message.text or "") + "\n\n✅ <b>Одобрено</b>",
+            (callback.message.text or "") + "\n\n✔️ <b>Одобрено</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -402,21 +402,21 @@ async def cb_broadcast_mod_approve(callback: CallbackQuery, session: AsyncSessio
         # just "queues it up" (the owner still has to flip the toggle
         # themselves for a first-time setup).
         owner_text = (
-            "✅ <b>Ваш текст прошёл проверку, рассылка запущена!</b>"
+            "✔️ <b>Ваш текст прошёл проверку, рассылка запущена!</b>"
             if chat.custom_broadcast_enabled
-            else "✅ <b>Ваш текст прошёл проверку!</b>\n\nВключите рассылку в панели чата, чтобы она заработала."
+            else "✔️ <b>Ваш текст прошёл проверку!</b>\n\nВключите рассылку в панели чата, чтобы она заработала."
         )
         try:
             await callback.bot.send_message(chat.owner_user_id, owner_text, parse_mode="HTML")
         except Exception:
             pass
-    await callback.answer("✅ Одобрено")
+    await callback.answer("✔️ Одобрено")
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("broadcast_mod:reject:"))
 async def cb_broadcast_mod_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _is_admin(callback.from_user.id):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     if callback.message is None:
         await callback.answer()
@@ -424,13 +424,13 @@ async def cb_broadcast_mod_reject(callback: CallbackQuery, session: AsyncSession
     message_id = int(callback.data.split(":")[2])
     result = await ChatBroadcastRepository(session).reject(message_id)
     if not result:
-        await callback.answer("❌ Уже обработано.", show_alert=True)
+        await callback.answer("❌️ Уже обработано.", show_alert=True)
         return
     chat_id, _text = result
 
     try:
         await callback.message.edit_text(
-            (callback.message.text or "") + "\n\n❌ <b>Отклонено</b>",
+            (callback.message.text or "") + "\n\n❌️ <b>Отклонено</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -441,9 +441,9 @@ async def cb_broadcast_mod_reject(callback: CallbackQuery, session: AsyncSession
         try:
             await callback.bot.send_message(
                 chat.owner_user_id,
-                "❌ <b>Вашему тексту для рассылки отказано.</b>\n\nПопробуйте отправить другой текст.",
+                "❌️ <b>Вашему тексту для рассылки отказано.</b>\n\nПопробуйте отправить другой текст.",
                 parse_mode="HTML",
             )
         except Exception:
             pass
-    await callback.answer("❌ Отклонено")
+    await callback.answer("❌️ Отклонено")

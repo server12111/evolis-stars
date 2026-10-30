@@ -162,7 +162,7 @@ async def _process_vc_amount(
     if amount < vc_min or amount > vc_max:
         await _reply(
             inner,
-            f"❌ Сумма должна быть от {vc_min} до {vc_max} GRAM. Попробуй ещё раз:",
+            f"❌️ Сумма должна быть от {vc_min} до {vc_max} GRAM. Попробуй ещё раз:",
             reply_markup=vc_withdraw_cancel_kb(),
         )
         return
@@ -172,7 +172,7 @@ async def _process_vc_amount(
     if db_user.stars_balance < rp_cost:
         await _reply(
             inner,
-            f"❌ Недостаточно RP⭐️. Нужно {rp_cost} RP⭐️, баланс: {float(db_user.stars_balance):.2f} RP⭐️",
+            f"❌️ Недостаточно RP⭐️. Нужно {rp_cost} RP⭐️, баланс: {float(db_user.stars_balance):.2f} RP⭐️",
             reply_markup=vc_withdraw_cancel_kb(),
         )
         return
@@ -192,7 +192,7 @@ async def cb_vc_amount(callback: CallbackQuery, db_user: User, session: AsyncSes
     try:
         amount = int(raw)
     except ValueError:
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
     await _process_vc_amount(callback, db_user, session, state, amount)
 
@@ -201,7 +201,7 @@ async def cb_vc_amount(callback: CallbackQuery, db_user: User, session: AsyncSes
 async def msg_vc_amount_custom(message: Message, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     amount = _parse_vc_amount(message.text or "")
     if amount is None:
-        await message.answer("❌ Введи целое число GRAM:", reply_markup=vc_withdraw_cancel_kb())
+        await message.answer("❌️ Введи целое число GRAM:", reply_markup=vc_withdraw_cancel_kb())
         return
     await _process_vc_amount(message, db_user, session, state, amount)
 
@@ -236,7 +236,7 @@ async def cb_vc_check_sub(
         await callback.answer()
         return
     if not await _check_vc_subscription(bot, db_user.user_id, session):
-        await callback.answer("❌ Вы ещё не подписаны. Подпишитесь и попробуйте снова.", show_alert=True)
+        await callback.answer("❌️ Вы ещё не подписаны. Подпишитесь и попробуйте снова.", show_alert=True)
         return
     await _finalize_vc_withdrawal(callback, db_user, session, state, bot)
 
@@ -251,10 +251,10 @@ async def _finalize_vc_withdrawal(
         rate = Decimal(data.get("vc_rate", "0"))
         rp_cost = Decimal(data.get("vc_rp_cost", "0"))
     except (TypeError, ValueError, InvalidOperation):
-        await callback.answer("❌ Параметры вывода устарели. Начните заново.", show_alert=True)
+        await callback.answer("❌️ Параметры вывода устарели. Начните заново.", show_alert=True)
         return
     if amount <= 0 or rate <= 0 or rp_cost <= 0:
-        await callback.answer("❌ Параметры вывода устарели. Начните заново.", show_alert=True)
+        await callback.answer("❌️ Параметры вывода устарели. Начните заново.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -270,7 +270,7 @@ async def _finalize_vc_withdrawal(
     vc_max = await repo.get_int("vc_max_withdrawal", _VC_MAX_DEFAULT)
     if amount < vc_min or amount > vc_max:
         await callback.message.answer(
-            f"❌ Сумма должна быть от {vc_min} до {vc_max} GRAM. Начните заново.",
+            f"❌️ Сумма должна быть от {vc_min} до {vc_max} GRAM. Начните заново.",
             reply_markup=back_to_menu_kb(),
         )
         await callback.answer()
@@ -295,7 +295,7 @@ async def _finalize_vc_withdrawal(
     user_id = db_user.user_id
 
     if not await debit_stars_if_enough(session, user_id, rp_cost):
-        await callback.message.answer("❌ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
+        await callback.message.answer("❌️ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
         await callback.answer()
         return
 
@@ -360,7 +360,7 @@ async def _finalize_vc_withdrawal(
 
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await callback.message.answer(
-        f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
+        f"✔️ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
         f"Вам пришлют: <b>{amount} GRAM</b>\n"
         f"Ожидайте обработки.",
         parse_mode="HTML",

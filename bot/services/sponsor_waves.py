@@ -173,8 +173,40 @@ def wave_in_progress(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> bo
 
 def total_sponsor_count(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> int:
     """Total sponsors across every wave the user was shown — used for the
-    "you subscribed to N sponsors" confirmation message."""
-    return len(_load(getattr(user, fields.one))) + len(_load(getattr(user, fields.two)))
+    "you subscribed to N sponsors" confirmation message. Excludes
+    fraud-flagged items (see sponsor_wall.py's _persist_item_fraud_flags),
+    matching what actually counts toward a referral reward (see
+    referral.py's _current_sponsor_urls) -- a fraud-flagged item resolved
+    off the wall but was never a real completed subscription."""
+    items = _load(getattr(user, fields.one)) + _load(getattr(user, fields.two))
+    return sum(1 for item in items if not item.get("fraud"))
+
+
+def pop_unnotified_fraud_items(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> list[dict]:
+    """Returns every fraud-flagged item that hasn't been notified about
+    yet, and marks them notified (persisted immediately). Split out from
+    flagging itself (see sponsor_wall.py's _persist_item_fraud_flags) so
+    the actual user/referrer notification can fire later, once the WHOLE
+    /start flow (external wave + our own mandatory sponsors) is done --
+    a fraud verdict is known the moment a provider reports it mid-wave,
+    but telling the user about it before they've even seen our own
+    sponsors jumps the queue ahead of a mandatory step. Caller is
+    responsible for actually sending the notification; this only pops the
+    pending ones and updates the persisted fraud_notified marker."""
+    one = _load(getattr(user, fields.one))
+    two = _load(getattr(user, fields.two))
+    unnotified = [item for item in (one + two) if item.get("fraud") and not item.get("fraud_notified")]
+    if not unnotified:
+        return []
+    for item in one:
+        if item.get("fraud") and not item.get("fraud_notified"):
+            item["fraud_notified"] = True
+    for item in two:
+        if item.get("fraud") and not item.get("fraud_notified"):
+            item["fraud_notified"] = True
+    setattr(user, fields.one, _dump(one) if one else None)
+    setattr(user, fields.two, _dump(two) if two else None)
+    return unnotified
 
 
 def initialize_waves(
@@ -199,13 +231,34 @@ def initialize_waves(
 
     blocked_urls/blocked_domains are dropped before the wave_size trim --
     an admin-blocked sponsor a provider keeps offering must never get
-    frozen into a wave in the first place. See is_sponsor_blocked."""
+    frozen into a wave in the first place. See is_sponsor_blocked.
+
+    A wave already at 3 ("reopening") is a RECHECK, not a fresh freeze --
+    reached either intentionally (sponsor_recheck_scheduler resets
+    sponsors_verified so the next interaction looks for new sponsors) or
+    from two evaluate_provider_wave calls racing for the same user (e.g. a
+    double-tap on "Я подписался" -- aiogram processes updates
+    concurrently, nothing here serializes them). Either way, this must
+    only ever ADD newly-unsubscribed items on top of whatever's already
+    recorded, never replace it: sponsor_wave_one/two is read directly by
+    referral-reward counting (see referral.py's _current_sponsor_urls)
+    regardless of the wave pointer, so wholesale-rebuilding it from
+    whatever's unsubscribed AT THIS EXACT MOMENT would silently erase
+    sponsors the user already completed. Confirmed live: two calls 250ms
+    apart for the same user, the second one replacing an already-resolved
+    12-sponsor history with a fresh 3-sponsor one, costing the referrer
+    their reward."""
     if getattr(user, fields.wave) in {1, 2}:
         return
 
     if wave_size is None:
         wave_size = WAVE_SIZE
     wave_size = max(1, min(MAX_WAVE_SIZE, wave_size))
+
+    reopening = getattr(user, fields.wave) == 3
+    existing = (_load(getattr(user, fields.one)) + _load(getattr(user, fields.two))) if reopening else []
+    seen: set[str] = {_identity_key(item) for item in existing}
+
     combined: list[dict] = []
     if isinstance(traffy_result, list):
         combined.extend(_decorate(traffy_result, "traffy"))
@@ -217,7 +270,6 @@ def initialize_waves(
         combined.extend(_decorate(botohub_result, "botohub"))
 
     unique: list[dict] = []
-    seen: set[str] = set()
     for item in combined:
         url_key = _url_key(item)
         if not url_key or is_sponsor_blocked(url_key, blocked_urls, blocked_domains):
@@ -228,6 +280,10 @@ def initialize_waves(
         seen.add(identity)
         item["type"] = classify_sponsor_type(url_key)
         unique.append(item)
+        # Caps how many NEW items one recheck cycle adds -- independent of
+        # how large `existing` already is, so a long-lived history is
+        # never used to justify silently dropping it (see the non-
+        # reopening branch below for the original from-scratch cap).
         if len(unique) >= wave_size * MAX_WAVES:
             break
 
@@ -235,11 +291,25 @@ def initialize_waves(
     # regardless of which provider supplied them.
     unique.sort(key=lambda x: 0 if x.get("type") == "tg" else 1)
 
-    first = unique[:wave_size]
-    second = unique[wave_size:wave_size * MAX_WAVES]
+    if reopening:
+        # Existing history is never sliced away, no matter how large --
+        # only fresh (empty-history) freezes below are bounded by
+        # wave_size * MAX_WAVES. second/wave_two is left unused here
+        # (MAX_WAVES is currently 1, making it dead weight already); the
+        # combined list is set on wave_one and evaluate_waves' own
+        # already-resolved-item auto-advance handles the rest correctly
+        # regardless of where the newly pending items end up.
+        first = existing + unique
+        second: list[dict] = []
+    else:
+        first = unique[:wave_size]
+        second = unique[wave_size:wave_size * MAX_WAVES]
     setattr(user, fields.one, _dump(first) if first else None)
     setattr(user, fields.two, _dump(second) if second else None)
-    setattr(user, fields.wave, 1 if first else 3)
+    if unique:
+        setattr(user, fields.wave, 1)
+    elif not reopening:
+        setattr(user, fields.wave, 3)
 
 
 def evaluate_waves(
@@ -438,7 +508,7 @@ def sponsor_wave_markup(items: list[dict]) -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(
-            text="⏭ Скипнуть спонсоров",
+            text="➡️ Скипнуть спонсоров",
             callback_data="sponsor_skip",
         )
     )
@@ -466,7 +536,7 @@ def skip_current_wave(user: User, fields: WaveFields = SPONSOR_WAVE_FIELDS) -> S
 def sponsor_wave_text(wave: int, total_waves: int) -> str:
     progress = f" — шаг {wave} из {total_waves}" if total_waves > 1 else ""
     return (
-        f"📣 <b>Подписка на спонсоров</b>{progress}\n\n"
+        f"📢 <b>Подписка на спонсоров</b>{progress}\n\n"
         "Подпишись на все каналы ниже, затем нажми "
         "<b>«Я подписался на все каналы»</b>.\n\n"
         "Это откроет доступ к боту — а если ты пришёл по реферальной "

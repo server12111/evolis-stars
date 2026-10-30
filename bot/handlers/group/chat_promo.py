@@ -33,7 +33,7 @@ async def start_promo_creation(callback: CallbackQuery, session: AsyncSession, s
     private chat panel (chat_id explicit from callback_data, ownership
     re-verified by the caller). Caller must already own `chat_id`."""
     if await ChatPromoRepository(session).get_by_chat(chat_id):
-        await callback.answer("❌ В этом чате уже был создан промокод.", show_alert=True)
+        await callback.answer("❌️ В этом чате уже был создан промокод.", show_alert=True)
         return
     await state.set_state(ChatOwnerPromoStates.enter_code)
     await state.update_data(chat_id=chat_id)
@@ -68,7 +68,7 @@ async def msg_chat_promo_code(message: Message, state: FSMContext, session: Asyn
 
     code = (message.text or "").strip()
     if not code:
-        await message.reply("❌ Название промокода не может быть пустым.")
+        await message.reply("❌️ Название промокода не может быть пустым.")
         return
 
     repo = ChatPromoRepository(session)
@@ -78,20 +78,20 @@ async def msg_chat_promo_code(message: Message, state: FSMContext, session: Asyn
     # own requests but a straight "check then insert" is still the only
     # thing standing between a re-sent state and a second promo code.
     if await repo.get_by_chat(chat_id):
-        await message.reply("❌ В этом чате уже был создан промокод.")
+        await message.reply("❌️ В этом чате уже был создан промокод.")
         return
 
     existing = await repo.get_by_code(chat_id, code)
     if existing:
-        await message.reply("❌ Промокод с таким названием уже существует в этом чате.")
+        await message.reply("❌️ Промокод с таким названием уже существует в этом чате.")
         return
 
     promo = await repo.create(chat_id, code, created_by=message.from_user.id)
     if promo is None:
-        await message.reply("❌ Промокод с таким названием уже существует в этом чате.")
+        await message.reply("❌️ Промокод с таким названием уже существует в этом чате.")
         return
     await message.reply(
-        f"✅ Промокод <code>{promo.code}</code> создан!\n\n"
+        f"✔️ Промокод <code>{promo.code}</code> создан!\n\n"
         f"Участники смогут ввести «промокод {promo.code}» в чате, чтобы получить награду "
         f"(при выполнении условий по времени в чате и активности).",
         parse_mode="HTML",
@@ -116,13 +116,13 @@ async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None
 
     reason = await eligibility_reason(session, chat_id, message.from_user.id, min_days=0, min_messages=min_messages)
     if reason:
-        await message.reply(f"❌ Промокод недоступен: {reason}.")
+        await message.reply(f"❌️ Промокод недоступен: {reason}.")
         return
 
     repo = ChatPromoRepository(session)
     promo = await repo.get_by_code(chat_id, code)
     if not promo or not promo.is_active:
-        await message.reply("❌ Такой промокод не найден.")
+        await message.reply("❌️ Такой промокод не найден.")
         return
 
     is_vip = bool(user.is_vip)
@@ -134,8 +134,8 @@ async def msg_chat_promo_redeem(message: Message, session: AsyncSession) -> None
 
     ok = await repo.use(promo, message.from_user.id, reward_dec)
     if not ok:
-        await message.reply("❌ Промокод уже использован тобой или недоступен.")
+        await message.reply("❌️ Промокод уже использован тобой или недоступен.")
         return
 
     await credit_stars(session, message.from_user.id, reward_dec)
-    await message.reply(f"✅ Промокод активирован! Начислено <b>{reward_dec} RP⭐️</b>.", parse_mode="HTML")
+    await message.reply(f"✔️ Промокод активирован! Начислено <b>{reward_dec} RP⭐️</b>.", parse_mode="HTML")

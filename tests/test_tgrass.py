@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from bot.services.tgrass import check_tgrass
+from bot.services.tgrass import check_tgrass, check_tgrass_fake
 
 
 class _Response:
@@ -60,7 +60,7 @@ class CheckTgrassTests(unittest.IsolatedAsyncioTestCase):
             ],
         })):
             result = await check_tgrass(123, "code")
-        self.assertEqual(result, [{"name": "Unsub", "url": "https://t.me/unsub"}])
+        self.assertEqual(result, [{"name": "Unsub", "url": "https://t.me/unsub", "ref": ""}])
 
     async def test_missing_subscribed_field_is_treated_as_unsubscribed(self) -> None:
         """subscribed absent/None must be read as NOT subscribed (fail
@@ -70,7 +70,7 @@ class CheckTgrassTests(unittest.IsolatedAsyncioTestCase):
             "offers": [{"name": "X", "link": "https://t.me/x"}],
         })):
             result = await check_tgrass(123, "code")
-        self.assertEqual(result, [{"name": "X", "url": "https://t.me/x"}])
+        self.assertEqual(result, [{"name": "X", "url": "https://t.me/x", "ref": ""}])
 
     async def test_offer_missing_link_is_dropped(self) -> None:
         with _patched(_Response(200, {
@@ -96,7 +96,7 @@ class CheckTgrassTests(unittest.IsolatedAsyncioTestCase):
             "offers": ["not a dict", {"name": "X", "link": "https://t.me/x"}],
         })):
             result = await check_tgrass(123, "code")
-        self.assertEqual(result, [{"name": "X", "url": "https://t.me/x"}])
+        self.assertEqual(result, [{"name": "X", "url": "https://t.me/x", "ref": ""}])
 
     async def test_offers_limit_forwarded_only_when_positive(self) -> None:
         captured = {}
@@ -131,6 +131,56 @@ class CheckTgrassTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_error_returns_none(self) -> None:
         with _patched(_Response(500, {})):
             self.assertIsNone(await check_tgrass(123, "code"))
+
+    async def test_offer_id_is_forwarded_as_ref(self) -> None:
+        with _patched(_Response(200, {
+            "status": "not_ok",
+            "offers": [{"name": "X", "link": "https://t.me/x", "offer_id": 10264}],
+        })):
+            result = await check_tgrass(123, "code")
+        self.assertEqual(result, [{"name": "X", "url": "https://t.me/x", "ref": "10264"}])
+
+
+class CheckTgrassFakeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_code_returns_none_without_a_call(self) -> None:
+        self.assertIsNone(await check_tgrass_fake("", 123, "42"))
+
+    async def test_no_offer_id_returns_none_without_a_call(self) -> None:
+        self.assertIsNone(await check_tgrass_fake("code", 123, ""))
+
+    async def test_is_fake_true_is_returned(self) -> None:
+        with _patched(_Response(200, {"status": "subscribed", "is_fake": True})):
+            self.assertTrue(await check_tgrass_fake("code", 123, "42"))
+
+    async def test_is_fake_false_is_returned(self) -> None:
+        with _patched(_Response(200, {"status": "subscribed", "is_fake": False})):
+            self.assertFalse(await check_tgrass_fake("code", 123, "42"))
+
+    async def test_missing_is_fake_field_returns_none(self) -> None:
+        """A malformed/incomplete response must never be silently read as
+        "not fake" -- a fraud verdict is only ever True/False from a
+        response that actually contains the field."""
+        with _patched(_Response(200, {"status": "subscribed"})):
+            self.assertIsNone(await check_tgrass_fake("code", 123, "42"))
+
+    async def test_http_error_returns_none(self) -> None:
+        with _patched(_Response(500, {})):
+            self.assertIsNone(await check_tgrass_fake("code", 123, "42"))
+
+    async def test_offer_id_sent_as_int_when_numeric(self) -> None:
+        captured = {}
+
+        class _CapturingSession(_Session):
+            def post(self, *_args, **kwargs):
+                captured["json"] = kwargs.get("json")
+                return self.response
+
+        with patch(
+            "bot.services.tgrass.aiohttp.ClientSession",
+            return_value=_CapturingSession(_Response(200, {"status": "subscribed", "is_fake": False})),
+        ):
+            await check_tgrass_fake("code", 123, "10264")
+        self.assertEqual(captured["json"], {"tg_user_id": 123, "offer_id": 10264})
 
 
 if __name__ == "__main__":

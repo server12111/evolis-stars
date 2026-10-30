@@ -35,7 +35,7 @@ def _matches_doors_start(message: Message) -> bool:
 async def _show_level(sendable, round_, edit: bool) -> None:
     level_display = round_.level + 1
     text = (
-        f"🚪 <b>Двери</b>\n\nСтавка: <b>{float(round_.bet):.2f} RP⭐️</b>\n"
+        f"🏠 <b>Двери</b>\n\nСтавка: <b>{float(round_.bet):.2f} RP⭐️</b>\n"
         f"Уровень: <b>{level_display}/{DOORS_LEVELS}</b>\n\n"
         "За двумя дверями приз, за двумя — мина. Выбери дверь:"
     )
@@ -58,7 +58,7 @@ async def msg_doors_start(message: Message, session: AsyncSession, chat: Chat | 
 
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("doors_enabled", True):
-        await message.reply("🚪 Двери временно недоступны.")
+        await message.reply("🏠 Двери временно недоступны.")
         return
     if chat is not None and not chat.games_enabled:
         await message.reply("🎮 Игры отключены в этом чате.")

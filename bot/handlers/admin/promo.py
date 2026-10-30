@@ -18,7 +18,7 @@ router = Router()
 @router.callback_query(lambda c: c.data == "admin:promo")
 async def cb_promo(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.clear()
     repo = PromoRepository(session)
@@ -44,11 +44,11 @@ async def msg_promo_code(message: Message, state: FSMContext, db_user: User) -> 
     if not _is_admin(db_user): return
     code = (message.text or "").strip().upper()
     if not code:
-        await message.answer("❌ Введи код:", reply_markup=promo_cancel_kb())
+        await message.answer("❌️ Введи код:", reply_markup=promo_cancel_kb())
         return
     await state.update_data(code=code)
     await state.set_state(AdminPromoStates.enter_reward)
-    await message.answer(f"✅ Код: <b>{code}</b>\n\nВведи награду (кол-во RP⭐️):", parse_mode="HTML", reply_markup=promo_cancel_kb())
+    await message.answer(f"✔️ Код: <b>{code}</b>\n\nВведи награду (кол-во RP⭐️):", parse_mode="HTML", reply_markup=promo_cancel_kb())
 
 
 @router.message(AdminPromoStates.enter_reward)
@@ -58,7 +58,7 @@ async def msg_promo_reward(message: Message, state: FSMContext, db_user: User) -
         reward = float(message.text.strip().replace(",", "."))
         if not math.isfinite(reward) or reward <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=promo_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=promo_cancel_kb())
         return
     await state.update_data(reward=reward)
     await state.set_state(AdminPromoStates.enter_limit)
@@ -72,7 +72,7 @@ async def msg_promo_limit(message: Message, state: FSMContext, session: AsyncSes
         limit = int(message.text.strip())
         if limit < 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи целое неотрицательное число:", reply_markup=promo_cancel_kb())
+        await message.answer("❌️ Введи целое неотрицательное число:", reply_markup=promo_cancel_kb())
         return
     data = await state.get_data()
     await state.clear()
@@ -80,7 +80,7 @@ async def msg_promo_limit(message: Message, state: FSMContext, session: AsyncSes
     repo = PromoRepository(session)
     promo = await repo.create(data["code"], data["reward"], usage_limit=limit)
     await message.answer(
-        f"✅ <b>Промокод создан!</b>\n\nКод: <code>{promo.code}</code>\nНаграда: <b>{float(promo.reward_amount):.1f} RP⭐️</b>\nЛимит: <b>{limit or '∞'}</b>",
+        f"✔️ <b>Промокод создан!</b>\n\nКод: <code>{promo.code}</code>\nНаграда: <b>{float(promo.reward_amount):.1f} RP⭐️</b>\nЛимит: <b>{limit or '∞'}</b>",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )
@@ -92,10 +92,10 @@ async def cb_promo_del(callback: CallbackQuery, db_user: User, session: AsyncSes
     pid = int(callback.data.split(":")[2])
     promo = await session.get(PromoCode, pid)
     if not promo:
-        await callback.answer("❌ Промокод не найден.", show_alert=True)
+        await callback.answer("❌️ Промокод не найден.", show_alert=True)
         return
     await callback.message.answer(
-        f"🗑 Удалить промокод <b>{promo.code}</b>?",
+        f"❌️ Удалить промокод <b>{promo.code}</b>?",
         parse_mode="HTML",
         reply_markup=promo_delete_confirm_kb(pid),
     )
@@ -108,7 +108,7 @@ async def cb_promo_del_confirm(callback: CallbackQuery, db_user: User, session: 
     pid = int(callback.data.split(":")[2])
     repo = PromoRepository(session)
     deleted = await repo.delete(pid)
-    await callback.answer("✅ Удалено" if deleted else "❌ Не найдено", show_alert=True)
+    await callback.answer("✔️ Удалено" if deleted else "❌️ Не найдено", show_alert=True)
     try:
         await callback.message.delete()
     except Exception:

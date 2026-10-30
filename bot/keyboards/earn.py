@@ -56,7 +56,7 @@ def return_referrals_kb(
         builder.row(*navigation)
     builder.row(
         InlineKeyboardButton(
-            text="◀️ К реферальной ссылке",
+            text="⬅️ К реферальной ссылке",
             callback_data="menu:earn",
         )
     )

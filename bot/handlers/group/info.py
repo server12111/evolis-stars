@@ -11,15 +11,20 @@ from bot.database.repositories.chat_membership import ChatMembershipRepository
 from bot.database.repositories.game import GameRepository
 from bot.keyboards.group.registration import REGISTRATION_REQUIRED_TEXT, registration_required_kb
 from bot.services.chat_games import COLOR_EMOJI
+from bot.services.premium_emoji import BRONZE_MEDAL, GOLD_MEDAL, SILVER_MEDAL, premium
 from bot.services.referral import vip_and_tier_badge
 
 router = Router()
 settings = get_settings()
 
-_MEDALS = ["🥇", "🥈", "🥉"]
+_MEDALS = [
+    premium("🥇", GOLD_MEDAL),
+    premium("🥈", SILVER_MEDAL),
+    premium("🥉", BRONZE_MEDAL),
+]
 
 _INFO_TEXT = (
-    "📖 <b>Команды EvolisStars</b>\n\n"
+    "📜 <b>Команды EvolisStars</b>\n\n"
     "💰 <b>Баланс</b>\n"
     "б / бал / балик / баланс — показать свой баланс\n\n"
     "🎰 <b>Игры</b>\n"
@@ -31,7 +36,7 @@ _INFO_TEXT = (
     "промокод &lt;код&gt; — активировать промокод чата\n"
     "бонус &lt;код&gt; — активировать бонусный код чата\n"
     "выбрать &lt;код&gt; — (только владелец, ответом на сообщение победителя) выбрать победителя конкурса\n\n"
-    "📊 <b>Топы и статистика</b>\n"
+    "📈 <b>Топы и статистика</b>\n"
     "топ чатов — топ 10 чатов по числу участников\n"
     "топ — топ 10 пользователей этого чата по звёздам\n"
     "лог — последние 10 игр в рулетку в этом чате\n"
@@ -75,7 +80,7 @@ async def msg_group_profile(message: Message, session: AsyncSession) -> None:
     badge_line = f"<b>{badge}</b>\n" if badge else ""
 
     text = (
-        f"🪪 <b>Профиль</b>\n\n"
+        f"🆔️ <b>Профиль</b>\n\n"
         f"👤 {username_display}\n"
         f"{badge_line}"
         f"💰 Баланс: <b>{float(user.stars_balance):.2f} RP⭐️</b>\n"
@@ -137,9 +142,9 @@ async def render_roulette_log_text(session: AsyncSession, chat_id: int) -> str |
         bet_str = f"{val:.0f}" if val == int(val) else f"{val:.2f}".rstrip("0").rstrip(".")
         name = escape(f"@{username}" if username else (first_name or "—"))
         if game_result == "win":
-            outcome = f"✅ +{float(payout):.2f} RP⭐️"
+            outcome = f"✔️ +{float(payout):.2f} RP⭐️"
         else:
-            outcome = f"❌ -{bet_str} RP⭐️"
+            outcome = f"❌️ -{bet_str} RP⭐️"
         lines.append(f"<code>{name}</code>: {bet_str}RP⭐️ — {emoji} — {outcome}")
     return "\n".join(lines)
 

@@ -7,7 +7,7 @@ CONTENT_KEYS: dict[str, str] = {
     "welcome": "👋 Приветствие",
     "main_menu": "🏠 Главное меню",
     "earn": "💸 Заработать",
-    "withdraw": "🌟 Вывод",
+    "withdraw": "⭐️ Вывод",
     "bonus": "🎁 Бонус",
     "tasks": "📋 Задания",
     "games": "🎮 Игры",
@@ -18,18 +18,23 @@ CONTENT_KEYS: dict[str, str] = {
 
 DEFAULT_TEXTS: dict[str, str] = {
     "welcome": (
+        # Mascot + wordmark: the only two spots in the bot for the pack's
+        # branding artwork (see bot/services/premium_emoji.py's MASCOT/
+        # BOT_WORDMARK) -- a natural welcome-message intro/signature.
+        '<tg-emoji emoji-id="5233698369238506732">🤖</tg-emoji> '
         "👋 <b>Добро пожаловать!</b>\n\n"
         "Здесь ты зарабатываешь RP⭐️: приглашай друзей, выполняй задания, "
         "забирай ежедневный бонус и пробуй удачу в играх.\n\n"
-        "Выбери, с чего начать 👇"
+        "Выбери, с чего начать 👇\n\n"
+        '<tg-emoji emoji-id="5226954557619218188">💪</tg-emoji>'
     ),
     "main_menu": "Выбери раздел:",
     "earn": (
         "💸 <b>Заработать</b>\n\n"
         "Приглашай друзей по своей реферальной ссылке и получай звезды за "
         "каждого спонсора, на которого они подписались!\n\n"
-        "🔹 <b>Награда зависит от числа спонсоров, на которых подпишется реферал:</b>\n"
-        "<blockquote>"
+        "🔷️ <b>Награда зависит от числа спонсоров, на которых подпишется реферал:</b>\n"
+        "<blockquote expandable>"
         "• 0-{min_sponsors_minus_1} спонсоров — не засчитывается\n"
         "• 4-5 спонсоров: <b>{referral_reward_4_5} RP⭐️</b>\n"
         "• 6-7 спонсоров: <b>{referral_reward_6_7} RP⭐️</b>\n"
@@ -39,17 +44,17 @@ DEFAULT_TEXTS: dict[str, str] = {
         "</blockquote>\n"
         "💎 Реферал с Telegram Premium: всегда <b>{referral_reward_premium} RP⭐️</b>, "
         "независимо от числа спонсоров\n\n"
-        "⭐️ 1 Star⭐ = 3 RP⭐️\n\n"
+        "⭐️ 1 Star⭐️ = 3 RP⭐️\n\n"
         "⚠️ <i>Реферал будет засчитан и принесёт награду только в том "
         "случае, если подпишется минимум на {min_sponsors} {min_sponsors_word}.</i>\n\n"
         "👑 <b>Бонусы за рефералов</b>\n"
         "Получай дополнительные бонусы при достижении целей:\n"
-        "<blockquote>"
+        "<blockquote expandable>"
         "• 10 рефералов: +{bonus_10} RP⭐️\n"
         "• 20 рефералов: +{bonus_20} RP⭐️\n"
         "• 30 рефералов: +{bonus_30} RP⭐️\n"
         "• 40 рефералов: +{bonus_40} RP⭐️\n"
-        "• 50 рефералов: +{bonus_50} RP⭐️ и статус VIP! 🌟\n"
+        "• 50 рефералов: +{bonus_50} RP⭐️ и статус VIP! ⭐️\n"
         "• 65 рефералов: +{bonus_65} RP⭐️\n"
         "• 80 рефералов: +{bonus_80} RP⭐️\n"
         "• 90 рефералов: +{bonus_90} RP⭐️\n"
@@ -67,17 +72,17 @@ DEFAULT_TEXTS: dict[str, str] = {
         "• 450 рефералов: +{bonus_450} RP⭐️"
         "</blockquote>\n\n"
         "♻️ <b>Растущая ставка за каждого нового реферала:</b>\n"
-        "<blockquote>"
+        "<blockquote expandable>"
         "• с {premium_threshold}-го: +{recurring_200} RP⭐️ за каждого 👑\n"
         "• с {sigma_threshold}-го: +{recurring_300} RP⭐️ за каждого 🐺 (статус Sigma)\n"
         "• с 400-го: +{recurring_400} RP⭐️ за каждого\n"
-        "• с {good_threshold}-го: +{recurring_500} RP⭐️ за каждого 🌟 (статус Good)"
+        "• с {good_threshold}-го: +{recurring_500} RP⭐️ за каждого ⭐️ (статус Good)"
         "</blockquote>"
     ),
     "withdraw": (
         "RP⭐️ <b>Вывод средств</b>\n\n"
         "💰 Твой баланс: <b>{balance} RP⭐️</b>\n\n"
-        "Курс вывода: <b>3 RP⭐️ = 1 Telegram ⭐</b>\n\n"
+        "Курс вывода: <b>3 RP⭐️ = 1 Telegram ⭐️</b>\n\n"
         "Звёзды выводятся на твой Telegram-аккаунт. Выбери сумму ниже — "
         "заявку рассмотрит администратор."
     ),
@@ -99,11 +104,11 @@ DEFAULT_TEXTS: dict[str, str] = {
     ),
     "profile": (
         "👤 <b>Профиль</b>\n\n"
-        "Имя: <b>{name}</b>\n"
-        "ID: <code>{user_id}</code>\n"
-        "Username: {username}\n\n"
+        '<tg-emoji emoji-id="5224276052804673984">👤</tg-emoji> Имя: <b>{name}</b>\n'
+        '<tg-emoji emoji-id="5224289556181854894">🆔️</tg-emoji> ID: <code>{user_id}</code>\n'
+        '<tg-emoji emoji-id="5224541112416384107">🐕</tg-emoji> Username: {username}\n\n'
         "💰 Баланс: <b>{balance} RP⭐️</b>\n"
-        "👥 Рефералов: <b>{referrals}</b>\n\n"
+        "👥️ Рефералов: <b>{referrals}</b>\n\n"
         "Есть промокод? Активируй его кнопкой ниже 👇"
     ),
     "top": (

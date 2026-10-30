@@ -42,13 +42,13 @@ async def cb_own_sponsor_view(callback: CallbackQuery, db_user: User, session: A
     sponsor_id = int(callback.data.split(":")[2])
     sponsor = await OwnSponsorRepository(session).get(sponsor_id)
     if not sponsor:
-        await callback.answer("❌ Не найдено.", show_alert=True)
+        await callback.answer("❌️ Не найдено.", show_alert=True)
         return
     text = (
         f"{_KIND_LABELS.get(sponsor.kind, sponsor.kind)} <b>{sponsor.name}</b>\n\n"
         f"🔗 {sponsor.url}\n"
         + (f"🎯 Цель проверки: <code>{sponsor.target}</code>\n" if sponsor.target else "")
-        + f"👥 Набрано: <b>{sponsor.current_count}/{sponsor.target_count}</b>"
+        + f"👥️ Набрано: <b>{sponsor.current_count}/{sponsor.target_count}</b>"
     )
     try:
         await callback.message.edit_text(
@@ -67,10 +67,10 @@ async def cb_own_sponsor_toggle(callback: CallbackQuery, db_user: User, session:
     sponsor_id = int(callback.data.split(":")[2])
     sponsor = await OwnSponsorRepository(session).toggle(sponsor_id)
     if not sponsor:
-        await callback.answer("❌ Не найдено.", show_alert=True)
+        await callback.answer("❌️ Не найдено.", show_alert=True)
         return
     status = "включён" if sponsor.is_active else "отключён"
-    await callback.answer(f"{'✅' if sponsor.is_active else '⏸'} Спонсор {status}")
+    await callback.answer(f"{'✔️' if sponsor.is_active else '⏳'} Спонсор {status}")
     try:
         await callback.message.edit_reply_markup(reply_markup=own_sponsor_view_kb(sponsor.id, sponsor.is_active))
     except Exception:
@@ -82,7 +82,7 @@ async def cb_own_sponsor_del_confirm(callback: CallbackQuery, db_user: User, ses
     if not _is_admin(db_user): return
     sponsor_id = int(callback.data.split(":")[2])
     deleted = await OwnSponsorRepository(session).delete(sponsor_id)
-    await callback.answer("✅ Удалено" if deleted else "❌ Не найдено", show_alert=True)
+    await callback.answer("✔️ Удалено" if deleted else "❌️ Не найдено", show_alert=True)
     try:
         await callback.message.delete()
     except Exception:
@@ -95,10 +95,10 @@ async def cb_own_sponsor_del(callback: CallbackQuery, db_user: User, session: As
     sponsor_id = int(callback.data.split(":")[2])
     sponsor = await OwnSponsorRepository(session).get(sponsor_id)
     if not sponsor:
-        await callback.answer("❌ Не найдено.", show_alert=True)
+        await callback.answer("❌️ Не найдено.", show_alert=True)
         return
     await callback.message.answer(
-        f"🗑 Удалить спонсора <b>{sponsor.name}</b>? Статистика набора будет потеряна.",
+        f"❌️ Удалить спонсора <b>{sponsor.name}</b>? Статистика набора будет потеряна.",
         parse_mode="HTML",
         reply_markup=own_sponsor_delete_confirm_kb(sponsor_id),
     )
@@ -148,11 +148,11 @@ async def msg_own_sponsor_target(message: Message, state: FSMContext, db_user: U
     if not _is_admin(db_user): return
     target = (message.text or "").strip()
     if not target:
-        await message.answer("❌ Пришли @username или ID канала/чата:", reply_markup=own_sponsor_cancel_kb())
+        await message.answer("❌️ Пришли @username или ID канала/чата:", reply_markup=own_sponsor_cancel_kb())
         return
     if not await is_bot_admin_in_chat(bot, target):
         await message.answer(
-            "❌ Бот не является админом в этом канале/чате (или он не найден). "
+            "❌️ Бот не является админом в этом канале/чате (или он не найден). "
             "Добавь бота туда админом и пришли @username/ID ещё раз:",
             reply_markup=own_sponsor_cancel_kb(),
         )
@@ -170,7 +170,7 @@ async def msg_own_sponsor_url(message: Message, state: FSMContext, db_user: User
     if not _is_admin(db_user): return
     url = (message.text or "").strip()
     if not url:
-        await message.answer("❌ Пришли ссылку:", reply_markup=own_sponsor_cancel_kb())
+        await message.answer("❌️ Пришли ссылку:", reply_markup=own_sponsor_cancel_kb())
         return
     await state.update_data(url=url)
     await state.set_state(AdminOwnSponsorStates.enter_name)
@@ -182,7 +182,7 @@ async def msg_own_sponsor_name(message: Message, state: FSMContext, db_user: Use
     if not _is_admin(db_user): return
     name = (message.text or "").strip()
     if not name:
-        await message.answer("❌ Введи название:", reply_markup=own_sponsor_cancel_kb())
+        await message.answer("❌️ Введи название:", reply_markup=own_sponsor_cancel_kb())
         return
     await state.update_data(name=name)
     await state.set_state(AdminOwnSponsorStates.enter_target_count)
@@ -199,7 +199,7 @@ async def msg_own_sponsor_target_count(message: Message, state: FSMContext, sess
         if target_count <= 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введи целое положительное число:", reply_markup=own_sponsor_cancel_kb())
+        await message.answer("❌️ Введи целое положительное число:", reply_markup=own_sponsor_cancel_kb())
         return
 
     data = await state.get_data()
@@ -213,7 +213,7 @@ async def msg_own_sponsor_target_count(message: Message, state: FSMContext, sess
         target=data.get("target"),
     )
     await message.answer(
-        f"✅ <b>Спонсор добавлен!</b>\n\n{_KIND_LABELS.get(sponsor.kind, sponsor.kind)} {sponsor.name}\n"
+        f"✔️ <b>Спонсор добавлен!</b>\n\n{_KIND_LABELS.get(sponsor.kind, sponsor.kind)} {sponsor.name}\n"
         f"Цель: <b>{sponsor.target_count}</b>",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),

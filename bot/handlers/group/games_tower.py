@@ -36,7 +36,7 @@ async def msg_tower_start(message: Message, session: AsyncSession, chat: Chat | 
 
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("chat_tower_enabled", True):
-        await message.reply("🗼 Башня временно недоступна.")
+        await message.reply("🏰 Башня временно недоступна.")
         return
     if chat is not None and not chat.games_enabled:
         await message.reply("🎮 Игры отключены в этом чате.")
@@ -68,7 +68,7 @@ async def msg_tower_start(message: Message, session: AsyncSession, chat: Chat | 
         return
 
     text = (
-        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>1/{max_levels}</b>\n\n"
+        f"🏰 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>1/{max_levels}</b>\n\n"
         "3 плитки, 1 мина. Выбери плитку без мины:"
     )
     kb = tower_playing_kb(max_levels, mines, [], active_level=0, coeff=0.0, payout=0.0)
@@ -153,7 +153,7 @@ async def cb_tower_pick(callback: CallbackQuery, session: AsyncSession) -> None:
     await round_repo.save_state(round_, state, level=new_level)
 
     text = (
-        f"🗼 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
+        f"🏰 <b>Башня</b>\n\nСтавка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
         f"Множитель: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
         "Выбери плитку без мины:"
     )

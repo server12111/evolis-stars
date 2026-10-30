@@ -104,7 +104,7 @@ async def cb_withdraw_crypto_menu(callback: CallbackQuery, db_user: User, sessio
 async def cb_crypto_method(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     method = callback.data.split(":")[2]
     if method not in _METHOD_LABELS:
-        await callback.answer("❌ Неверный способ.", show_alert=True)
+        await callback.answer("❌️ Неверный способ.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -134,7 +134,7 @@ async def _process_crypto_amount(
     data = await state.get_data()
     method = data.get("crypto_method")
     if method not in _METHOD_LABELS:
-        await _reply(inner, "❌ Начните заново: «Задания» → «Вывод» → «Крипта».", reply_markup=back_to_menu_kb())
+        await _reply(inner, "❌️ Начните заново: «Задания» ➡️ «Вывод» ➡️ «Крипта».", reply_markup=back_to_menu_kb())
         return
 
     repo = SettingsRepository(session)
@@ -146,14 +146,14 @@ async def _process_crypto_amount(
     if amount < crypto_min:
         await _reply(
             inner,
-            f"❌ Сумма должна быть от {crypto_min} RP⭐️. Попробуй ещё раз:",
+            f"❌️ Сумма должна быть от {crypto_min} RP⭐️. Попробуй ещё раз:",
             reply_markup=crypto_withdraw_cancel_kb(),
         )
         return
     if Decimal(amount) > db_user.stars_balance:
         await _reply(
             inner,
-            f"❌ Недостаточно RP⭐️. Баланс: {float(db_user.stars_balance):.2f} RP⭐️",
+            f"❌️ Недостаточно RP⭐️. Баланс: {float(db_user.stars_balance):.2f} RP⭐️",
             reply_markup=crypto_withdraw_cancel_kb(),
         )
         return
@@ -197,7 +197,7 @@ async def cb_crypto_amount(callback: CallbackQuery, db_user: User, session: Asyn
     try:
         amount = int(raw)
     except ValueError:
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
     await _process_crypto_amount(callback, db_user, session, state, amount)
 
@@ -206,7 +206,7 @@ async def cb_crypto_amount(callback: CallbackQuery, db_user: User, session: Asyn
 async def msg_crypto_amount_custom(message: Message, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     amount = _parse_rp_amount(message.text or "")
     if amount is None:
-        await message.answer("❌ Введи целое число RP⭐️:", reply_markup=crypto_withdraw_cancel_kb())
+        await message.answer("❌️ Введи целое число RP⭐️:", reply_markup=crypto_withdraw_cancel_kb())
         return
     await _process_crypto_amount(message, db_user, session, state, amount)
 
@@ -216,7 +216,7 @@ async def msg_crypto_recipient(message: Message, db_user: User, session: AsyncSe
     data = await state.get_data()
     method = data.get("crypto_method")
     if method not in _METHOD_LABELS or "crypto_rp_amount" not in data:
-        await message.answer("❌ Начните заново: «Задания» → «Вывод» → «Крипта».", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Начните заново: «Задания» ➡️ «Вывод» ➡️ «Крипта».", reply_markup=back_to_menu_kb())
         await state.clear()
         return
 
@@ -225,7 +225,7 @@ async def msg_crypto_recipient(message: Message, db_user: User, session: AsyncSe
         recipient = _normalize_username(raw)
         if recipient is None:
             await message.answer(
-                "❌ Неверный username. Введите Telegram username (5-32 символа, латиница/цифры):",
+                "❌️ Неверный username. Введите Telegram username (5-32 символа, латиница/цифры):",
                 reply_markup=crypto_withdraw_cancel_kb(),
             )
             return
@@ -233,7 +233,7 @@ async def msg_crypto_recipient(message: Message, db_user: User, session: AsyncSe
         recipient = _normalize_ton_address(raw)
         if recipient is None:
             await message.answer(
-                "❌ Неверный адрес кошелька. Проверьте и введите ещё раз:",
+                "❌️ Неверный адрес кошелька. Проверьте и введите ещё раз:",
                 reply_markup=crypto_withdraw_cancel_kb(),
             )
             return
@@ -280,10 +280,10 @@ async def _finalize_crypto_withdrawal(
         ton_rate_raw = data.get("crypto_ton_rate") or ""
         ton_rate = Decimal(ton_rate_raw) if ton_rate_raw else None
     except (TypeError, ValueError, InvalidOperation):
-        await callback.answer("❌ Параметры вывода устарели. Начните заново.", show_alert=True)
+        await callback.answer("❌️ Параметры вывода устарели. Начните заново.", show_alert=True)
         return
     if method not in _METHOD_LABELS or not recipient or amount <= 0 or payout_amount <= 0:
-        await callback.answer("❌ Параметры вывода устарели. Начните заново.", show_alert=True)
+        await callback.answer("❌️ Параметры вывода устарели. Начните заново.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -298,7 +298,7 @@ async def _finalize_crypto_withdrawal(
     crypto_min = await repo.get_int("crypto_min_withdrawal", _CRYPTO_MIN_DEFAULT)
     if amount < crypto_min:
         await callback.message.answer(
-            f"❌ Сумма должна быть от {crypto_min} RP⭐️. Начните заново.",
+            f"❌️ Сумма должна быть от {crypto_min} RP⭐️. Начните заново.",
             reply_markup=back_to_menu_kb(),
         )
         await callback.answer()
@@ -324,7 +324,7 @@ async def _finalize_crypto_withdrawal(
     rp_cost = Decimal(amount)
 
     if not await debit_stars_if_enough(session, user_id, rp_cost):
-        await callback.message.answer("❌ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
+        await callback.message.answer("❌️ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
         await callback.answer()
         return
 
@@ -351,7 +351,7 @@ async def _finalize_crypto_withdrawal(
         f"👤 Пользователь: {user_display} | ID: <code>{db_user.user_id}</code>\n"
         f"{payout_line}\n"
         f"💰 Списано: <b>{amount} RP⭐️</b>\n"
-        f"📤 Кому отправить: <code>{recipient}</code>\n"
+        f"✉️ Кому отправить: <code>{recipient}</code>\n"
         f"⏳ Статус: На рассмотрении"
     )
 
@@ -398,7 +398,7 @@ async def _finalize_crypto_withdrawal(
 
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await callback.message.answer(
-        f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
+        f"✔️ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
         f"Вам пришлют: <b>{_fmt_payout(method, payout_amount)}</b>\n"
         f"Ожидайте обработки.",
         parse_mode="HTML",

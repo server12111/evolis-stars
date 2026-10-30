@@ -26,8 +26,8 @@ def _own_sponsor_wall_kb(active_sponsors: list, completed_ids: set[int]) -> Inli
             # click via callback first, then swap to the real link below.
             builder.row(InlineKeyboardButton(text=f"➡️ {sponsor.name}", callback_data=f"own_sponsor:visit:{sponsor.id}"))
         else:
-            builder.row(InlineKeyboardButton(text=f"📲 {sponsor.name}", url=sponsor.url))
-    builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data="own_sponsor:check"))
+            builder.row(InlineKeyboardButton(text=f"📱 {sponsor.name}", url=sponsor.url))
+    builder.row(InlineKeyboardButton(text="✔️ Проверить", callback_data="own_sponsor:check"))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     return builder.as_markup()
 
@@ -38,7 +38,7 @@ async def _show_own_sponsor_wall(callback: CallbackQuery, db_user: User, session
     completed_ids = await repo.completed_sponsor_ids(db_user.user_id)
     text = (
         "🎁 <b>Прежде чем забрать бонус</b>\n\n"
-        "Загляни к нашим спонсорам, затем нажми «✅ Проверить»."
+        "Загляни к нашим спонсорам, затем нажми «✔️ Проверить»."
     )
     kb = _own_sponsor_wall_kb(active, completed_ids)
     try:
@@ -159,7 +159,7 @@ async def cb_own_sponsor_check(callback: CallbackQuery, db_user: User, session: 
 
     still_pending = await repo.pending_for_user(db_user.user_id)
     if still_pending:
-        await callback.answer("❌ Ты ещё не подписался на всех спонсоров.", show_alert=True)
+        await callback.answer("❌️ Ты ещё не подписался на всех спонсоров.", show_alert=True)
         await _show_own_sponsor_wall(callback, db_user, session)
         return
 

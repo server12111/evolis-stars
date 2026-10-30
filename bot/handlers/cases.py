@@ -39,7 +39,7 @@ async def cb_cases_open(callback: CallbackQuery) -> None:
         if tier not in CASE_PRIZES:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверный кейс.", show_alert=True)
+        await callback.answer("❌️ Неверный кейс.", show_alert=True)
         return
 
     name = _TIER_NAMES[tier]
@@ -67,13 +67,13 @@ async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: 
         if tier not in CASE_PRIZES:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверный кейс.", show_alert=True)
+        await callback.answer("❌️ Неверный кейс.", show_alert=True)
         return
 
     bet = float(tier)
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and float(db_user.stars_balance) < tier:
-        await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
+        await callback.answer("❌️ Недостаточно звёзд.", show_alert=True)
         return
 
     prize = await get_case_outcome(session, tier)
@@ -98,9 +98,9 @@ async def cb_cases_confirm(callback: CallbackQuery, session: AsyncSession, bot: 
     if payout > bet:
         header = f"🎉 <b>Удача! Кейс {name}</b>"
     elif payout == bet:
-        header = f"😐 <b>Ничья! Кейс {name}</b>"
+        header = f"😞 <b>Ничья! Кейс {name}</b>"
     else:
-        header = f"😔 <b>Не повезло. Кейс {name}</b>"
+        header = f"😞 <b>Не повезло. Кейс {name}</b>"
 
     result_text = (
         f"{header}\n\n"

@@ -99,7 +99,7 @@ async def _verify_owned_chat(callback: CallbackQuery, session: AsyncSession, cha
             "MYCHATS access denied: user=%s chat_id=%s (not owner)",
             callback.from_user.id, chat_id,
         )
-        await callback.answer("❌ Этот чат вам не принадлежит.", show_alert=True)
+        await callback.answer("❌️ Этот чат вам не принадлежит.", show_alert=True)
         return None
     return chat
 
@@ -199,7 +199,7 @@ async def cb_mychats_refresh(callback: CallbackQuery, session: AsyncSession, bot
         owner_user_id=chat.owner_user_id, min_members=min_members,
     )
     await _render_panel(callback, session, chat)
-    await callback.answer("✅ Обновлено")
+    await callback.answer("✔️ Обновлено")
 
 
 @router.callback_query(F.data.startswith("mychats:broadcast:"))
@@ -218,7 +218,7 @@ async def cb_mychats_broadcast_toggle(callback: CallbackQuery, session: AsyncSes
     chat.broadcast_opt_in = not chat.broadcast_opt_in
     await session.commit()
     await _render_panel(callback, session, chat)
-    await callback.answer("✅ Включено" if chat.broadcast_opt_in else "✅ Выключено")
+    await callback.answer("✔️ Включено" if chat.broadcast_opt_in else "✔️ Выключено")
 
 
 @router.callback_query(F.data.startswith("mychats:gamestoggle:"))
@@ -237,7 +237,7 @@ async def cb_mychats_gamestoggle(callback: CallbackQuery, session: AsyncSession)
     chat.games_enabled = not chat.games_enabled
     await session.commit()
     await _render_panel(callback, session, chat)
-    await callback.answer("✅ Игры включены" if chat.games_enabled else "✅ Игры выключены")
+    await callback.answer("✔️ Игры включены" if chat.games_enabled else "✔️ Игры выключены")
 
 
 async def _render_wall(callback: CallbackQuery, session: AsyncSession, chat: Chat) -> None:
@@ -322,10 +322,10 @@ async def cb_mychats_walltoggle(callback: CallbackQuery, session: AsyncSession) 
         return
     sponsor = await ChatSponsorWallRepository(session).toggle(sponsor_id, chat_id)
     if sponsor is None:
-        await callback.answer("❌ Спонсор не найден.", show_alert=True)
+        await callback.answer("❌️ Спонсор не найден.", show_alert=True)
         return
     await _render_wall(callback, session, chat)
-    await callback.answer("✅ Включен" if sponsor.is_active else "✅ Выключен")
+    await callback.answer("✔️ Включен" if sponsor.is_active else "✔️ Выключен")
 
 
 @router.callback_query(F.data.startswith("mychats:wallintegration:"))
@@ -343,7 +343,7 @@ async def cb_mychats_wallintegration(callback: CallbackQuery, session: AsyncSess
     chat.wall_integration_enabled = not chat.wall_integration_enabled
     await session.commit()
     await _render_wall(callback, session, chat)
-    await callback.answer("✅ Платные спонсоры включены" if chat.wall_integration_enabled else "✅ Платные спонсоры выключены")
+    await callback.answer("✔️ Платные спонсоры включены" if chat.wall_integration_enabled else "✔️ Платные спонсоры выключены")
 
 
 @router.callback_query(F.data.startswith("mychats:walldelete:"))
@@ -365,10 +365,10 @@ async def cb_mychats_walldelete(callback: CallbackQuery, session: AsyncSession) 
         return
     ok = await ChatSponsorWallRepository(session).delete(sponsor_id, chat_id)
     if not ok:
-        await callback.answer("❌ Спонсор не найден.", show_alert=True)
+        await callback.answer("❌️ Спонсор не найден.", show_alert=True)
         return
     await _render_wall(callback, session, chat)
-    await callback.answer("🗑 Удалён")
+    await callback.answer("❌️ Удалён")
 
 
 @router.callback_query(F.data.startswith("mychats:walllimit:"))
@@ -402,33 +402,33 @@ async def msg_wall_limit(message: Message, state: FSMContext, session: AsyncSess
     chat_id = chat.chat_id
     raw = (message.text or "").strip()
     if not raw.isdigit():
-        await message.answer("❌ Введите целое число:", reply_markup=mychat_back_kb(chat_id))
+        await message.answer("❌️ Введите целое число:", reply_markup=mychat_back_kb(chat_id))
         return
     value = int(raw)
     if value < 1 or value > MAX_WALL_SPONSORS_HARD_CAP:
         await message.answer(
-            f"❌ Лимит должен быть от 1 до {MAX_WALL_SPONSORS_HARD_CAP}:",
+            f"❌️ Лимит должен быть от 1 до {MAX_WALL_SPONSORS_HARD_CAP}:",
             reply_markup=mychat_back_kb(chat_id),
         )
         return
     # Lowering the limit is a ceiling on future additions, not a retroactive
     # cut -- it must never silently leave more sponsors ACTIVE than the new
     # limit allows (that would keep gating chat members on requirements the
-    # owner just tried to shrink). The owner already has explicit ✅/⛔
+    # owner just tried to shrink). The owner already has explicit ✔️/⛔
     # toggle buttons per sponsor on the wall screen; point them there
     # instead of guessing which ones to deactivate on their behalf.
     active_count = len(await ChatSponsorWallRepository(session).list_active(chat_id))
     if value < active_count:
         await message.answer(
-            f"❌ Сейчас активно {active_count} спонсоров — лимит нельзя поставить ниже. "
-            f"Сначала отключите лишние (кнопкой ⛔ на стене), затем задайте лимит {value}.",
+            f"❌️ Сейчас активно {active_count} спонсоров — лимит нельзя поставить ниже. "
+            f"Сначала отключите лишние (кнопкой ❌️ на стене), затем задайте лимит {value}.",
             reply_markup=mychat_back_kb(chat_id),
         )
         return
     chat.sponsor_wall_max_sponsors = value
     await session.commit()
     await state.clear()
-    await message.answer(f"✅ Лимит спонсоров на стене: {value}", reply_markup=mychat_back_kb(chat_id))
+    await message.answer(f"✔️ Лимит спонсоров на стене: {value}", reply_markup=mychat_back_kb(chat_id))
 
 
 @router.callback_query(F.data.startswith("mychats:stats:"))
@@ -546,16 +546,16 @@ async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[s
     ]
     if messages:
         lines.append("\nТексты:")
-        status_icons = {"pending": "⏳ на модерации", "approved": "✅ одобрен"}
+        status_icons = {"pending": "⏳ на модерации", "approved": "✔️ одобрен"}
         for i, message in enumerate(messages, start=1):
             preview = _plain_text_preview(message, 60)
             extras = []
             photo_count = len(load_photo_ids(message))
             if photo_count:
-                extras.append(f"📸{photo_count}")
+                extras.append(f"📌{photo_count}")
             button_count = len(load_buttons(message))
             if button_count:
-                extras.append(f"🔘{button_count}")
+                extras.append(f"🔷️{button_count}")
             extras_str = f" ({', '.join(extras)})" if extras else ""
             status = status_icons.get(message.status, message.status)
             lines.append(f"{i}. {preview}{extras_str} — {status}")
@@ -564,7 +564,7 @@ async def _broadcast_panel_content(session: AsyncSession, chat: Chat) -> tuple[s
 
     interval = chat.custom_broadcast_interval_seconds
     lines.append(f"\nИнтервал: <b>{interval} сек.</b>" if interval else "\nИнтервал: <b>не задан</b>")
-    lines.append(f"Статус: {'✅ включена' if chat.custom_broadcast_enabled else '❌ выключена'}")
+    lines.append(f"Статус: {'✔️ включена' if chat.custom_broadcast_enabled else '❌️ выключена'}")
     text = "\n".join(lines)
     kb = custom_broadcast_panel_kb(chat.chat_id, messages, chat.custom_broadcast_enabled)
     return text, kb
@@ -599,7 +599,7 @@ async def cb_custom_broadcast_delete(callback: CallbackQuery, session: AsyncSess
         return
     await ChatBroadcastRepository(session).delete_message(chat_id, message_id)
     await _render_broadcast_panel(callback, session, chat)
-    await callback.answer("✅ Удалено")
+    await callback.answer("✔️ Удалено")
 
 
 @router.callback_query(F.data.startswith("mychats:custombc:add:"))
@@ -616,7 +616,7 @@ async def cb_custom_broadcast_add_start(callback: CallbackQuery, session: AsyncS
         return
     if await ChatBroadcastRepository(session).count(chat_id) >= _BROADCAST_MAX_TEXTS:
         await callback.answer(
-            "❌ На один чат — один текст. Удали текущий, чтобы добавить новый.", show_alert=True,
+            "❌️ На один чат — один текст. Удали текущий, чтобы добавить новый.", show_alert=True,
         )
         return
 
@@ -663,17 +663,17 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
         for entity in (message.entities or [])
     ):
         await message.answer(
-            "❌ Ссылка в тексте содержит недопустимые символы. Отправь другой текст:",
+            "❌️ Ссылка в тексте содержит недопустимые символы. Отправь другой текст:",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
     body = (message.html_text or "").strip()
     if not body:
-        await message.answer("❌ Отправь текстовое сообщение:", reply_markup=custom_broadcast_cancel_kb(chat_id))
+        await message.answer("❌️ Отправь текстовое сообщение:", reply_markup=custom_broadcast_cancel_kb(chat_id))
         return
     if len(body) > _BROADCAST_MAX_TEXT_LEN:
         await message.answer(
-            f"❌ Слишком длинно (максимум {_BROADCAST_MAX_TEXT_LEN} символов):",
+            f"❌️ Слишком длинно (максимум {_BROADCAST_MAX_TEXT_LEN} символов):",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -687,7 +687,7 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
             chat_id, message.from_user.id,
         )
         await message.answer(
-            "❌ Текст содержит запрещённый контент и не может быть использован. Отправь другой текст:",
+            "❌️ Текст содержит запрещённый контент и не может быть использован. Отправь другой текст:",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -695,7 +695,7 @@ async def msg_custom_broadcast_text(message: Message, session: AsyncSession, sta
     await state.update_data(pending_text=body, pending_photos=[])
     await state.set_state(ChatOwnerBroadcastStates.enter_photos)
     await message.answer(
-        f"📸 Хочешь прикрепить фото (до {MAX_BROADCAST_PHOTOS} шт.)? Отправь их по одному, "
+        f"📌 Хочешь прикрепить фото (до {MAX_BROADCAST_PHOTOS} шт.)? Отправь их по одному, "
         "или сразу нажми «Без фото».",
         reply_markup=broadcast_photos_step_kb(chat_id, 0),
     )
@@ -713,7 +713,7 @@ async def msg_custom_broadcast_photo(message: Message, session: AsyncSession, st
     photos = data.get("pending_photos") or []
     if len(photos) >= MAX_BROADCAST_PHOTOS:
         await message.answer(
-            f"❌ Уже добавлено максимум {MAX_BROADCAST_PHOTOS} фото — нажми «Дальше».",
+            f"❌️ Уже добавлено максимум {MAX_BROADCAST_PHOTOS} фото — нажми «Дальше».",
             reply_markup=broadcast_photos_step_kb(chat_id, len(photos)),
         )
         return
@@ -722,12 +722,12 @@ async def msg_custom_broadcast_photo(message: Message, session: AsyncSession, st
     await state.update_data(pending_photos=photos)
     if len(photos) >= MAX_BROADCAST_PHOTOS:
         await message.answer(
-            f"📸 Добавлено {len(photos)}/{MAX_BROADCAST_PHOTOS} фото — максимум. Нажми «Дальше».",
+            f"📌 Добавлено {len(photos)}/{MAX_BROADCAST_PHOTOS} фото — максимум. Нажми «Дальше».",
             reply_markup=broadcast_photos_step_kb(chat_id, len(photos)),
         )
         return
     await message.answer(
-        f"📸 Добавлено {len(photos)}/{MAX_BROADCAST_PHOTOS} фото. Ещё фото или жми «Дальше».",
+        f"📌 Добавлено {len(photos)}/{MAX_BROADCAST_PHOTOS} фото. Ещё фото или жми «Дальше».",
         reply_markup=broadcast_photos_step_kb(chat_id, len(photos)),
     )
 
@@ -740,7 +740,7 @@ async def msg_custom_broadcast_photos_hint(message: Message, state: FSMContext) 
         return
     photos = data.get("pending_photos") or []
     await message.answer(
-        "❌ Отправь фото или нажми «Дальше».",
+        "❌️ Отправь фото или нажми «Дальше».",
         reply_markup=broadcast_photos_step_kb(chat_id, len(photos)),
     )
 
@@ -758,7 +758,7 @@ async def cb_custom_broadcast_photos_next(callback: CallbackQuery, session: Asyn
         return
 
     await state.set_state(ChatOwnerBroadcastStates.ask_buttons)
-    text = f"🔘 Добавить кнопки-ссылки к тексту (до {MAX_BROADCAST_BUTTONS} шт.)?"
+    text = f"🔷️ Добавить кнопки-ссылки к тексту (до {MAX_BROADCAST_BUTTONS} шт.)?"
     try:
         await callback.message.edit_text(text, reply_markup=broadcast_ask_buttons_kb(chat.chat_id))
     except Exception:
@@ -786,10 +786,10 @@ async def _post_broadcast_for_moderation(
     buttons = load_buttons(broadcast_msg)
     extra_lines = []
     if photos:
-        extra_lines.append("📸 Фото приложены выше.")
+        extra_lines.append("📌 Фото приложены выше.")
     if buttons:
-        extra_lines.append("🔘 Кнопки:")
-        extra_lines.extend(f"  • {escape(b['text'])} → {escape(b['url'])}" for b in buttons)
+        extra_lines.append("🔷️ Кнопки:")
+        extra_lines.extend(f"  • {escape(b['text'])} ➡️ {escape(b['url'])}" for b in buttons)
     extras = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
 
     header = (
@@ -815,8 +815,8 @@ async def _post_broadcast_for_moderation(
         escaped_body = escape(broadcast_msg.text[:raw_budget]) + notice
     text = header + escaped_body + footer
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"broadcast_mod:approve:{broadcast_msg.id}"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"broadcast_mod:reject:{broadcast_msg.id}"),
+        InlineKeyboardButton(text="✔️ Одобрить", callback_data=f"broadcast_mod:approve:{broadcast_msg.id}"),
+        InlineKeyboardButton(text="❌️ Отклонить", callback_data=f"broadcast_mod:reject:{broadcast_msg.id}"),
     ]])
 
     # Photos (if any) are sent as their own message(s) first, with no
@@ -892,7 +892,7 @@ async def cb_custom_broadcast_buttons_yes(callback: CallbackQuery, session: Asyn
     await state.update_data(pending_buttons=[])
     await state.set_state(ChatOwnerBroadcastStates.enter_button)
     text = (
-        "🔘 Отправь кнопку в формате:\n<code>Текст кнопки - https://ссылка</code>"
+        "🔷️ Отправь кнопку в формате:\n<code>Текст кнопки - https://ссылка</code>"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=custom_broadcast_cancel_kb(chat.chat_id))
@@ -922,14 +922,14 @@ async def msg_custom_broadcast_button(message: Message, session: AsyncSession, s
     parsed_url = urlparse(url) if url.startswith(("http://", "https://")) else None
     if not label or not parsed_url or not parsed_url.netloc or "." not in parsed_url.netloc:
         await message.answer(
-            "❌ Неверный формат. Отправь так:\nТекст кнопки - https://ссылка\n\n"
+            "❌️ Неверный формат. Отправь так:\nТекст кнопки - https://ссылка\n\n"
             "Ссылка должна вести на настоящий сайт или t.me (например, https://t.me/EvolisStarsBot, а не https://EvolisStarsBot):",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
     if len(label) > 40:
         await message.answer(
-            "❌ Слишком длинный текст кнопки (максимум 40 символов):",
+            "❌️ Слишком длинный текст кнопки (максимум 40 символов):",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -939,7 +939,7 @@ async def msg_custom_broadcast_button(message: Message, session: AsyncSession, s
             chat_id, message.from_user.id,
         )
         await message.answer(
-            "❌ Текст кнопки содержит запрещённый контент. Отправь другой:",
+            "❌️ Текст кнопки содержит запрещённый контент. Отправь другой:",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -953,7 +953,7 @@ async def msg_custom_broadcast_button(message: Message, session: AsyncSession, s
         await _send_broadcast_panel(message, session, chat)
         return
     await message.answer(
-        f"🔘 Добавлено {len(buttons)}/{MAX_BROADCAST_BUTTONS} кнопок. Ещё кнопка или жми «Готово».",
+        f"🔷️ Добавлено {len(buttons)}/{MAX_BROADCAST_BUTTONS} кнопок. Ещё кнопка или жми «Готово».",
         reply_markup=broadcast_buttons_step_kb(chat_id),
     )
 
@@ -981,7 +981,7 @@ async def cb_custom_broadcast_interval_start(
     min_interval = await SettingsRepository(session).get_int("broadcast_min_interval_seconds", 300)
     await state.set_state(ChatOwnerBroadcastStates.enter_interval)
     await state.update_data(chat_id=chat_id)
-    text = f"⏱ Введи интервал в секундах (не меньше {min_interval}):"
+    text = f"⏱️ Введи интервал в секундах (не меньше {min_interval}):"
     try:
         await callback.message.edit_text(text, reply_markup=custom_broadcast_cancel_kb(chat_id))
     except Exception:
@@ -1002,11 +1002,11 @@ async def msg_custom_broadcast_interval(message: Message, session: AsyncSession,
     try:
         seconds = int((message.text or "").strip())
     except ValueError:
-        await message.answer("❌ Введи целое число секунд:", reply_markup=custom_broadcast_cancel_kb(chat_id))
+        await message.answer("❌️ Введи целое число секунд:", reply_markup=custom_broadcast_cancel_kb(chat_id))
         return
     if seconds < min_interval:
         await message.answer(
-            f"❌ Интервал не может быть меньше {min_interval} секунд:",
+            f"❌️ Интервал не может быть меньше {min_interval} секунд:",
             reply_markup=custom_broadcast_cancel_kb(chat_id),
         )
         return
@@ -1014,7 +1014,7 @@ async def msg_custom_broadcast_interval(message: Message, session: AsyncSession,
     chat.custom_broadcast_interval_seconds = seconds
     await session.commit()
     await state.clear()
-    await message.answer(f"✅ Интервал установлен: {seconds} сек.")
+    await message.answer(f"✔️ Интервал установлен: {seconds} сек.")
     await _send_broadcast_panel(message, session, chat)
 
 
@@ -1035,17 +1035,17 @@ async def cb_custom_broadcast_toggle(callback: CallbackQuery, session: AsyncSess
         approved = await ChatBroadcastRepository(session).count_approved(chat_id)
         if approved == 0:
             await callback.answer(
-                "❌ Нужен хотя бы один одобренный модератором текст.", show_alert=True,
+                "❌️ Нужен хотя бы один одобренный модератором текст.", show_alert=True,
             )
             return
         if not chat.custom_broadcast_interval_seconds:
-            await callback.answer("❌ Сначала задай интервал.", show_alert=True)
+            await callback.answer("❌️ Сначала задай интервал.", show_alert=True)
             return
 
     chat.custom_broadcast_enabled = not chat.custom_broadcast_enabled
     await session.commit()
     await _render_broadcast_panel(callback, session, chat)
-    await callback.answer("✅ Включено" if chat.custom_broadcast_enabled else "✅ Выключено")
+    await callback.answer("✔️ Включено" if chat.custom_broadcast_enabled else "✔️ Выключено")
 
 
 @router.callback_query(F.data.startswith("mychats:custombc:"))

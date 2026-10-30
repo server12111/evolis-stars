@@ -23,5 +23,5 @@ def auction_kb(has_active: bool = True) -> InlineKeyboardMarkup:
 
 def auction_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:auction"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:auction"),
     ]])

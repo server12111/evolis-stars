@@ -114,7 +114,7 @@ class InfoCommandTests(ChatModelsTestCase):
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
         self.assertIn("10RP⭐️ — 🔴", rendered)
-        self.assertNotIn("7⭐ — ⚫️", rendered)
+        self.assertNotIn("7⭐️ — ⚫️", rendered)
 
     async def test_log_with_no_games_replies_gracefully(self) -> None:
         message = _message("лог", user_id=999)
@@ -137,7 +137,7 @@ class InfoCommandTests(ChatModelsTestCase):
             await msg_roulette_log(message, session)
         rendered = message.answer.await_args.args[0]
         self.assertIn("<code>@realuser</code>", rendered)
-        self.assertIn("✅", rendered)
+        self.assertIn("✔️", rendered)
         self.assertIn("22.00", rendered)  # payout shown on a win
 
     async def test_log_falls_back_to_first_name_and_shows_loss_result(self) -> None:
@@ -219,7 +219,7 @@ class AdminStatsScopeTests(ChatModelsTestCase):
         cb = self._callback()
         async with self.sessions() as session:
             await cb_admin_stats_bot(cb, db_user, session)
-        cb.answer.assert_awaited_once_with("❌ Нет доступа.", show_alert=True)
+        cb.answer.assert_awaited_once_with("❌️ Нет доступа.", show_alert=True)
 
     async def test_admin_sees_chat_stats_with_top_chats(self) -> None:
         db_user = User(user_id=2, first_name="Admin", is_admin=True)

@@ -500,7 +500,11 @@ class WithdrawMethodChoiceTests(unittest.IsolatedAsyncioTestCase):
 
         cb = callback()
         state = FakeState()
-        await cb_withdraw_menu(cb, state)
+        with patch(
+            "bot.handlers.withdraw.UserRepository.referrals_count_since",
+            AsyncMock(return_value=3),
+        ):
+            await cb_withdraw_menu(cb, db_user(), SimpleNamespace(), state)
 
         kb = cb.message.edit_text.await_args.kwargs["reply_markup"]
         callback_datas = [btn.callback_data for row in kb.inline_keyboard for btn in row if btn.callback_data]

@@ -39,7 +39,7 @@ async def _render_row(session: AsyncSession, rank: int, chat) -> str:
 
     return (
         f"<b>{rank}.</b> {_chat_link(chat)}\n"
-        f"👥 {chat.member_count} | 👤 {owner_line} | 📅 {added}\n"
+        f"👥️ {chat.member_count} | 👤 {owner_line} | 📋 {added}\n"
         f"🎮 Игр сыграно: {games_played}"
     )
 
@@ -64,11 +64,11 @@ async def _render_page(session: AsyncSession, page: int) -> tuple[str, InlineKey
 
     builder_row = []
     if page > 0:
-        builder_row.append(InlineKeyboardButton(text="◀️ Пред", callback_data=f"admin:chatslist:{page - 1}"))
+        builder_row.append(InlineKeyboardButton(text="⬅️ Пред", callback_data=f"admin:chatslist:{page - 1}"))
     if page < total_pages - 1:
-        builder_row.append(InlineKeyboardButton(text="След ▶️", callback_data=f"admin:chatslist:{page + 1}"))
+        builder_row.append(InlineKeyboardButton(text="След ➡️", callback_data=f"admin:chatslist:{page + 1}"))
     kb_rows = [builder_row] if builder_row else []
-    kb_rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main")])
+    kb_rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:main")])
     return text, InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 

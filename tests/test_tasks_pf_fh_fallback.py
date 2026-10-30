@@ -25,6 +25,19 @@ def db_user(completed: int = 0) -> SimpleNamespace:
 
 
 class TaskFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        # _show_pf_task/_show_fh_task now also consult the admin blocklist
+        # (see is_sponsor_blocked usage in tasks.py) -- irrelevant to what
+        # this file actually tests (PiarFlow/FlyerHub fallback ordering),
+        # so patch it to a no-op empty blocklist for every test here.
+        for target in (
+            "bot.handlers.tasks.BlockedSponsorRepository.url_key_set",
+            "bot.handlers.tasks.BlockedSponsorRepository.domain_key_set",
+        ):
+            patcher = patch(target, AsyncMock(return_value=set()))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     async def test_even_count_tries_piarflow_first(self) -> None:
         cb = callback()
         with (

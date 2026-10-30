@@ -23,7 +23,7 @@ MAX_WALL_SPONSORS_HARD_CAP = 20
 
 def _back_to_wall_kb(chat_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="🔙 К спонсор-стене", callback_data=f"mychats:wall:{chat_id}"))
+    builder.row(InlineKeyboardButton(text="⬅️ К спонсор-стене", callback_data=f"mychats:wall:{chat_id}"))
     return builder.as_markup()
 
 
@@ -36,14 +36,14 @@ async def start_wall_sponsor_flow(
     mechanism (bot/handlers/group/chat_bonus.py) for purpose="wall"."""
     chat = await ChatRepository(session).get(chat_id)
     if chat is None or chat.owner_user_id != callback.from_user.id:
-        await callback.answer("❌ Этот чат вам не принадлежит.", show_alert=True)
+        await callback.answer("❌️ Этот чат вам не принадлежит.", show_alert=True)
         return
 
     wall_repo = ChatSponsorWallRepository(session)
     current = len(await wall_repo.list_active(chat_id))
     if current >= chat.sponsor_wall_max_sponsors:
         await callback.answer(
-            f"❌ Достигнут лимит спонсоров ({chat.sponsor_wall_max_sponsors}). "
+            f"❌️ Достигнут лимит спонсоров ({chat.sponsor_wall_max_sponsors}). "
             f"Увеличьте лимит или удалите неактуальный спонсор.",
             show_alert=True,
         )
@@ -119,7 +119,7 @@ async def cb_wall_sponsor_addnew(callback: CallbackQuery, state: FSMContext, ses
         return
     chat = await ChatRepository(session).get(chat_id)
     if chat is None or chat.owner_user_id != callback.from_user.id:
-        await callback.answer("❌ Этот чат вам не принадлежит.", show_alert=True)
+        await callback.answer("❌️ Этот чат вам не принадлежит.", show_alert=True)
         return
     await _start_new_sponsor_flow(callback, state, bot, sponsor_type, purpose="wall", wall_chat_id=chat_id)
 
@@ -147,7 +147,7 @@ async def cb_wall_sponsor_reuse(callback: CallbackQuery, session: AsyncSession, 
 
     chat = await ChatRepository(session).get(chat_id)
     if chat is None or chat.owner_user_id != callback.from_user.id:
-        await callback.answer("❌ Этот чат вам не принадлежит.", show_alert=True)
+        await callback.answer("❌️ Этот чат вам не принадлежит.", show_alert=True)
         return
 
     # The bot could have been removed/demoted there since it was last used
@@ -176,12 +176,12 @@ async def cb_wall_sponsor_reuse(callback: CallbackQuery, session: AsyncSession, 
         max_sponsors=chat.sponsor_wall_max_sponsors,
     )
     if sponsor is None:
-        await callback.answer("❌ Этот чат уже добавлен или лимит спонсоров исчерпан.", show_alert=True)
+        await callback.answer("❌️ Этот чат уже добавлен или лимит спонсоров исчерпан.", show_alert=True)
         return
 
     count = len(await wall_repo.list_active(chat_id))
     await callback.message.answer(
-        f"✅ Спонсор «{title or sponsor_chat_id}» добавлен ({count}/{chat.sponsor_wall_max_sponsors}).",
+        f"✔️ Спонсор «{title or sponsor_chat_id}» добавлен ({count}/{chat.sponsor_wall_max_sponsors}).",
         reply_markup=_back_to_wall_kb(chat_id),
     )
     await callback.answer()
@@ -215,7 +215,7 @@ async def link_pending_wall_sponsor(
 
     if sponsor_type == "chat":
         try:
-            await bot.send_message(event.chat.id, "✅ Этот чат добавлен как спонсор стены.")
+            await bot.send_message(event.chat.id, "✔️ Этот чат добавлен как спонсор стены.")
         except Exception:
             pass
 
@@ -223,7 +223,7 @@ async def link_pending_wall_sponsor(
     try:
         await bot.send_message(
             origin_chat_id,
-            f"✅ Спонсор «{event.chat.title or event.chat.username}» добавлен "
+            f"✔️ Спонсор «{event.chat.title or event.chat.username}» добавлен "
             f"({count}/{chat.sponsor_wall_max_sponsors}).",
             reply_markup=_back_to_wall_kb(wall_chat_id),
         )
@@ -259,12 +259,12 @@ def wall_subscribe_kb(
     # a group message's buttons are visible/clickable by anyone in the
     # chat, and without this any OTHER member pressing it would silently
     # run the check against their OWN account instead (harmless in effect,
-    # but confusing: "✅ Готово!" for someone who was never blocked and
+    # but confusing: "✔️ Готово!" for someone who was never blocked and
     # never subscribed to anything). Omitted (None) only for backward
     # compatibility with a stale button from a message sent before this
     # change, which cb_wall_check still honors unrestricted.
     check_data = f"chatwall:check:{chat_id}:{user_id}" if user_id is not None else f"chatwall:check:{chat_id}"
-    builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data=check_data))
+    builder.row(InlineKeyboardButton(text="✔️ Проверить", callback_data=check_data))
     return builder.as_markup()
 
 
@@ -287,20 +287,20 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
         try:
             intended_user_id = int(parts[3])
         except ValueError:
-            await callback.answer("❌ Эта проверка не для тебя.", show_alert=True)
+            await callback.answer("❌️ Эта проверка не для тебя.", show_alert=True)
             return
         if intended_user_id != callback.from_user.id:
-            await callback.answer("❌ Эта проверка не для тебя.", show_alert=True)
+            await callback.answer("❌️ Эта проверка не для тебя.", show_alert=True)
             return
 
     chat = await ChatRepository(session).get(chat_id)
     if chat is None:
-        await callback.answer("✅ Стена больше не активна.", show_alert=True)
+        await callback.answer("✔️ Стена больше не активна.", show_alert=True)
         return
     wall_repo = ChatSponsorWallRepository(session)
     active = await wall_repo.list_active(chat_id)
     if not active and not chat.wall_integration_enabled:
-        await callback.answer("✅ Стена больше не активна.", show_alert=True)
+        await callback.answer("✔️ Стена больше не активна.", show_alert=True)
         return
 
     completed_ids = await wall_repo.completed_sponsor_ids([s.id for s in active], callback.from_user.id)
@@ -345,10 +345,10 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
 
     if not still_missing and not still_missing_integration and not integration_unavailable:
         try:
-            await callback.message.edit_text("✅ Теперь можно писать в этом чате!")
+            await callback.message.edit_text("✔️ Теперь можно писать в этом чате!")
         except Exception:
             pass
-        await callback.answer("✅ Готово!" + (f" +{newly_completed} RP⭐️" if newly_completed else ""))
+        await callback.answer("✔️ Готово!" + (f" +{newly_completed} RP⭐️" if newly_completed else ""))
         return
 
     owner_names = ", ".join(escape(s.title or s.username or "спонсор") for s in still_missing)
@@ -358,7 +358,7 @@ async def cb_wall_check(callback: CallbackQuery, session: AsyncSession, bot: Bot
     names = ", ".join(part for part in (owner_names, integration_names) if part)
     message_parts = []
     if names:
-        message_parts.append(f"❌ Ещё не подписан(а) на: {names}")
+        message_parts.append(f"❌️ Ещё не подписан(а) на: {names}")
     if integration_unavailable:
         message_parts.append("⚠️ Проверка бот-спонсоров временно недоступна, попробуй позже.")
     await callback.answer(" ".join(message_parts), show_alert=True)

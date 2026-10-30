@@ -18,8 +18,8 @@ def bonus_sponsors_kb(sponsor_count: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     if sponsor_count < MAX_BONUS_SPONSORS:
         builder.row(InlineKeyboardButton(text="📢 Добавить каналы", callback_data="chatbonus:addsponsor:channel"))
-        builder.row(InlineKeyboardButton(text="👥 Добавить чаты", callback_data="chatbonus:addsponsor:chat"))
-    builder.row(InlineKeyboardButton(text="✅ Готово", callback_data="chatbonus:sponsors:done"))
+        builder.row(InlineKeyboardButton(text="👥️ Добавить чаты", callback_data="chatbonus:addsponsor:chat"))
+    builder.row(InlineKeyboardButton(text="✔️ Готово", callback_data="chatbonus:sponsors:done"))
     return builder.as_markup()
 
 
@@ -37,7 +37,7 @@ _CHAT_SPONSOR_ADMIN_RIGHTS = "delete_messages+invite_users+pin_messages+manage_t
 def bonus_sponsor_reuse_kb(reusable: list[ChatBonusSponsor], sponsor_type: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for sponsor in reusable:
-        label = f"✅ {sponsor.title or sponsor.username or 'Спонсор'}"
+        label = f"✔️ {sponsor.title or sponsor.username or 'Спонсор'}"
         builder.row(InlineKeyboardButton(
             text=label, callback_data=f"chatbonus:reuse:{sponsor_type}:{sponsor.sponsor_chat_id}",
         ))
@@ -63,5 +63,5 @@ def bonus_subscribe_kb(sponsors: list[ChatBonusSponsor], bonus_id: int) -> Inlin
         label = f"📢 {sponsor.title or sponsor.username or 'Спонсор'}"
         if sponsor.username:
             builder.row(InlineKeyboardButton(text=label, url=f"https://t.me/{sponsor.username}"))
-    builder.row(InlineKeyboardButton(text="✅ Проверить", callback_data=f"chatbonus:check:{bonus_id}"))
+    builder.row(InlineKeyboardButton(text="✔️ Проверить", callback_data=f"chatbonus:check:{bonus_id}"))
     return builder.as_markup()

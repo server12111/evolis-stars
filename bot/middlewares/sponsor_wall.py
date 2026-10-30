@@ -32,6 +32,20 @@ logger = logging.getLogger(__name__)
 
 _FLYERHUB_WAITING_GRACE = timedelta(seconds=30)
 
+# Same lock-pool convention as UserMiddleware's _USER_LOCKS. Confirmed
+# live: a user who doesn't see a quick response to "Проверить" taps it
+# again -- each tap starts its own full tgrass/botohub/traffy/flyerhub
+# round for the SAME external user_id, and tgrass in particular can
+# already take 5-9s per call on its own. Two or three of those piling up
+# concurrently (same external account, same provider) only makes each one
+# slower, not faster -- observed responses up to 44s and Telegram
+# callback queries expiring ("query is too old") before we could even
+# answer them. Keyed on user_id alone (not per wave-field) because
+# multiple independent waves (see WaveFields) for the same user still hit
+# the same external provider accounts and must not run concurrently
+# either.
+_WALL_LOCKS = [asyncio.Lock() for _ in range(256)]
+
 
 def any_sponsor_provider_configured() -> bool:
     return bool(
@@ -50,6 +64,12 @@ _BYPASS_PREFIXES = (
     "sponsor_check",
     "sponsor_skip",
     "tos_accept",
+    # Own-sponsor wall buttons (bot/services/own_sponsor_wall.py) manage
+    # their own completion check directly -- without this bypass, this
+    # middleware would run its FULL provider wave check (all 4 ad-network
+    # calls) again first on every single press, purely to reach a button
+    # that has nothing to do with the provider wave at all.
+    "wallsponsor",
 )
 
 
@@ -201,27 +221,45 @@ async def _reinstate_expired_pinned_sponsors(
     """Providers pin a rotating batch of offers to a user for a limited
     window (BotoHub: ~3 minutes, per its own docs) and can legitimately
     stop mentioning a sponsor once that window passes or the batch
-    rotates — NOT because the user subscribed, just because the provider
+    rotates -- NOT because the user subscribed, just because the provider
     moved on. evaluate_waves() otherwise reads "this saved sponsor is
     absent from the fresh provider batch" as "subscribed", which lets a
     wave silently pass a user who never joined anything if they wait past
-    the pin window before pressing the check button. For every saved
-    sponsor with a t.me link that's missing from its provider's fresh
-    batch, independently confirm real membership via our own bot (same
-    don't-trust-a-rotating-batch-alone principle as
-    _drop_confirmed_subscriptions, applied in the opposite direction) and
-    put it back in that provider's unsubscribed list if the user still
-    isn't actually a member.
+    the pin window before pressing the check button (including a batch
+    that's gone completely empty, not just rotated to other offers -- a
+    provider going quiet about a user is exactly as ambiguous either way).
+    For every saved sponsor with a t.me link that's missing from its
+    provider's fresh batch, independently confirm real membership via our
+    own bot (same don't-trust-a-rotating-batch-alone principle as
+    _drop_confirmed_subscriptions, applied in the opposite direction).
 
-    Only applies when the provider's fresh batch is non-empty (still has
-    OTHER offers) but just doesn't mention this particular saved item —
-    the genuinely ambiguous "rotated to a different batch" case. An
-    entirely empty batch is a different, unambiguous signal ("nothing
-    pending for this user at all right now") and is trusted outright
-    without a reinstate, or a saved sponsor the bot can never verify
-    (no admin access to most third-party channels) gets stuck reinstated
-    forever — confirmed live, one stayed reinstated for 2+ hours straight
-    even though the provider repeatedly reported zero offers."""
+    Confirmed live on 2026-08-27: users were trading a trick of
+    subscribing to only 2-3 of 10-15 sponsors shown, then waiting for the
+    provider's batch to empty out for the rest to silently resolve as
+    done -- reported as skipping "70-80%" of a wave for free.
+
+    The fix hinges on treating get_chat_member's three possible outcomes
+    differently, not lumping "definitely not a member" together with
+    "couldn't tell":
+      - True (positively confirmed a member): resolved, done.
+      - False (positively confirmed NOT a member): reinstated, blocked --
+        and kept blocked for as long as that stays true, no timeout. This
+        is the case that actually closes the exploit above: every skipped
+        channel in the reported trick is a normal public one the bot CAN
+        check, so it gets a definite False and stays blocked until the
+        user genuinely joins.
+      - None (the bot has no visibility into this chat at all -- true for
+        most third-party sponsor channels, which it was never added to):
+        trusted outright, same as an unverifiable (private-invite/bot/
+        web) sponsor. An earlier version of this function also reinstated
+        on None, gated by a 3-hour timer to avoid blocking forever on a
+        channel that can never be checked -- that timer ended up
+        delaying real payouts for the common case (None, not False) far
+        more than it ever blocked an exploiter, who only needs a
+        genuinely False channel to go quiet, not an unverifiable one.
+        There is no way to tell fraud from a genuine completion when the
+        bot simply cannot see into the chat either way, so the provider's
+        own verdict is trusted rather than guessed at."""
     if bot is None or getattr(db_user, fields.wave) not in (1, 2):
         return
 
@@ -234,37 +272,106 @@ async def _reinstate_expired_pinned_sponsors(
             continue
         if _identity_key(item) in {_identity_key(decorated) for decorated in _decorate(provider_result, provider)}:
             continue  # provider already reports it as unsubscribed — nothing to do
-        if not provider_result:
-            continue  # provider reports zero offers outright — trust it, not a rotated batch
 
         chat_id = telegram_chat_id(item.get("url"))
         if chat_id is None:
             continue  # not independently verifiable (bot/private-invite/web) — trust the provider
         subscribed = await _check_membership_cached(bot, chat_id, db_user.user_id, cache)
-        # Reinstate unless our own bot can POSITIVELY confirm membership.
-        # For most sponsor channels the bot has no visibility at all (it's
-        # a third-party channel it was never added to), so this lookup
-        # comes back None far more often than False — treating None as
-        # "fine, drop it" (the old behaviour) let a sponsor silently leave
-        # the wave just because the provider's rotating batch stopped
-        # mentioning it, with the user never having subscribed to anything.
-        if subscribed is not True:
+        if subscribed is False:
             provider_result.append(item)
 
 
-async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list[dict] | None:
+async def _persist_item_fraud_flags(
+    db_user: User,
+    fraud_identity_keys: set[str],
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
+    bot: Bot | None = None,
+) -> int:
+    """Marks every currently-saved wave item whose identity is in
+    fraud_identity_keys with item["fraud"] = True, persisting straight back
+    into whichever wave field is currently frozen. A fraud-flagged item
+    still resolves out of the wall's "pending" list same as before (nothing
+    the user can do fixes a provider's fraud verdict, so leaving it stuck
+    would just trap them on it forever) -- flagging only excludes it from
+    anything that pays real RP⭐️ for it (see referral.py's
+    _current_sponsor_urls and chat_wall_integrations.py's credit loop,
+    both of which skip fraud=True items).
+
+    Returns how many items were newly flagged this call (already-flagged
+    items don't count). Deliberately does NOT notify anyone here, even
+    though `bot` is accepted for call-site symmetry with the recheck
+    functions below -- a fraud verdict is known mid-wave, potentially
+    before the user has even seen our own mandatory sponsors yet (see
+    own_sponsor_wall.py). Notifying here would jump that queue. The
+    actual notification fires later, once the whole /start flow settles,
+    via referral.py's notify_fraud_sponsors (see
+    sponsor_waves.pop_unnotified_fraud_items)."""
+    if not fraud_identity_keys or getattr(db_user, fields.wave) not in (1, 2):
+        return 0
+    from bot.services.sponsor_waves import _current_items, _dump, _identity_key
+
+    current = _current_items(db_user, fields)
+    newly_flagged = 0
+    for item in current:
+        if _identity_key(item) in fraud_identity_keys and not item.get("fraud"):
+            item["fraud"] = True
+            newly_flagged += 1
+    if not newly_flagged:
+        return 0
+    dumped = _dump(current)
+    if getattr(db_user, fields.wave) == 1:
+        setattr(db_user, fields.one, dumped)
+    else:
+        setattr(db_user, fields.two, dumped)
+    if fields.wave == SPONSOR_WAVE_FIELDS.wave:
+        # Account-wide and permanent, by product decision -- confirmed
+        # live: a referral with 9 fraud-flagged items out of 26 total
+        # still had 17 legitimate ones left, comfortably clearing the top
+        # reward tier on their own, and got paid anyway. Once ANY
+        # integration has called this account fake, referral.py's
+        # check_referral_reward/reward_returning_referral hard-block on
+        # this flag before even computing a sponsor count, regardless of
+        # how many other sponsors would otherwise have been enough.
+        db_user.referral_fraud_flagged = True
+    return newly_flagged
+
+
+async def _recheck_traffy(
+    api_key: str,
+    db_user: User,
+    saved: list[dict],
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
+    bot: Bot | None = None,
+) -> list[dict] | None:
     """Re-check previously-issued Traffy assignment_ids by id -- NOT by
     re-fetching a fresh /tasks batch, which would hand out brand-new
     assignment_ids and silently grow/replace the frozen wave every time
     the user presses "check"."""
+    from bot.services.sponsor_waves import _identity_key
     from bot.services.traffy import TERMINAL_STATUSES, check_traffy_tasks
 
     refs = [str(item.get("ref", "")) for item in saved if item.get("ref")]
     if not refs:
         return []
-    statuses = await check_traffy_tasks(api_key, user_id, refs)
+    statuses = await check_traffy_tasks(api_key, db_user.user_id, refs)
     if statuses is None:
         return None
+
+    # "rejected" is Traffy's own fraud verdict on this specific conversion
+    # -- per its docs Traffy will never pay us for a rejected item, so it
+    # must never silently count toward a referral reward or a direct
+    # integration credit just because it also stops blocking the wall.
+    # Flag it (see _persist_item_fraud_flags) before it's dropped below, so
+    # referral.py / chat_wall_integrations.py can exclude it from anything
+    # that pays RP⭐️. This was previously the actual money leak: "rejected"
+    # was only ever treated the same as "completed", with no distinction.
+    rejected_keys = {
+        _identity_key(item) for item in saved
+        if statuses.get(str(item.get("ref", ""))) == "rejected"
+    }
+    if rejected_keys:
+        await _persist_item_fraud_flags(db_user, rejected_keys, fields, bot)
+
     # A ref is still genuinely pending only if Traffy's response actually
     # mentions it AND its status isn't terminal (e.g. "pending"). Both a
     # ref missing from the response (an id the API no longer recognizes --
@@ -279,6 +386,51 @@ async def _recheck_traffy(api_key: str, user_id: int, saved: list[dict]) -> list
         if (status := statuses.get(str(item.get("ref", "")))) is not None
         and status not in TERMINAL_STATUSES
     ]
+
+
+async def _recheck_tgrass_fraud(
+    code: str,
+    db_user: User,
+    tgrass_result: list[dict] | BaseException | None,
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
+    bot: Bot | None = None,
+) -> None:
+    """tgrass's bulk /offers endpoint (used everywhere else in this file)
+    never reports fraud -- only its per-offer /check endpoint does (see
+    check_tgrass_fake). Once a saved tgrass item drops out of a fresh
+    /offers "not subscribed" list -- i.e. it's about to be treated as
+    resolved and eligible for a payout -- spend one /check call on it to
+    confirm it isn't a flagged/fake account first. Only meaningful once the
+    wave is frozen (nothing to re-check before that), and only ever spends
+    a call on a given item once: already-flagged items are skipped."""
+    if getattr(db_user, fields.wave) not in (1, 2) or not isinstance(tgrass_result, list):
+        return
+    from bot.services.sponsor_waves import _current_items, _decorate, _identity_key
+    from bot.services.tgrass import check_tgrass_fake
+
+    still_unsubscribed = {
+        _identity_key(item) for item in _decorate(tgrass_result, "tgrass")
+    }
+    to_verify = [
+        item for item in _current_items(db_user, fields)
+        if str(item.get("provider", "")) == "tgrass"
+        and item.get("ref")
+        and not item.get("fraud")
+        and _identity_key(item) not in still_unsubscribed
+    ]
+    if not to_verify:
+        return
+
+    outcomes = await asyncio.gather(
+        *(check_tgrass_fake(code, db_user.user_id, str(item["ref"])) for item in to_verify),
+        return_exceptions=True,
+    )
+    fraud_keys = {
+        _identity_key(item) for item, outcome in zip(to_verify, outcomes)
+        if outcome is True
+    }
+    if fraud_keys:
+        await _persist_item_fraud_flags(db_user, fraud_keys, fields, bot)
 
 
 def _persist_flyerhub_item_updates(
@@ -444,6 +596,29 @@ async def evaluate_provider_wave(
     fields: WaveFields = SPONSOR_WAVE_FIELDS,
     top_up: bool = True,
 ) -> SponsorWaveState:
+    """Serializes _evaluate_provider_wave_impl per user_id -- see
+    _WALL_LOCKS' own comment for why: without this, a second call for the
+    same user (a double-tap, or this same wave AND the chat wall's
+    independent wave both evaluating around the same moment) piles a
+    fresh round of external provider calls on top of one already in
+    flight for that exact same external account, instead of just waiting
+    for it."""
+    lock = _WALL_LOCKS[db_user.user_id % len(_WALL_LOCKS)]
+    async with lock:
+        return await _evaluate_provider_wave_impl(
+            inner, db_user, session, bot, fields=fields, top_up=top_up,
+        )
+
+
+async def _evaluate_provider_wave_impl(
+    inner: Message | CallbackQuery,
+    db_user: User,
+    session: AsyncSession,
+    bot: Bot | None = None,
+    *,
+    fields: WaveFields = SPONSOR_WAVE_FIELDS,
+    top_up: bool = True,
+) -> SponsorWaveState:
     """Live-checks every configured sponsor provider (tgrass/botohub/
     traffy/flyerhub) for db_user and evaluates the wave given by `fields`
     against the fresh results. The shared provider-calling core behind the
@@ -480,28 +655,29 @@ async def evaluate_provider_wave(
     blocked_urls = frozenset(await blocked_sponsor_repo.url_key_set())
     blocked_domains = frozenset(await blocked_sponsor_repo.domain_key_set())
 
-    tgrass_result, botohub_result = await asyncio.gather(
-        check_tgrass(
+    # All four providers are independent I/O and used to be awaited in two
+    # sequential stages (tgrass+botohub, THEN traffy, THEN flyerhub) --
+    # each with its own 15s-timeout x up-to-3-attempts retry budget, so a
+    # slow/degraded provider on the second or third stage stacked its own
+    # delay on top of the ones before it instead of overlapping with them.
+    # Confirmed live as the cause behind "check" taking up to ~2 minutes.
+    # Running every provider (plus the tgrass fraud recheck below, which is
+    # also independent I/O) in one gather bounds the whole wait to the
+    # single slowest provider instead of their sum.
+    async def _get_tgrass_result() -> list[dict] | BaseException | None:
+        result = await check_tgrass(
             db_user.user_id,
             settings.tgrass_code,
             max_offers=wave_size,
             is_premium=bool(inner.from_user and inner.from_user.is_premium),
-            username=(
-                inner.from_user.username
-                if inner.from_user else None
-            ),
-            lang=(
-                inner.from_user.language_code or "ru"
-                if inner.from_user else "ru"
-            ),
-        ),
-        check_botohub(db_user.user_id, settings.botohub_key),
-        return_exceptions=True,
-    )
-    tgrass_result, botohub_result = await asyncio.gather(
-        _drop_confirmed_subscriptions(bot, db_user.user_id, tgrass_result, membership_cache),
-        _drop_confirmed_subscriptions(bot, db_user.user_id, botohub_result, membership_cache),
-    )
+            username=(inner.from_user.username if inner.from_user else None),
+            lang=(inner.from_user.language_code or "ru" if inner.from_user else "ru"),
+        )
+        return await _drop_confirmed_subscriptions(bot, db_user.user_id, result, membership_cache)
+
+    async def _get_botohub_result() -> list[dict] | BaseException | None:
+        result = await check_botohub(db_user.user_id, settings.botohub_key)
+        return await _drop_confirmed_subscriptions(bot, db_user.user_id, result, membership_cache)
 
     # Traffy and FlyerHub are both "get once, re-check by id" providers
     # (assignment_id / signature) rather than tgrass/botohub's stateless
@@ -510,15 +686,17 @@ async def evaluate_provider_wave(
     # silently grow/replace an already-frozen wave. Once the wave is
     # frozen, only the saved ids for that provider are re-checked; a fresh
     # batch is only pulled while the wave is still being assembled.
-    if settings.traffy_key:
+    async def _get_traffy_result() -> list[dict] | BaseException | None:
+        if not settings.traffy_key:
+            return []
         if wave_frozen:
             saved_traffy = [
                 item for item in _current_items(db_user, fields)
                 if str(item.get("provider", "")) == "traffy"
             ]
-            traffy_result = await _recheck_traffy(settings.traffy_key, db_user.user_id, saved_traffy)
+            result = await _recheck_traffy(settings.traffy_key, db_user, saved_traffy, fields, bot)
         else:
-            traffy_result = await get_traffy_tasks(
+            result = await get_traffy_tasks(
                 settings.traffy_key,
                 db_user.user_id,
                 limit=wave_size,
@@ -526,19 +704,17 @@ async def evaluate_provider_wave(
                 username=(inner.from_user.username if inner.from_user else None),
                 language_code=(inner.from_user.language_code if inner.from_user else None),
             )
-        traffy_result = await _drop_confirmed_subscriptions(
-            bot, db_user.user_id, traffy_result, membership_cache,
-        )
-    else:
-        traffy_result = []
+        return await _drop_confirmed_subscriptions(bot, db_user.user_id, result, membership_cache)
 
-    if settings.flyerhub_op_key:
+    async def _get_flyerhub_result() -> list[dict] | BaseException | None:
+        if not settings.flyerhub_op_key:
+            return []
         if wave_frozen:
             saved_flyerhub = [
                 item for item in _current_items(db_user, fields)
                 if str(item.get("provider", "")) == "flyerhub"
             ]
-            flyerhub_result = await _recheck_flyerhub(settings.flyerhub_op_key, db_user, saved_flyerhub, fields)
+            result = await _recheck_flyerhub(settings.flyerhub_op_key, db_user, saved_flyerhub, fields)
         else:
             raw_tasks = await fh_get_tasks_op(
                 settings.flyerhub_op_key,
@@ -546,19 +722,30 @@ async def evaluate_provider_wave(
                 limit=min(10, wave_size),
             )
             if raw_tasks is None:
-                flyerhub_result = None
+                result = None
             else:
-                flyerhub_result = [
+                result = [
                     item for raw in raw_tasks
                     if isinstance(raw, dict) and (item := fh_task_to_sponsor_item(raw)) is not None
                 ]
         # kind="trust" items (boosts/links/actions) are left untouched by
         # this — see _drop_confirmed_subscriptions' own check.
-        flyerhub_result = await _drop_confirmed_subscriptions(
-            bot, db_user.user_id, flyerhub_result, membership_cache,
-        )
-    else:
-        flyerhub_result = []
+        return await _drop_confirmed_subscriptions(bot, db_user.user_id, result, membership_cache)
+
+    tgrass_result, botohub_result, traffy_result, flyerhub_result = await asyncio.gather(
+        _get_tgrass_result(),
+        _get_botohub_result(),
+        _get_traffy_result(),
+        _get_flyerhub_result(),
+        return_exceptions=True,
+    )
+
+    # tgrass's bulk /offers endpoint never reports fraud -- spend one
+    # per-offer /check call (see check_tgrass_fake) on whatever just
+    # resolved this pass, same not-paying-for-fraud principle as Traffy's
+    # "rejected" handling above. Independent I/O, run after the gather
+    # above since it needs that pass's tgrass_result to know what resolved.
+    await _recheck_tgrass_fraud(settings.tgrass_code, db_user, tgrass_result, fields, bot)
 
     logger.info(
         "WALL uid=%s wave_field=%s tgrass=%s botohub=%s traffy=%s flyerhub=%s blocked_urls=%s blocked_domains=%s",
@@ -701,7 +888,19 @@ async def run_sponsor_wall_check(
         )
         return False
 
-    # Sponsor waves are complete; allow access.
+    # Paid provider waves are complete -- but our OWN (admin-curated, free,
+    # never-skippable) sponsors are a separate, later gate. Checked here so
+    # every caller of run_sponsor_wall_check (the /start flow,
+    # "sponsor_check", and this module's own periodic-recheck middleware
+    # path) gets it automatically; the Stars-paid skip in start.py bypasses
+    # this function entirely and checks it separately, since paying only
+    # ever buys a skip past the PAID wave above, never past our own promo.
+    from bot.services.own_sponsor_wall import has_pending_own_sponsors, show_own_sponsor_wall
+
+    if await has_pending_own_sponsors(session, db_user.user_id):
+        await show_own_sponsor_wall(inner, session, db_user.user_id)
+        return False
+
     return True
 
 
@@ -745,6 +944,24 @@ class SponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if db_user.sponsors_verified:
+            # Own sponsors are a separate, cheap (DB-only, no external
+            # provider calls) gate from the paid tgrass/botohub/traffy/
+            # flyerhub wave above -- checked on every single interaction,
+            # not just once every ~10min like sponsors_verified's own
+            # periodic scheduler-driven reset (see sponsor_recheck_
+            # scheduler.py). Without this, an admin adding a new own
+            # sponsor wouldn't actually re-gate an already-verified user
+            # until their next recheck cycle, up to 10 minutes later --
+            # this makes it apply on their very next message instead.
+            # sponsors_verified itself is deliberately left untouched here
+            # (the paid wave genuinely is still resolved): completing the
+            # new own sponsor later must not re-fire the one-time referral
+            # notify/reward hooks a second time for this same user.
+            from bot.services.own_sponsor_wall import has_pending_own_sponsors, show_own_sponsor_wall
+
+            if await has_pending_own_sponsors(session, db_user.user_id):
+                await show_own_sponsor_wall(inner, session, db_user.user_id)
+                return
             return await handler(event, data)
 
         if not any_sponsor_provider_configured():

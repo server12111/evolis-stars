@@ -74,7 +74,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
             notifications.append(
                 (
                     current.creator_id,
-                    f"⏰ Дуэль #{current.id} отменена: никто не присоединился. "
+                    f"⏱️ Дуэль #{current.id} отменена: никто не присоединился. "
                     f"<b>{amount:.2f} RP⭐️</b> возвращено.",
                 )
             )
@@ -83,7 +83,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
             await _credit(session, current.joiner_id, amount)
             current.status = "cancelled"
             text = (
-                f"⏰ Дуэль #{current.id} отменена: подтверждение не получено вовремя. "
+                f"⏱️ Дуэль #{current.id} отменена: подтверждение не получено вовремя. "
                 f"<b>{amount:.2f} RP⭐️</b> возвращено."
             )
             notifications.extend(
@@ -99,7 +99,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                     await _credit(session, current.creator_id, amount)
                     await _credit(session, current.joiner_id, amount)
                     text = (
-                        f"🤝 Дуэль #{current.id} завершена вничью после перезапуска. "
+                        f"👋 Дуэль #{current.id} завершена вничью после перезапуска. "
                         "Ставки возвращены."
                     )
                     notifications.extend(
@@ -138,12 +138,12 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                     [
                         (
                             winner_id,
-                            f"⏰ Соперник не сделал ход в дуэли #{current.id}. "
+                            f"⏱️ Соперник не сделал ход в дуэли #{current.id}. "
                             "Ваша ставка возвращена.",
                         ),
                         (
                             loser_id,
-                            f"⏰ Вы не сделали ход в дуэли #{current.id}; ставка сгорела.",
+                            f"⏱️ Вы не сделали ход в дуэли #{current.id}; ставка сгорела.",
                         ),
                     ]
                 )
@@ -151,7 +151,7 @@ async def _settle_expired_duel(duel: Duel, bot: Bot) -> None:
                 await _credit(session, current.creator_id, amount)
                 await _credit(session, current.joiner_id, amount)
                 text = (
-                    f"⏰ В дуэли #{current.id} никто не сделал ход. Ставки возвращены."
+                    f"⏱️ В дуэли #{current.id} никто не сделал ход. Ставки возвращены."
                 )
                 notifications.extend(
                     [(current.creator_id, text), (current.joiner_id, text)]

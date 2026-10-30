@@ -159,12 +159,10 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
     mention a saved sponsor anymore — that silent absence was being read
     as "subscribed", instead of independently re-verified.
 
-    A provider batch that comes back completely EMPTY is a different,
-    unambiguous signal ("nothing pending for this user at all") and must
-    be trusted outright without a reinstate — see
-    ZeroOffersIsTrustedOutrightTests below for the regression this
-    distinction fixes (a saved sponsor stuck reinstated for 2+ hours
-    straight despite the provider repeatedly reporting zero offers)."""
+    A provider batch that comes back completely EMPTY is re-verified the
+    exact same way, not trusted outright — see
+    ZeroOffersThreeWayVerificationTests below for that case and the
+    live-exploit regression it fixes."""
 
     async def test_pin_rotated_to_other_offers_with_no_real_subscription_stays_pending(self) -> None:
         saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
@@ -221,13 +219,21 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(wave_state.status, "complete")
 
-    async def test_pin_rotated_to_other_offers_with_no_bot_access_still_stays_pending(self) -> None:
+    async def test_pin_rotated_to_other_offers_with_no_bot_access_resolves_complete(self) -> None:
         # The bot has no visibility into most third-party sponsor channels
         # (never added to them) — get_chat_member fails with "unknown", not
-        # a definite "left". That must NOT be read as "fine, drop it" just
-        # because the provider's rotating batch stopped mentioning the
-        # sponsor this cycle, or a user could clear a requirement they
-        # never actually subscribed to just by waiting out the pin window.
+        # a definite "left" (see _reinstate_expired_pinned_sponsors' own
+        # three-way True/False/None split). Confirmed live 2026-08-27: an
+        # earlier version of this function reinstated on "unknown" here
+        # (rotated batch, not just an empty one) same as on a definite
+        # "left", which blocked real payouts for the common case (bot
+        # genuinely can't tell) far more often than it ever caught fraud.
+        # There's no way to distinguish an exploiter from a genuine
+        # completion when the bot can't see into the chat at all, so the
+        # provider's own verdict is trusted instead of guessed at --
+        # exactly like an unverifiable (private/bot/web) sponsor already
+        # was, and consistent with the empty-batch case (see
+        # ZeroOffersThreeWayVerificationTests).
         saved = [{"provider": "botohub", "url": "https://t.me/expiredchan", "name": "Channel", "type": "tg"}]
         session = fake_session()
         bot = fake_bot_no_access()
@@ -247,9 +253,7 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         ):
             wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot, top_up=False)
 
-        self.assertEqual(wave_state.status, "pending")
-        self.assertEqual(len(wave_state.items), 1)
-        self.assertEqual(wave_state.items[0]["url"], "https://t.me/expiredchan")
+        self.assertEqual(wave_state.status, "complete")
 
     async def test_bot_type_sponsor_trusts_the_provider_since_it_cant_be_verified(self) -> None:
         # A sponsor that's a Telegram BOT (not a channel/group) can never
@@ -306,18 +310,61 @@ class ExpiredPinnedSponsorTests(unittest.IsolatedAsyncioTestCase):
         bot.get_chat_member.assert_awaited_once()
 
 
-class ZeroOffersIsTrustedOutrightTests(unittest.IsolatedAsyncioTestCase):
-    """Regression: uid stayed reinstated on the wall for 2+ hours straight
-    on a saved TGrass sponsor the bot could never verify (no admin access
-    to that third-party channel), even though TGrass repeatedly answered
-    status=no_offers (an explicit "nothing pending for this user at all"
-    from the provider itself) -- _reinstate_expired_pinned_sponsors was
-    treating that identically to "batch rotated to other offers", the
-    genuinely ambiguous case it exists to guard against. An entirely
-    empty batch is trusted outright now, without ever calling
-    get_chat_member for it."""
+class ZeroOffersThreeWayVerificationTests(unittest.IsolatedAsyncioTestCase):
+    """Regression for the LIVE EXPLOIT reported 2026-08-27: users were
+    trading a trick of subscribing to only 2-3 of 10-15 shown sponsors,
+    then waiting out a provider's pin/rotation window for its offer batch
+    to empty out entirely -- at which point every remaining
+    never-subscribed sponsor silently resolved as done (an admin
+    confirmed "yes, it counts them all"). Root cause: an entirely empty
+    provider batch used to be trusted outright with no reinstate at all.
 
-    async def test_zero_offers_resolves_complete_even_when_bot_cant_verify(self) -> None:
+    A first fix (re-verify on empty batch same as a rotated one, bounded
+    by a 3-hour grace timer so a channel the bot can never verify doesn't
+    stay reinstated forever) closed the exploit but broke real payouts --
+    confirmed live 2026-08-27, most sponsor channels return None (bot has
+    no visibility into third-party channels, not "definitely not a
+    member"), so nearly every legitimate completion got stuck behind the
+    same 3-hour wait meant only for the rare unverifiable case.
+
+    The actual fix distinguishes get_chat_member's three outcomes instead
+    of lumping False and None together: True still resolves immediately,
+    False (the exploiter's case -- a normal public channel they never
+    joined) blocks permanently with no timer at all, and None (the
+    common case -- can't tell either way) is trusted outright, exactly
+    like an unverifiable private/bot/web sponsor already was."""
+
+    async def test_definitely_not_subscribed_stays_pending_with_no_timeout(self) -> None:
+        """The exploit case: a normal public channel the bot CAN check,
+        and the user genuinely never joined -- must block for real, not
+        just delay."""
+        saved = [{"provider": "tgrass", "url": "https://t.me/MinePixels", "name": "Channel", "type": "tg"}]
+        session = fake_session()
+        bot = fake_bot(member_status="left")  # user genuinely never joined
+        with (
+            patch.object(settings, "tgrass_code", "cfg"),
+            patch.object(settings, "botohub_key", ""),
+            patch.object(settings, "piarflow_key", ""),
+            patch(
+                "bot.database.repositories.settings.SettingsRepository.get_int",
+                fake_get_int(min_sponsors=1),
+            ),
+            patch("bot.services.tgrass.check_tgrass", AsyncMock(return_value=[])),
+            patch("bot.services.botohub.check_botohub", AsyncMock(return_value=[])),
+        ):
+            wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
+
+        self.assertEqual(wave_state.status, "pending")
+        self.assertEqual(len(wave_state.items), 1)
+        bot.get_chat_member.assert_awaited_once()
+
+    async def test_cannot_verify_at_all_is_trusted_outright_with_no_wait(self) -> None:
+        """The common case: the bot has no visibility into this channel
+        (most third-party sponsors), same as it would for ANY check, not
+        just an empty batch. Must resolve on the very first check -- no
+        3-hour wait, no partial-trust workaround -- since there's no way
+        to tell fraud from a genuine completion here regardless of how
+        long we wait."""
         saved = [{"provider": "tgrass", "url": "https://t.me/MinePixels", "name": "Channel", "type": "tg"}]
         session = fake_session()
         bot = fake_bot_no_access()
@@ -335,14 +382,11 @@ class ZeroOffersIsTrustedOutrightTests(unittest.IsolatedAsyncioTestCase):
             wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
 
         self.assertEqual(wave_state.status, "complete")
-        bot.get_chat_member.assert_not_awaited()
 
-    async def test_zero_offers_resolves_complete_even_when_bot_confirms_left(self) -> None:
-        """Same outcome even with a DEFINITE "left" -- once the provider
-        itself reports nothing pending, it isn't second-guessed."""
+    async def test_genuine_subscription_still_completes_immediately(self) -> None:
         saved = [{"provider": "tgrass", "url": "https://t.me/MinePixels", "name": "Channel", "type": "tg"}]
         session = fake_session()
-        bot = fake_bot(member_status="left")
+        bot = fake_bot(member_status="member")
         with (
             patch.object(settings, "tgrass_code", "cfg"),
             patch.object(settings, "botohub_key", ""),
@@ -357,7 +401,6 @@ class ZeroOffersIsTrustedOutrightTests(unittest.IsolatedAsyncioTestCase):
             wave_state = await _evaluate_wave_state(inner(), frozen_user(saved), session, bot)
 
         self.assertEqual(wave_state.status, "complete")
-        bot.get_chat_member.assert_not_awaited()
 
 
 class SponsorRecheckAfterCompleteTests(unittest.IsolatedAsyncioTestCase):

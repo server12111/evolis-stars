@@ -160,7 +160,7 @@ class BroadcastToggleTests(ChatModelsTestCase):
         cb = SimpleNamespace(message=message, from_user=SimpleNamespace(id=42), data="mychats:broadcast:-7", answer=AsyncMock())
         async with self.sessions() as session:
             await cb_mychats_broadcast_toggle(cb, session)
-        cb.answer.assert_awaited_with("✅ Включено")
+        cb.answer.assert_awaited_with("✔️ Включено")
 
         async with self.sessions() as session:
             chat = await session.get(Chat, -7)

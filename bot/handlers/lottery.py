@@ -21,7 +21,7 @@ def _lottery_text(lottery, user_tickets: int, balance: float) -> str:
         end_line = f"🎯 Розыгрыш при <b>{int(float(lottery.end_value))}</b> билетах"
     elif lottery.end_type == "time":
         dt = datetime.utcfromtimestamp(float(lottery.end_value))
-        end_line = f"🗓 Дата: <b>{dt.strftime('%d.%m.%Y %H:%M')} UTC</b>"
+        end_line = f"📋 Дата: <b>{dt.strftime('%d.%m.%Y %H:%M')} UTC</b>"
     else:
         pool = round(float(lottery.end_value) * (1 - COMMISSION), 2)
         end_line = f"🎯 Розыгрыш при сборе <b>{float(lottery.end_value):.0f} RP⭐️</b> | Приз ~<b>{pool:.0f} RP⭐️</b>"
@@ -29,10 +29,10 @@ def _lottery_text(lottery, user_tickets: int, balance: float) -> str:
     return (
         f"🎟 <b>Лотерея</b>\n\n"
         f"💰 <b>Призовой пул: {float(lottery.prize_pool):.2f} RP⭐️</b>\n"
-        f"🎫 Продано билетов: <b>{lottery.tickets_sold}</b>\n\n"
+        f"🎟 Продано билетов: <b>{lottery.tickets_sold}</b>\n\n"
         f"{end_line}\n\n"
         f"📋 Цена билета: <b>{float(lottery.ticket_price):.0f} RP⭐️</b>\n\n"
-        f"🎫 Твоих билетов: <b>{user_tickets}</b>\n"
+        f"🎟 Твоих билетов: <b>{user_tickets}</b>\n"
         f"💳 Баланс: <b>{balance:.2f} RP⭐️</b>"
     )
 
@@ -45,7 +45,7 @@ async def cb_lottery(callback: CallbackQuery, session: AsyncSession, db_user: Us
     )
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}. Твоих: {db_user.referrals_count}/{min_refs}",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}. Твоих: {db_user.referrals_count}/{min_refs}",
             show_alert=True,
         )
         return
@@ -84,29 +84,29 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
     )
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
+            f"❌️ Нужно минимум {min_refs} {referrals_word(min_refs)}.",
             show_alert=True,
         )
         return
     repo = LotteryRepository(session)
     lottery = await repo.get_active()
     if not lottery:
-        await callback.answer("❌ Лотерея не активна.", show_alert=True)
+        await callback.answer("❌️ Лотерея не активна.", show_alert=True)
         return
 
     if lottery.ref_required > 0 and db_user.referrals_count < lottery.ref_required:
         await callback.answer(
-            f"❌ Нужно {lottery.ref_required} {referrals_word(lottery.ref_required)}.",
+            f"❌️ Нужно {lottery.ref_required} {referrals_word(lottery.ref_required)}.",
             show_alert=True,
         )
         return
     if db_user.stars_balance < lottery.ticket_price:
-        await callback.answer(f"❌ Нужно {float(lottery.ticket_price):.0f} RP⭐️", show_alert=True)
+        await callback.answer(f"❌️ Нужно {float(lottery.ticket_price):.0f} RP⭐️", show_alert=True)
         return
 
     user_tickets = await repo.user_ticket_count(lottery.id, db_user.user_id)
     if lottery.ticket_limit > 0 and user_tickets >= lottery.ticket_limit:
-        await callback.answer(f"❌ Лимит {lottery.ticket_limit} билетов.", show_alert=True)
+        await callback.answer(f"❌️ Лимит {lottery.ticket_limit} билетов.", show_alert=True)
         return
 
     if lottery.channel_id:
@@ -120,7 +120,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         try:
             member = await bot.get_chat_member(chat_id, db_user.user_id)
             if not is_subscribed(member):
-                await callback.answer(f"❌ Подпишитесь на {lottery.channel_id}", show_alert=True)
+                await callback.answer(f"❌️ Подпишитесь на {lottery.channel_id}", show_alert=True)
                 return
         except Exception:
             await callback.answer(
@@ -137,7 +137,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
         )
         return
 
-    await callback.answer(f"✅ Билет куплен! (-{float(lottery.ticket_price):.0f} RP⭐️)")
+    await callback.answer(f"✔️ Билет куплен! (-{float(lottery.ticket_price):.0f} RP⭐️)")
 
     if await repo.check_auto_draw(lottery) and lottery.tickets_sold > 0:
         winner_id = await repo.draw_random(lottery)
@@ -176,7 +176,7 @@ async def cb_lottery_buy(callback: CallbackQuery, session: AsyncSession, db_user
     can_buy = (db_user.stars_balance >= lottery.ticket_price and (lottery.ticket_limit == 0 or user_tickets < lottery.ticket_limit))
     try:
         await callback.message.edit_text(
-            "✅ <b>Билет куплен!</b>\n\n" + _lottery_text(lottery, user_tickets, float(db_user.stars_balance)),
+            "✔️ <b>Билет куплен!</b>\n\n" + _lottery_text(lottery, user_tickets, float(db_user.stars_balance)),
             parse_mode="HTML", reply_markup=lottery_menu_kb(can_buy, float(lottery.ticket_price)),
         )
     except Exception:

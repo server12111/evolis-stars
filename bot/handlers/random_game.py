@@ -19,7 +19,7 @@ _POOL = {
     "wheel": ("🎡 Колесо", "menu:wheel"),
     "cases": ("🎁 Кейсы", "menu:cases"),
     "mines": ("💣 Мины", "menu:mines"),
-    "tower": ("🗼 Башня", "menu:tower"),
+    "tower": ("🏰 Башня", "menu:tower"),
 }
 
 # Each press picks one of these at random — all three must actually occur.

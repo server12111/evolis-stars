@@ -160,7 +160,7 @@ async def _send_one(bot: Bot, session, chat: Chat, now: datetime) -> None:
             try:
                 await bot.send_message(
                     chat.owner_user_id,
-                    f"❌ Рассылка в чате не отправилась и была удалена: {exc}\n\n"
+                    f"❌️ Рассылка в чате не отправилась и была удалена: {exc}\n\n"
                     f"Проверьте текст/кнопки (ссылки должны вести на настоящий сайт или t.me) и отправьте заново.",
                 )
             except Exception:

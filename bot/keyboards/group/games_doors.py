@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def doors_pick_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    buttons = [InlineKeyboardButton(text=f"🚪 {i + 1}", callback_data=f"doors:pick:{i}") for i in range(4)]
+    buttons = [InlineKeyboardButton(text=f"🏠 {i + 1}", callback_data=f"doors:pick:{i}") for i in range(4)]
     builder.row(*buttons)
     return builder.as_markup()
 

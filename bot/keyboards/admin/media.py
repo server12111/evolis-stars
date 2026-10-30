@@ -5,7 +5,7 @@ KEY_LABELS = {
     "welcome": "👋 Приветствие",
     "main_menu": "🏠 Главное меню",
     "earn": "💸 Заработать",
-    "withdraw": "🌟 Вывод",
+    "withdraw": "⭐️ Вывод",
     "bonus": "🎁 Бонус",
     "tasks": "📋 Задания",
     "games": "🎮 Игры",
@@ -31,8 +31,8 @@ def media_list_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for key, label in KEY_LABELS.items():
         builder.row(InlineKeyboardButton(text=label, callback_data=f"admin:media_edit:{key}"))
-    builder.row(InlineKeyboardButton(text="🎬 Видео", callback_data="admin:video_list"))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"))
+    builder.row(InlineKeyboardButton(text="📜 Видео", callback_data="admin:video_list"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:main"))
     return builder.as_markup()
 
 
@@ -50,7 +50,7 @@ def video_list_kb() -> InlineKeyboardMarkup:
     # Wheel buttons
     for k in wheel_keys:
         builder.row(InlineKeyboardButton(text=VIDEO_LABELS[k], callback_data=f"admin:video_upload:{k}"))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:media"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:media"))
     return builder.as_markup()
 
 
@@ -58,16 +58,16 @@ def media_edit_kb(key: str) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="✏️ Изменить текст", callback_data=f"admin:media_text:{key}"),
-        InlineKeyboardButton(text="🖼 Изменить фото", callback_data=f"admin:media_photo:{key}"),
+        InlineKeyboardButton(text="📱 Изменить фото", callback_data=f"admin:media_photo:{key}"),
     )
     builder.row(
         InlineKeyboardButton(text="🔄 Сбросить текст на дефолт", callback_data=f"admin:media_reset:{key}"),
     )
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:media"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:media"))
     return builder.as_markup()
 
 
 def media_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="admin:media"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="admin:media"),
     ]])

@@ -42,6 +42,12 @@ from bot.services.sponsor_waves import (
     sponsor_wave_markup,
     sponsor_wave_text,
 )
+from bot.services.own_sponsor_wall import (
+    CALLBACK_PREFIX as WALLSPONSOR_PREFIX,
+    has_pending_own_sponsors,
+    recheck_own_sponsors,
+    show_own_sponsor_wall,
+)
 
 router = Router()
 settings = get_settings()
@@ -211,7 +217,7 @@ async def cmd_start(
     # another full copy, so mashing /start can't spam duplicates.
     if not db_user.tos_accepted:
         if db_user.tos_gate_shown:
-            await message.answer("⬆️ Прими соглашение в сообщении выше, чтобы продолжить.")
+            await message.answer("📌 Прими соглашение в сообщении выше, чтобы продолжить.")
             return
         db_user.tos_gate_shown = True
         await session.commit()
@@ -281,7 +287,7 @@ async def cb_sponsor_check(
     photo = await repo.get_photo("welcome")
     kb = main_menu_kb(await ChatRepository(session).has_owned_chats(db_user.user_id))
 
-    await callback.answer("✅ Проверка пройдена!")
+    await callback.answer("✔️ Проверка пройдена!")
     if photo:
         try:
             await callback.message.delete()
@@ -311,18 +317,18 @@ async def cb_sponsor_skip(callback: CallbackQuery, db_user: User, session: Async
     count = len(await get_pending_sponsor_items(callback, db_user, session, bot))
     if count == 0:
         await callback.answer(
-            "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",
+            "✔️ Скипать уже нечего — нажми «Я подписался на все каналы».",
             show_alert=True,
         )
         return
 
     text = (
-        f"❓ Вы уверены что хотите скипнуть {count} {sponsors_word(count)}?\n\n"
-        f"Если да — оплатите {count}⭐."
+        f"ℹ️ Вы уверены что хотите скипнуть {count} {sponsors_word(count)}?\n\n"
+        f"Если да — оплатите {count}⭐️."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=f"✅ Оплатить {count}⭐", callback_data="sponsor_skip_confirm"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="sponsor_check"),
+        InlineKeyboardButton(text=f"✔️ Оплатить {count}⭐️", callback_data="sponsor_skip_confirm"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="sponsor_check"),
     ]])
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -339,7 +345,7 @@ async def cb_sponsor_skip_confirm(callback: CallbackQuery, db_user: User, sessio
     count = len(await get_pending_sponsor_items(callback, db_user, session, bot))
     if count == 0:
         await callback.answer(
-            "✅ Скипать уже нечего — нажми «Я подписался на все каналы».",
+            "✔️ Скипать уже нечего — нажми «Я подписался на все каналы».",
             show_alert=True,
         )
         return
@@ -405,7 +411,7 @@ async def msg_sponsor_skip_paid(message: Message, db_user: User, session: AsyncS
             logger.warning(
                 "Could not refund stale sponsor-skip payment for uid=%s", db_user.user_id, exc_info=True,
             )
-            await message.answer("✅ Оплата получена, но проверка спонсоров уже была пройдена ранее.")
+            await message.answer("✔️ Оплата получена, но проверка спонсоров уже была пройдена ранее.")
         return
 
     wave_state = skip_current_wave(db_user)
@@ -416,22 +422,46 @@ async def msg_sponsor_skip_paid(message: Message, db_user: User, session: AsyncS
         # happens — MAX_WAVES caps waves at one — kept correct in case that
         # changes) — the skip only ever covers the wave just paid for.
         await message.answer(
-            "✅ Спонсоры пропущены!\n\n" + sponsor_wave_text(wave_state.wave, wave_state.total_waves),
+            "✔️ Спонсоры пропущены!\n\n" + sponsor_wave_text(wave_state.wave, wave_state.total_waves),
             parse_mode="HTML",
             reply_markup=sponsor_wave_markup(wave_state.items or []),
         )
         return
 
+    await message.answer("✔️ Спонсоры пропущены, спасибо за оплату!")
+
+    # Paying Stars only ever buys a skip past the paid tgrass/botohub/
+    # traffy/flyerhub wave above -- our OWN (admin-curated, free) sponsors
+    # are a separate, never-skippable gate (see own_sponsor_wall.py).
+    # run_sponsor_wall_check already enforces this for every OTHER path
+    # into verification; this one bypasses that function entirely (it goes
+    # straight from skip_current_wave to here), so it must check
+    # separately or a paid skip would silently buy past our own promo too.
+    if not await has_pending_own_sponsors(session, db_user.user_id):
+        await _mark_sponsors_verified_and_notify(db_user, session, bot)
+        await _send_main_menu(message, db_user, session)
+        return
+    await show_own_sponsor_wall(message, session, db_user.user_id)
+
+
+@router.callback_query(lambda c: c.data == f"{WALLSPONSOR_PREFIX}:check")
+async def cb_wallsponsor_check(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
+    done = await recheck_own_sponsors(bot, session, db_user.user_id)
+    if not done:
+        await show_own_sponsor_wall(
+            callback, session, db_user.user_id, alert="❌️ Ты ещё не подписался на всех спонсоров.",
+        )
+        return
+    await callback.answer("✔️ Проверка пройдена!")
     await _mark_sponsors_verified_and_notify(db_user, session, bot)
-    await message.answer("✅ Спонсоры пропущены, спасибо за оплату!")
-    await _send_main_menu(message, db_user, session)
+    await _send_main_menu(callback.message, db_user, session)
 
 
 @router.callback_query(lambda c: c.data == "tos_accept")
 async def cb_tos_accept(callback: CallbackQuery, db_user: User, session: AsyncSession, bot: Bot) -> None:
     db_user.tos_accepted = True
     await session.commit()
-    await callback.answer("✅ Спасибо!")
+    await callback.answer("✔️ Спасибо!")
     try:
         await callback.message.delete()
     except Exception:

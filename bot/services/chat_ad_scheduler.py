@@ -108,7 +108,7 @@ async def _maybe_post_click_ad(bot: Bot, session, chat: Chat) -> None:
     try:
         await bot.send_message(
             chat.chat_id,
-            f"📣 <b>{button.label}</b>",
+            f"📢 <b>{button.label}</b>",
             parse_mode="HTML",
             reply_markup=builder.as_markup(),
         )

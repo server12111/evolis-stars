@@ -20,12 +20,12 @@ def admin_lottery_kb(has_active: bool, has_participants: bool) -> InlineKeyboard
         if has_participants:
             builder.row(
                 InlineKeyboardButton(text="🎲 Случайный розыгрыш", callback_data="admin:lottery_random"),
-                InlineKeyboardButton(text="👆 Выбрать победителя", callback_data="admin:lottery_pick"),
+                InlineKeyboardButton(text="📌 Выбрать победителя", callback_data="admin:lottery_pick"),
             )
-        builder.row(InlineKeyboardButton(text="❌ Отменить лотерею", callback_data="admin:lottery_cancel"))
+        builder.row(InlineKeyboardButton(text="❌️ Отменить лотерею", callback_data="admin:lottery_cancel"))
     else:
         builder.row(InlineKeyboardButton(text="➕ Создать лотерею", callback_data="admin:lottery_new"))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:main"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:main"))
     return builder.as_markup()
 
 
@@ -33,18 +33,18 @@ def admin_lottery_end_type_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="🎟 По кол-ву билетов", callback_data="admin:lottery_end:tickets"),
-        InlineKeyboardButton(text="📅 По дате", callback_data="admin:lottery_end:time"),
+        InlineKeyboardButton(text="📋 По дате", callback_data="admin:lottery_end:time"),
     )
     builder.row(InlineKeyboardButton(text="💰 По сумме сборов", callback_data="admin:lottery_end:commission"))
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="admin:lottery"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="admin:lottery"))
     return builder.as_markup()
 
 
 def admin_lottery_skip_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="⏩ Пропустить", callback_data="admin:lottery_skip"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="admin:lottery"),
+        InlineKeyboardButton(text="➡️ Пропустить", callback_data="admin:lottery_skip"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="admin:lottery"),
     )
     return builder.as_markup()
 
@@ -52,8 +52,8 @@ def admin_lottery_skip_kb() -> InlineKeyboardMarkup:
 def admin_lottery_confirm_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="✅ Запустить", callback_data="admin:lottery_create:confirm"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="admin:lottery"),
+        InlineKeyboardButton(text="✔️ Запустить", callback_data="admin:lottery_create:confirm"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="admin:lottery"),
     )
     return builder.as_markup()
 
@@ -65,5 +65,5 @@ def admin_lottery_pick_kb(participants: list) -> InlineKeyboardMarkup:
             text=f"ID:{uid} — {cnt} билет(ов)",
             callback_data=f"admin:lottery_winner:{uid}",
         ))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="admin:lottery"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="admin:lottery"))
     return builder.as_markup()

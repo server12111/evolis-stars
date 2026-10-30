@@ -1,6 +1,7 @@
 from sqlalchemy import event, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 
 from bot.config import get_settings
 
@@ -9,6 +10,31 @@ settings = get_settings()
 _engine_kwargs = {"echo": False, "pool_pre_ping": True}
 if settings.database_url.startswith("sqlite"):
     _engine_kwargs["connect_args"] = {"timeout": 30}
+    # SQLAlchemy's default pool for a file-based sqlite+aiosqlite URL is
+    # NullPool -- every single query opens a brand-new SQLite connection
+    # (re-running every PRAGMA in _configure_sqlite below) and closes it
+    # right after. Under real concurrent load that's a lot of avoidable
+    # file-open/close and PRAGMA-setup overhead per request. Switch to a
+    # real pool that keeps connections open and reuses them.
+    #
+    # SQLite still only has one writer regardless of pool size, so this
+    # isn't about write parallelism -- a bounded pool just caps how many
+    # connections queue on that single write lock at once instead of an
+    # unbounded pile-up, while still letting WAL-mode reads run
+    # concurrently through the pooled connections.
+    _engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
+    _engine_kwargs["pool_size"] = 8
+    _engine_kwargs["max_overflow"] = 4
+    # pool_pre_ping (set below for other dialects) tests an idle pooled
+    # connection with a sync-style ping before handing it out -- with
+    # aiosqlite this fires outside the greenlet context SQLAlchemy's async
+    # bridge needs, crashing every checkout with "MissingGreenlet:
+    # greenlet_spawn has not been called" (confirmed live the moment this
+    # engine switched from NullPool to a real pool that keeps connections
+    # around long enough to actually get pinged). Also pointless for a
+    # local SQLite file: pre_ping exists to catch a server-side-closed TCP
+    # connection, which doesn't apply here.
+    _engine_kwargs["pool_pre_ping"] = False
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
@@ -21,6 +47,15 @@ if settings.database_url.startswith("sqlite"):
         cursor.execute("PRAGMA busy_timeout=30000")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # Negative value = size in KiB (not pages) -- 64MB of page cache per
+        # connection instead of SQLite's default ~2MB, so hot tables
+        # (game_sessions, users) mostly stay resident instead of round-
+        # tripping to disk on every read.
+        cursor.execute("PRAGMA cache_size=-64000")
+        # Temp b-trees/sort results (ORDER BY, GROUP BY spills) live in RAM
+        # instead of temp files on disk -- there's 8GB of RAM to spare and
+        # this avoids extra disk I/O contending with the main DB file.
+        cursor.execute("PRAGMA temp_store=MEMORY")
         cursor.close()
 SessionFactory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
@@ -56,19 +91,31 @@ def _add_missing_user_columns(connection) -> None:
         "tos_gate_shown": "BOOLEAN NOT NULL DEFAULT 0",
         "last_random_at": "DATETIME",
         "rp_migrated": "BOOLEAN NOT NULL DEFAULT 0",
-        "virus_last_used_at": "DATETIME",
-        "virus_bonus_attempt": "BOOLEAN NOT NULL DEFAULT 0",
         "referral_tier": "VARCHAR(16)",
         "pending_reactivation_referrer_id": "BIGINT",
         "pending_reactivation_since": "DATETIME",
         "wall_integration_wave": "INTEGER NOT NULL DEFAULT 0",
         "wall_integration_wave_one": "TEXT",
         "wall_integration_wave_two": "TEXT",
+        "last_referral_reminder_sent_at": "DATETIME",
+        "referral_fraud_flagged": "BOOLEAN NOT NULL DEFAULT 0",
     }
     referral_counted_added = "referral_counted" not in columns
+    reminder_column_added = "last_referral_reminder_sent_at" not in columns
     for name, definition in additions.items():
         if name not in columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+    if reminder_column_added:
+        # Without this every historical referrer whose last referral is
+        # >24h old would count as "never reminded" and get the nudge in
+        # one mass blast on the first scheduler tick after deploy. Mark
+        # them as already reminded for their current streak instead; only
+        # streaks that go stale from now on trigger a reminder.
+        connection.execute(text(
+            "UPDATE users SET last_referral_reminder_sent_at = ("
+            "SELECT MAX(r.created_at) FROM users r WHERE r.referrer_id = users.user_id) "
+            "WHERE EXISTS (SELECT 1 FROM users r WHERE r.referrer_id = users.user_id)"
+        ))
     # is_vip/referral_tier are only (re)computed inside check_referral_reward
     # on a referrer's NEXT referral -- a user who already crossed a
     # threshold before this code shipped would otherwise wait indefinitely
@@ -354,6 +401,12 @@ def _add_missing_user_columns(connection) -> None:
         connection.execute(text("DROP TABLE blocked_sponsor_urls"))
         connection.execute(text("ALTER TABLE blocked_sponsor_urls_new RENAME TO blocked_sponsor_urls"))
     _ensure_integrity_indexes(connection)
+    _ensure_performance_indexes(connection)
+    # Lets SQLite's query planner refresh its statistics (ANALYZE-lite)
+    # based on the data actually loaded above, right before the bot starts
+    # serving traffic -- the officially recommended time to run this
+    # (https://www.sqlite.org/pragma.html#pragma_optimize).
+    connection.execute(text("PRAGMA optimize"))
 
 
 def _seed_withdrawal_counter(connection) -> None:
@@ -373,6 +426,37 @@ def _seed_withdrawal_counter(connection) -> None:
         text("INSERT INTO withdrawal_counters (id, value) VALUES (1, :v)"),
         {"v": max(max_stars, max_vc)},
     )
+
+
+def _ensure_performance_indexes(connection) -> None:
+    """Retroactively add the indexes declared on the models above (see
+    GameSession/Withdrawal/VcWithdrawal/CryptoWithdrawal/Duel/AuctionBid/
+    LotteryTicket __table_args__) to a pre-existing database -- create_all()
+    only creates tables/indexes
+    that don't exist yet, it never touches a table that's already there.
+    Cheap and idempotent: CREATE INDEX IF NOT EXISTS is a no-op once the
+    index exists (including on a fresh install, where create_all already
+    created these from the model metadata)."""
+    statements = (
+        "CREATE INDEX IF NOT EXISTS idx_game_sessions_user_type_played "
+        "ON game_sessions (user_id, game_type, played_at)",
+        "CREATE INDEX IF NOT EXISTS idx_game_sessions_user_chat ON game_sessions (user_id, chat_id)",
+        "CREATE INDEX IF NOT EXISTS idx_game_sessions_chat ON game_sessions (chat_id)",
+        "CREATE INDEX IF NOT EXISTS idx_game_sessions_played_at ON game_sessions (played_at)",
+        "CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals (status)",
+        "CREATE INDEX IF NOT EXISTS idx_withdrawals_user_id ON withdrawals (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_vc_withdrawals_status ON vc_withdrawals (status)",
+        "CREATE INDEX IF NOT EXISTS idx_vc_withdrawals_user_id ON vc_withdrawals (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_crypto_withdrawals_status ON crypto_withdrawals (status)",
+        "CREATE INDEX IF NOT EXISTS idx_crypto_withdrawals_user_id ON crypto_withdrawals (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_duels_status ON duels (status)",
+        "CREATE INDEX IF NOT EXISTS idx_duels_status_creator ON duels (status, creator_id)",
+        "CREATE INDEX IF NOT EXISTS idx_auction_bids_round_id ON auction_bids (round_id)",
+        "CREATE INDEX IF NOT EXISTS idx_lottery_tickets_lottery_user ON lottery_tickets (lottery_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_users_referrer_created ON users (referrer_id, created_at)",
+    )
+    for statement in statements:
+        connection.execute(text(statement))
 
 
 def _ensure_integrity_indexes(connection) -> None:

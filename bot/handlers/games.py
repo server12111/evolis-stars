@@ -22,7 +22,7 @@ from bot.states.games import GameStates
 router = Router()
 
 GAME_EMOJIS = {
-    "football": "⚽", "basketball": "🏀", "bowling": "🎳",
+    "football": "⚽️", "basketball": "🏀", "bowling": "🎳",
     "dice": "🎲", "slots": "🎰", "darts": "🎯",
 }
 
@@ -145,11 +145,11 @@ def _result_text(game_type, won, bet, payout, value, balance, side=None) -> str:
     sign = "+" if net >= 0 else ""
 
     if game_type == "football":
-        outcome = "⚽ Гол!" if value in (4, 5) else "🥅 Промах."
+        outcome = "⚽️ Гол!" if value in (4, 5) else "🥅 Промах."
         result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
                        else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
     elif game_type == "basketball":
-        outcomes = {5: "🏀 Чистый гол!", 4: "🏀 Гол!", 3: "😬 Застрял мяч...", 1: "🏀 Промах.", 2: "🏀 Промах."}
+        outcomes = {5: "🏀 Чистый гол!", 4: "🏀 Гол!", 3: "😞 Застрял мяч...", 1: "🏀 Промах.", 2: "🏀 Промах."}
         outcome = outcomes.get(value, "")
         result_line = (f"🎉 <b>Угадал! +{payout:.2f} RP⭐️</b> (прибыль: {sign}{net:.2f} RP⭐️)" if won
                        else f"😞 <b>Не угадал. -{bet:.2f} RP⭐️</b>")
@@ -165,7 +165,7 @@ def _result_text(game_type, won, bet, payout, value, balance, side=None) -> str:
                        else f"😞 <b>Проигрыш. -{bet:.2f} RP⭐️</b>")
     elif game_type == "slots":
         if value == 64: outcome = "🎰 <b>777 — Джекпот! 🏆</b>"
-        elif value in (1,22,43): outcome = "🎰 <b>3 одинаковых! 🍀</b>"
+        elif value in (1,22,43): outcome = "🎰 <b>3 одинаковых! ✨️</b>"
         else: outcome = "🎰 Нет совпадений"
         result_line = (f"🎉 <b>Выигрыш! +{payout:.2f} RP⭐️</b>" if won else f"😞 <b>Проигрыш. -{bet:.2f} RP⭐️</b>")
     elif game_type == "darts":
@@ -193,7 +193,7 @@ async def cb_games_menu(callback: CallbackQuery, session: AsyncSession, db_user:
     if db_user.referrals_count < min_refs:
         text = (
             f"🎮 <b>Игры</b>\n\n"
-            f"❌ Игры открываются после <b>{min_refs}</b> подтверждённых "
+            f"❌️ Игры открываются после <b>{min_refs}</b> подтверждённых "
             f"{referrals_word(min_refs)}. У тебя: <b>{db_user.referrals_count}</b>."
         )
         try:
@@ -237,7 +237,7 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     await state.clear()
     game_type = callback.data.split(":")[2]
     if game_type not in GAME_TYPES:
-        await callback.answer("❌ Неизвестная игра.", show_alert=True)
+        await callback.answer("❌️ Неизвестная игра.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -248,7 +248,7 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
     min_refs = max(0, await repo.get_int("games_min_refs", 3))
     if db_user.referrals_count < min_refs:
         await callback.answer(
-            f"❌ Нужно минимум {min_refs} подтверждённых {referrals_word(min_refs)}. "
+            f"❌️ Нужно минимум {min_refs} подтверждённых {referrals_word(min_refs)}. "
             f"У тебя: {db_user.referrals_count}",
             show_alert=True,
         )
@@ -262,14 +262,14 @@ async def cb_game_play(callback: CallbackQuery, session: AsyncSession, db_user: 
         g_repo = GameRepository(session)
         cnt = await g_repo.daily_count(db_user.user_id, game_type)
         if cnt >= daily_limit:
-            await callback.answer(f"⛔ Дневной лимит ({daily_limit} игр) исчерпан.", show_alert=True)
+            await callback.answer(f"❌️ Дневной лимит ({daily_limit} игр) исчерпан.", show_alert=True)
             return
 
     min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
     bet_step = await repo.get_float(f"game_{game_type}_bet_step", 1.0)
 
     if db_user.stars_balance < min_bet:
-        await callback.answer(f"❌ Минимальная ставка: {min_bet:.0f} RP⭐️", show_alert=True)
+        await callback.answer(f"❌️ Минимальная ставка: {min_bet:.0f} RP⭐️", show_alert=True)
         return
 
     await state.set_state(GameStates.enter_bet)
@@ -301,26 +301,26 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
         bet = float(message.text.strip().replace(",", "."))
         if not math.isfinite(bet) or bet <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=game_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=game_cancel_kb())
         return
 
     repo = SettingsRepository(session)
     min_bet = await repo.get_float(f"game_{game_type}_min_bet", 1.0)
     if bet < min_bet:
-        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌️ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     max_bet = await repo.get_float(f"game_{game_type}_max_bet", 500.0)
     if bet > max_bet:
-        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌️ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     if bet_step > 1.0 and abs(bet % bet_step) > 0.001:
-        await message.answer(f"❌ Ставка кратна <b>{bet_step:.4g} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌️ Ставка кратна <b>{bet_step:.4g} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     if db_user.stars_balance < bet:
-        await message.answer(f"❌ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
+        await message.answer(f"❌️ Недостаточно звёзд. Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=game_cancel_kb())
         return
 
     db_user.stars_balance = round(float(db_user.stars_balance) - bet, 2)
@@ -339,7 +339,7 @@ async def msg_bet_enter(message: Message, session: AsyncSession, db_user: User, 
     }
     side_prompts = {
         "dice": "🎲 Выбери условие победы:",
-        "football": "⚽ Гол или промах?",
+        "football": "⚽️ Гол или промах?",
         "basketball": "🏀 Поставь на исход броска:",
         "bowling": "🎳 Страйк или промах?",
         "darts": "🎯 Поставь на зону попадания:",

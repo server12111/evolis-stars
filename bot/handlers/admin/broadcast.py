@@ -56,9 +56,9 @@ async def _run_broadcast(
     try:
         await bot.send_message(
             admin_chat_id,
-            f"✅ <b>Рассылка {target_label} завершена!</b>\n\n"
+            f"✔️ <b>Рассылка {target_label} завершена!</b>\n\n"
             f"✔️ Отправлено: <b>{success}</b>\n"
-            f"❌ Ошибок: <b>{fail}</b>",
+            f"❌️ Ошибок: <b>{fail}</b>",
             parse_mode="HTML",
             reply_markup=back_to_admin_kb(),
         )
@@ -69,10 +69,10 @@ async def _run_broadcast(
 @router.callback_query(lambda c: c.data == "admin:broadcast")
 async def cb_broadcast(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.clear()
-    text = "📣 <b>Рассылка</b>\n\nКуда отправить рассылку?"
+    text = "📢 <b>Рассылка</b>\n\nКуда отправить рассылку?"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=broadcast_scope_kb())
     except Exception:
@@ -83,7 +83,7 @@ async def cb_broadcast(callback: CallbackQuery, db_user: User, state: FSMContext
 @router.callback_query(lambda c: c.data == "admin:broadcast_scope:chats")
 async def cb_broadcast_scope_chats(callback: CallbackQuery, db_user: User) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     text = "💬 <b>Рассылка в чатах</b>\n\nКаким чатам отправить?"
     try:
@@ -96,11 +96,11 @@ async def cb_broadcast_scope_chats(callback: CallbackQuery, db_user: User) -> No
 @router.callback_query(lambda c: c.data == "admin:broadcast_scope:bot")
 async def cb_broadcast_scope_bot(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.update_data(scope="bot", chat_audience=None)
     await state.set_state(AdminBroadcastStates.waiting_message)
-    text = "📣 <b>Рассылка в боте</b>\n\nОтправь сообщение (текст, фото, видео, документ или перешли сообщение):"
+    text = "📢 <b>Рассылка в боте</b>\n\nОтправь сообщение (текст, фото, видео, документ или перешли сообщение):"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=broadcast_cancel_kb())
     except Exception:
@@ -111,12 +111,12 @@ async def cb_broadcast_scope_bot(callback: CallbackQuery, db_user: User, state: 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:broadcast_audience:"))
 async def cb_broadcast_audience(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     audience = callback.data.rsplit(":", 1)[-1]
     await state.update_data(scope="chats", chat_audience=audience)
     await state.set_state(AdminBroadcastStates.waiting_message)
-    text = "📣 <b>Рассылка в чатах</b>\n\nОтправь сообщение (текст, фото, видео, документ или перешли сообщение):"
+    text = "📢 <b>Рассылка в чатах</b>\n\nОтправь сообщение (текст, фото, видео, документ или перешли сообщение):"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=broadcast_cancel_kb())
     except Exception:
@@ -132,7 +132,7 @@ async def msg_broadcast_content(message: Message, state: FSMContext, db_user: Us
     await state.set_state(AdminBroadcastStates.choose_button)
 
     await message.answer(
-        "👆 <b>Предпросмотр выше.</b>\n\nПрикрепить кнопку для кликов?",
+        "📌 <b>Предпросмотр выше.</b>\n\nПрикрепить кнопку для кликов?",
         parse_mode="HTML",
         reply_markup=broadcast_button_choice_kb(),
     )
@@ -141,7 +141,7 @@ async def msg_broadcast_content(message: Message, state: FSMContext, db_user: Us
 @router.callback_query(lambda c: c.data == "admin:broadcast_button:skip")
 async def cb_broadcast_button_skip(callback: CallbackQuery, db_user: User, state: FSMContext, session: AsyncSession) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.update_data(button_id=None)
     await _show_confirm(callback.message, state, session)
@@ -151,7 +151,7 @@ async def cb_broadcast_button_skip(callback: CallbackQuery, db_user: User, state
 @router.callback_query(lambda c: c.data == "admin:broadcast_button:attach")
 async def cb_broadcast_button_attach(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     buttons = await LinkButtonRepository(session).all_active()
     text = "🔗 Выбери существующую кнопку или создай новую:"
@@ -165,7 +165,7 @@ async def cb_broadcast_button_attach(callback: CallbackQuery, db_user: User, ses
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:broadcast_button_pick:"))
 async def cb_broadcast_button_pick(callback: CallbackQuery, db_user: User, state: FSMContext, session: AsyncSession) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     button_id = int(callback.data.split(":")[2])
     await state.update_data(button_id=button_id)
@@ -176,7 +176,7 @@ async def cb_broadcast_button_pick(callback: CallbackQuery, db_user: User, state
 @router.callback_query(lambda c: c.data == "admin:broadcast_button_new")
 async def cb_broadcast_button_new(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.set_state(AdminBroadcastStates.enter_button_label)
     await callback.message.answer("✏️ Введи название кнопки (текст, который увидят пользователи):", reply_markup=broadcast_cancel_kb())
@@ -189,7 +189,7 @@ async def msg_broadcast_button_label(message: Message, state: FSMContext, db_use
         return
     label = (message.text or "").strip()
     if not label:
-        await message.answer("❌ Название не может быть пустым:", reply_markup=broadcast_cancel_kb())
+        await message.answer("❌️ Название не может быть пустым:", reply_markup=broadcast_cancel_kb())
         return
     await state.update_data(new_button_label=label)
     await state.set_state(AdminBroadcastStates.enter_button_url)
@@ -202,7 +202,7 @@ async def msg_broadcast_button_url(message: Message, state: FSMContext, session:
         return
     url = (message.text or "").strip()
     if not (url.startswith("http://") or url.startswith("https://")):
-        await message.answer("❌ Ссылка должна начинаться с http:// или https://:", reply_markup=broadcast_cancel_kb())
+        await message.answer("❌️ Ссылка должна начинаться с http:// или https://:", reply_markup=broadcast_cancel_kb())
         return
     data = await state.get_data()
     button = await LinkButtonRepository(session).create(data["new_button_label"], url, created_by=db_user.user_id)
@@ -222,7 +222,7 @@ async def _show_confirm(sendable, state: FSMContext, session: AsyncSession) -> N
             button_line = f"\n🔗 Кнопка: <b>{button.label}</b>"
 
     text = (
-        f"📣 <b>Подтверждение рассылки</b>\n\n"
+        f"📢 <b>Подтверждение рассылки</b>\n\n"
         f"Куда: {target_line}{button_line}\n\n"
         "Отправить это сообщение?"
     )
@@ -232,7 +232,7 @@ async def _show_confirm(sendable, state: FSMContext, session: AsyncSession) -> N
 @router.callback_query(AdminBroadcastStates.confirm, lambda c: c.data == "admin:broadcast_confirm")
 async def cb_broadcast_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession, db_user: User) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
 
     data = await state.get_data()

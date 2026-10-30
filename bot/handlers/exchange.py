@@ -36,7 +36,7 @@ def _exchange_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
     rows = []
     for i in range(0, len(amounts), 3):
         rows.append([
-            InlineKeyboardButton(text=f"{a} ⭐", callback_data=f"exchange:amount:{a}")
+            InlineKeyboardButton(text=f"⭐️ {a}", callback_data=f"exchange:amount:{a}")
             for a in amounts[i:i + 3]
         ])
     rows.append([InlineKeyboardButton(text="✏️ Своя сумма", callback_data="exchange:custom")])
@@ -46,14 +46,14 @@ def _exchange_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
 
 def _exchange_confirm_kb(amount: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Купить", callback_data=f"exchange:confirm:{amount}", style="success"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:exchange", style="danger"),
+        InlineKeyboardButton(text="✔️ Купить", callback_data=f"exchange:confirm:{amount}", style="success"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:exchange", style="danger"),
     ]])
 
 
 def _custom_amount_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:exchange"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:exchange"),
     ]])
 
 
@@ -65,7 +65,7 @@ async def _render_confirm(session: AsyncSession, amount: int) -> str:
     rate = await SettingsRepository(session).get_float("rp_exchange_rate", 1.0)
     rp_amount = (Decimal(str(amount)) * Decimal(str(rate))).quantize(Decimal("0.01"))
     return (
-        f"💫 Стоимость: <b>{amount} ⭐</b>\n"
+        f"💫 Стоимость: <b>{amount} ⭐️</b>\n"
         f"🔄 Будет начислено: <b>{rp_amount} RP⭐️</b>\n\n"
         "Подтверди покупку:"
     )
@@ -77,7 +77,7 @@ async def cb_exchange_menu(callback: CallbackQuery, session: AsyncSession, state
     rate = await SettingsRepository(session).get_float("rp_exchange_rate", 1.0)
     text = (
         "🪙 <b>Донат</b>\n\n"
-        f"Курс: 1 Telegram ⭐ = {rate:g} RP⭐️\n\n"
+        f"Курс: 1 Telegram ⭐️ = {rate:g} RP⭐️\n\n"
         "Выбери сумму пополнения в Telegram Stars:"
     )
     kb = _exchange_amounts_kb(_AMOUNTS)
@@ -104,11 +104,11 @@ async def msg_exchange_custom_amount(message: Message, session: AsyncSession, st
     try:
         amount = int((message.text or "").strip())
     except ValueError:
-        await message.answer("❌ Введи целое число:", reply_markup=_custom_amount_cancel_kb())
+        await message.answer("❌️ Введи целое число:", reply_markup=_custom_amount_cancel_kb())
         return
     if not _valid_amount(amount):
         await message.answer(
-            f"❌ Сумма должна быть от {_MIN_AMOUNT} до {_MAX_AMOUNT}:",
+            f"❌️ Сумма должна быть от {_MIN_AMOUNT} до {_MAX_AMOUNT}:",
             reply_markup=_custom_amount_cancel_kb(),
         )
         return
@@ -126,7 +126,7 @@ async def cb_exchange_amount(callback: CallbackQuery, session: AsyncSession) -> 
         await callback.answer()
         return
     if amount not in _AMOUNTS:
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
 
     text = await _render_confirm(session, amount)
@@ -145,7 +145,7 @@ async def cb_exchange_confirm(callback: CallbackQuery, session: AsyncSession, bo
         await callback.answer()
         return
     if not _valid_amount(amount):
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
 
     # The rate is resolved fresh here and baked into the invoice payload —
@@ -207,12 +207,12 @@ async def msg_rp_purchase_paid(message: Message, db_user: User, session: AsyncSe
     if purchase is None:
         # Telegram redelivered an update for a payment we already recorded
         # and credited — must not credit RP⭐️ a second time.
-        await message.answer("✅ Этот платёж уже был обработан ранее.")
+        await message.answer("✔️ Этот платёж уже был обработан ранее.")
         return
 
     await credit_stars(session, db_user.user_id, rp_amount)
     await message.answer(
-        f"✅ <b>Покупка успешна!</b>\n\nНачислено: <b>{rp_amount} RP⭐️</b>",
+        f"✔️ <b>Покупка успешна!</b>\n\nНачислено: <b>{rp_amount} RP⭐️</b>",
         parse_mode="HTML",
         reply_markup=back_to_menu_kb(),
     )

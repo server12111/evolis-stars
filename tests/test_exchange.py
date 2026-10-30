@@ -47,7 +47,7 @@ class AmountAndInvoiceTests(ChatModelsTestCase):
             with patch("bot.handlers.exchange.SettingsRepository.get_float", AsyncMock(return_value=2.0)):
                 await cb_exchange_amount(cb, session)
         rendered = cb.message.edit_text.await_args.args[0]
-        self.assertIn("50 ⭐", rendered)
+        self.assertIn("50 ⭐️", rendered)
         self.assertIn("100.00 RP⭐️", rendered)
 
     async def test_confirm_sends_invoice_with_rate_locked_into_payload(self) -> None:
@@ -67,7 +67,7 @@ class AmountAndInvoiceTests(ChatModelsTestCase):
         cb = _callback("exchange:amount:999")
         async with self.sessions() as session:
             await cb_exchange_amount(cb, session)
-        cb.answer.assert_awaited_once_with("❌ Неверная сумма.", show_alert=True)
+        cb.answer.assert_awaited_once_with("❌️ Неверная сумма.", show_alert=True)
         cb.message.edit_text.assert_not_awaited()
 
 
@@ -88,7 +88,7 @@ class CustomAmountTests(ChatModelsTestCase):
                 await msg_exchange_custom_amount(message, session, state)
         state.clear.assert_awaited_once()
         rendered = message.answer.await_args.args[0]
-        self.assertIn("777 ⭐", rendered)
+        self.assertIn("777 ⭐️", rendered)
         self.assertIn("777.00 RP⭐️", rendered)
 
     async def test_non_numeric_input_rejected_with_retry_prompt(self) -> None:

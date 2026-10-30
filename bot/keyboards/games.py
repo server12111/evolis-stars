@@ -4,12 +4,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 GAME_TYPES = ["football", "basketball", "bowling", "dice", "slots", "darts"]
 
 GAME_LABELS = {
-    "football":   "Футбол ⚽",
-    "basketball": "Баскетбол 🏀",
-    "bowling":    "Боулинг 🎳",
-    "dice":       "Кубики 🎲",
-    "slots":      "Слоты 🎰",
-    "darts":      "Дартс 🎯",
+    # Emoji leads (not trails) the label -- decorate_markup only turns a
+    # button's LEADING emoji into a premium icon_custom_emoji_id, and
+    # strips it from the visible text once it does. Trailing here would
+    # mean these six buttons never get an icon at all.
+    "football":   "⚽️ Футбол",
+    "basketball": "🏀 Баскетбол",
+    "bowling":    "🎳 Боулинг",
+    "dice":       "🎲 Кубики",
+    "slots":      "🎰 Слоты",
+    "darts":      "🎯 Дартс",
 }
 
 
@@ -45,10 +49,10 @@ def casino_menu_kb() -> InlineKeyboardMarkup:
     )
     builder.row(
         InlineKeyboardButton(text="💣 Мины", callback_data="menu:mines"),
-        InlineKeyboardButton(text="🗼 Башня", callback_data="menu:tower"),
+        InlineKeyboardButton(text="🏰 Башня", callback_data="menu:tower"),
     )
-    builder.row(InlineKeyboardButton(text="🏺 Аукцион", callback_data="menu:auction"))
-    builder.row(InlineKeyboardButton(text="◀️ К играм", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="🔨 Аукцион", callback_data="menu:auction"))
+    builder.row(InlineKeyboardButton(text="⬅️ К играм", callback_data="menu:games"))
     return builder.as_markup()
 
 
@@ -58,17 +62,17 @@ def dice_side_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📈 Больше 3", callback_data="game:dice:high"),
         InlineKeyboardButton(text="📉 Меньше 4", callback_data="game:dice:low"),
     )
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"))
     return builder.as_markup()
 
 
 def football_side_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="⚽ Гол (x1.5)", callback_data="game:football:goal"),
+        InlineKeyboardButton(text="⚽️ Гол (x1.5)", callback_data="game:football:goal"),
         InlineKeyboardButton(text="🥅 Промах (x2.2)", callback_data="game:football:miss"),
     )
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"))
     return builder.as_markup()
 
 
@@ -79,10 +83,10 @@ def basketball_side_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🏀 Любой гол (x2.2)", callback_data="game:basketball:any"),
     )
     builder.row(
-        InlineKeyboardButton(text="😬 Застрял (x4)", callback_data="game:basketball:stuck"),
-        InlineKeyboardButton(text="❌ Промах (x1.5)", callback_data="game:basketball:miss"),
+        InlineKeyboardButton(text="😞 Застрял (x4)", callback_data="game:basketball:stuck"),
+        InlineKeyboardButton(text="❌️ Промах (x1.5)", callback_data="game:basketball:miss"),
     )
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"))
     return builder.as_markup()
 
 
@@ -90,10 +94,10 @@ def bowling_side_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="🎳 Страйк (x5)", callback_data="game:bowling:strike"),
-        InlineKeyboardButton(text="❌ Промах (x4)", callback_data="game:bowling:miss"),
+        InlineKeyboardButton(text="❌️ Промах (x4)", callback_data="game:bowling:miss"),
     )
     builder.row(InlineKeyboardButton(text="🎳 Попал (x2)", callback_data="game:bowling:partial"))
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"))
     return builder.as_markup()
 
 
@@ -101,9 +105,9 @@ def darts_side_kb(coeff_center: float, coeff_bounce: float) -> InlineKeyboardMar
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text=f"🎯 В центр (x{coeff_center:.4g})", callback_data="game:darts:center"),
-        InlineKeyboardButton(text=f"💨 Отскок (x{coeff_bounce:.4g})", callback_data="game:darts:bounce"),
+        InlineKeyboardButton(text=f"🌬 Отскок (x{coeff_bounce:.4g})", callback_data="game:darts:bounce"),
     )
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"))
     return builder.as_markup()
 
 
@@ -118,5 +122,5 @@ def game_result_kb(game_type: str) -> InlineKeyboardMarkup:
 
 def game_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:games"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:games"),
     ]])

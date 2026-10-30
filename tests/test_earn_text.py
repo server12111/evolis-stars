@@ -31,7 +31,7 @@ class SponsorsWordTests(unittest.TestCase):
 
 
 class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
-    async def test_min_sponsors_uses_correct_grammar_for_two(self) -> None:
+    async def test_min_sponsors_is_floored_to_effective_minimum_with_correct_grammar(self) -> None:
         callback = SimpleNamespace(
             message=SimpleNamespace(
                 delete=AsyncMock(),
@@ -56,15 +56,21 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(return_value=([], 0, 0)),
             ),
             patch("bot.handlers.earn.get_referral_reward", AsyncMock(return_value=Decimal("4"))),
-            patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=2)),
+            # Raw setting (1) is below the floor -- the lowest reward tier
+            # (0-3 sponsors) always pays 0 RP⭐️, so the true minimum a
+            # referral needs is 4 regardless of what this raw setting says
+            # (see effective_min_sponsors_for_reward). Previously this
+            # screen displayed the raw setting directly ("1 спонсор"),
+            # promising a reward that would never actually be paid.
+            patch("bot.handlers.earn.get_min_sponsors_for_reward", AsyncMock(return_value=1)),
             patch("bot.handlers.earn.get_milestone_bonus", AsyncMock(return_value=Decimal("0.1"))),
             patch("bot.handlers.earn.get_recurring_tier_rate", AsyncMock(return_value=Decimal("1"))),
         ):
             await cb_earn(callback, db_user, session)
 
         rendered = callback.message.edit_text.await_args.args[0]
-        self.assertIn("2 спонсора.", rendered)
-        self.assertNotIn("2 спонсоров", rendered)
+        self.assertIn("4 спонсора.", rendered)
+        self.assertNotIn("1 спонсор", rendered)
 
     async def test_default_template_shows_all_reward_tiers(self) -> None:
         callback = SimpleNamespace(
@@ -111,16 +117,16 @@ class EarnTextRenderingTests(unittest.IsolatedAsyncioTestCase):
             await cb_earn(callback, db_user, session)
 
         rendered = callback.message.edit_text.await_args.args[0]
-        # min_sponsors=3 -> min_sponsors_minus_1=2 ("0-2 not counted"),
-        # dynamically tied to the admin-configurable gate setting.
-        self.assertIn("0-2 спонсоров — не засчитывается", rendered)
+        # min_sponsors=3 -> effective_min=max(3,4)=4 -> "0-3 not counted"
+        # (the 0-3 tier always pays 0 regardless of the raw setting).
+        self.assertIn("0-3 спонсоров — не засчитывается", rendered)
         self.assertIn("4-5 спонсоров: <b>6 RP⭐️</b>", rendered)
         self.assertIn("6-7 спонсоров: <b>9 RP⭐️</b>", rendered)
         self.assertIn("8-9 спонсоров: <b>12 RP⭐️</b>", rendered)
         self.assertIn("10-12 спонсоров: <b>15 RP⭐️</b>", rendered)
         self.assertIn("13+ спонсоров: <b>18 RP⭐️</b>", rendered)
         self.assertIn("<b>15 RP⭐️</b>", rendered)  # premium line
-        self.assertIn("1 Star⭐ = 3 RP⭐️", rendered)
+        self.assertIn("1 Star⭐️ = 3 RP⭐️", rendered)
 
     async def test_admin_custom_template_using_old_placeholder_names_still_renders(self) -> None:
         """An owner's hand-edited 'earn' template stored before this

@@ -13,6 +13,7 @@ from bot.database.repositories.content import ContentRepository
 from bot.database.repositories.promo import PromoRepository
 from bot.keyboards.main import back_to_menu_kb
 from bot.keyboards.tos import tos_view_kb
+from bot.services.premium_emoji import ID_ICON, PROFILE_NAME_ICON, USERNAME_ICON, premium
 from bot.services.tos import get_tos_urls
 from bot.states.promo import PromoStates
 
@@ -68,11 +69,11 @@ async def cb_profile(callback: CallbackQuery, db_user: User, session: AsyncSessi
     except (KeyError, ValueError):
         text = (
             f"👤 <b>Профиль</b>\n\n"
-            f"Имя: <b>{first_name}</b>\n"
-            f"ID: <code>{db_user.user_id}</code>\n"
-            f"Username: {username_display}\n\n"
+            f"{premium('👤', PROFILE_NAME_ICON)} Имя: <b>{first_name}</b>\n"
+            f"{premium('🆔️', ID_ICON)} ID: <code>{db_user.user_id}</code>\n"
+            f"{premium('🐕', USERNAME_ICON)} Username: {username_display}\n\n"
             f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
-            f"👥 Рефералов: <b>{db_user.referrals_count}</b>"
+            f"👥️ Рефералов: <b>{db_user.referrals_count}</b>"
         )
 
     kb = profile_kb().as_markup()
@@ -122,7 +123,7 @@ async def cb_profile_tos(callback: CallbackQuery, session: AsyncSession) -> None
 async def cb_promo_enter(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(PromoStates.enter_code)
     cancel_kb = InlineKeyboardBuilder()
-    cancel_kb.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:profile"))
+    cancel_kb.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:profile"))
     try:
         await callback.message.edit_text(
             "🎁 <b>Активация промокода</b>\n\nВведи промокод:",
@@ -143,28 +144,28 @@ async def msg_promo_code(message: Message, db_user: User, session: AsyncSession,
     await state.clear()
     code = (message.text or "").strip().upper()
     if not code:
-        await message.answer("❌ Введи код.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Введи код.", reply_markup=back_to_menu_kb())
         return
 
     p_repo = PromoRepository(session)
     promo = await p_repo.get_by_code(code)
 
     if not promo or not promo.is_active:
-        await message.answer("❌ Промокод не найден или неактивен.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Промокод не найден или неактивен.", reply_markup=back_to_menu_kb())
         return
 
     from datetime import datetime
     if promo.expires_at and promo.expires_at < datetime.utcnow():
-        await message.answer("❌ Срок действия промокода истёк.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Срок действия промокода истёк.", reply_markup=back_to_menu_kb())
         return
 
     if promo.usage_limit > 0 and promo.used_count >= promo.usage_limit:
-        await message.answer("❌ Лимит использований исчерпан.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Лимит использований исчерпан.", reply_markup=back_to_menu_kb())
         return
 
     already = await p_repo.already_used(promo.id, db_user.user_id)
     if already:
-        await message.answer("❌ Вы уже использовали этот промокод.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Вы уже использовали этот промокод.", reply_markup=back_to_menu_kb())
         return
 
     used = await p_repo.use(promo, db_user.user_id)
@@ -172,11 +173,11 @@ async def msg_promo_code(message: Message, db_user: User, session: AsyncSession,
         db_user.stars_balance += promo.reward_amount
         await session.commit()
         await message.answer(
-            f"✅ <b>Промокод активирован!</b>\n\n"
+            f"✔️ <b>Промокод активирован!</b>\n\n"
             f"Вам начислено: <b>+{float(promo.reward_amount):.2f} RP⭐️</b>\n"
             f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>",
             parse_mode="HTML",
             reply_markup=back_to_menu_kb(),
         )
     else:
-        await message.answer("❌ Не удалось активировать промокод.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Не удалось активировать промокод.", reply_markup=back_to_menu_kb())

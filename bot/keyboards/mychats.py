@@ -35,18 +35,18 @@ def mychat_panel_kb(
             InlineKeyboardButton(text="🎟 Промокод", callback_data=f"mychats:promo:{chat_id}"),
             InlineKeyboardButton(text="🎁 Бонус", callback_data=f"mychats:bonus:{chat_id}"),
         )
-    broadcast_label = "📣 Рассылка: ✅ вкл" if broadcast_opt_in else "📣 Рассылка: ❌ выкл"
+    broadcast_label = "📢 Рассылка: ✔️ вкл" if broadcast_opt_in else "📢 Рассылка: ❌️ выкл"
     builder.row(InlineKeyboardButton(text=broadcast_label, callback_data=f"mychats:broadcast:{chat_id}"))
     builder.row(InlineKeyboardButton(text="📢 Своя рассылка", callback_data=f"mychats:custombc:{chat_id}"))
     builder.row(
-        InlineKeyboardButton(text="📊 Статистика", callback_data=f"mychats:stats:{chat_id}"),
+        InlineKeyboardButton(text="📈 Статистика", callback_data=f"mychats:stats:{chat_id}"),
         InlineKeyboardButton(text="🎰 Игры", callback_data=f"mychats:games:{chat_id}"),
     )
-    games_toggle_label = "🎮 Игры в чате: ✅ вкл" if games_enabled else "🎮 Игры в чате: ❌ выкл"
+    games_toggle_label = "🎮 Игры в чате: ✔️ вкл" if games_enabled else "🎮 Игры в чате: ❌️ выкл"
     builder.row(InlineKeyboardButton(text=games_toggle_label, callback_data=f"mychats:gamestoggle:{chat_id}"))
     builder.row(InlineKeyboardButton(text="🚧 Спонсор-стена", callback_data=f"mychats:wall:{chat_id}"))
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data=f"mychats:refresh:{chat_id}"))
-    builder.row(InlineKeyboardButton(text="◀️ К списку чатов", callback_data="mychats:list"))
+    builder.row(InlineKeyboardButton(text="⬅️ К списку чатов", callback_data="mychats:list"))
     return builder.as_markup()
 
 
@@ -57,28 +57,28 @@ def custom_broadcast_panel_kb(
     for i, message in enumerate(messages, start=1):
         builder.row(
             InlineKeyboardButton(
-                text=f"🗑 Удалить текст #{i}",
+                text=f"❌️ Удалить текст #{i}",
                 callback_data=f"mychats:custombc:del:{chat_id}:{message.id}",
             )
         )
     builder.row(InlineKeyboardButton(text="➕ Добавить текст", callback_data=f"mychats:custombc:add:{chat_id}"))
     builder.row(
-        InlineKeyboardButton(text="⏱ Задать интервал", callback_data=f"mychats:custombc:interval:{chat_id}"),
+        InlineKeyboardButton(text="⏱️ Задать интервал", callback_data=f"mychats:custombc:interval:{chat_id}"),
     )
-    toggle_label = "❌ Выключить рассылку" if enabled else "✅ Включить рассылку"
+    toggle_label = "❌️ Выключить рассылку" if enabled else "✔️ Включить рассылку"
     builder.row(InlineKeyboardButton(text=toggle_label, callback_data=f"mychats:custombc:toggle:{chat_id}"))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"mychats:open:{chat_id}"))
     return builder.as_markup()
 
 
 def custom_broadcast_cancel_kb(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data=f"mychats:custombc:{chat_id}"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data=f"mychats:custombc:{chat_id}"),
     ]])
 
 
 def broadcast_photos_step_kb(chat_id: int, count: int) -> InlineKeyboardMarkup:
-    label = f"✅ Дальше ({count}/5 фото)" if count else "⏭ Без фото"
+    label = f"✔️ Дальше ({count}/5 фото)" if count else "➡️ Без фото"
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=label, callback_data=f"mychats:custombc:photos:next:{chat_id}"),
     ]])
@@ -86,26 +86,26 @@ def broadcast_photos_step_kb(chat_id: int, count: int) -> InlineKeyboardMarkup:
 
 def broadcast_ask_buttons_kb(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Да", callback_data=f"mychats:custombc:buttons:yes:{chat_id}"),
-        InlineKeyboardButton(text="❌ Нет", callback_data=f"mychats:custombc:buttons:no:{chat_id}"),
+        InlineKeyboardButton(text="✔️ Да", callback_data=f"mychats:custombc:buttons:yes:{chat_id}"),
+        InlineKeyboardButton(text="❌️ Нет", callback_data=f"mychats:custombc:buttons:no:{chat_id}"),
     ]])
 
 
 def broadcast_buttons_step_kb(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Готово", callback_data=f"mychats:custombc:buttons:done:{chat_id}"),
+        InlineKeyboardButton(text="✔️ Готово", callback_data=f"mychats:custombc:buttons:done:{chat_id}"),
     ]])
 
 
 def mychat_back_kb(chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"mychats:open:{chat_id}"),
     ]])
 
 
 def mychat_back_to_list_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="◀️ К списку чатов", callback_data="mychats:list"),
+        InlineKeyboardButton(text="⬅️ К списку чатов", callback_data="mychats:list"),
     ]])
 
 
@@ -117,23 +117,23 @@ def mychat_wall_kb(
     for sponsor in sponsors:
         if sponsor.is_active:
             active_count += 1
-        status = "✅" if sponsor.is_active else "⛔"
+        status = "✔️" if sponsor.is_active else "❌️"
         label = f"{status} {sponsor.title or sponsor.username or sponsor.sponsor_chat_id}"
         builder.row(
             InlineKeyboardButton(text=label, callback_data=f"mychats:walltoggle:{chat_id}:{sponsor.id}"),
-            InlineKeyboardButton(text="🗑", callback_data=f"mychats:walldelete:{chat_id}:{sponsor.id}"),
+            InlineKeyboardButton(text="❌️", callback_data=f"mychats:walldelete:{chat_id}:{sponsor.id}"),
         )
     if active_count < max_sponsors:
         builder.row(
             InlineKeyboardButton(text="📢 Канал", callback_data=f"mychats:walladd:{chat_id}:channel"),
-            InlineKeyboardButton(text="👥 Чат", callback_data=f"mychats:walladd:{chat_id}:chat"),
+            InlineKeyboardButton(text="👥️ Чат", callback_data=f"mychats:walladd:{chat_id}:chat"),
         )
     builder.row(InlineKeyboardButton(text=f"✏️ Лимит: {max_sponsors}", callback_data=f"mychats:walllimit:{chat_id}"))
     integration_label = (
-        "⭐️ Платные спонсоры: ✅ вкл" if integration_enabled else "⭐️ Платные спонсоры: ❌ выкл"
+        "⭐️ Платные спонсоры: ✔️ вкл" if integration_enabled else "⭐️ Платные спонсоры: ❌️ выкл"
     )
     builder.row(InlineKeyboardButton(text=integration_label, callback_data=f"mychats:wallintegration:{chat_id}"))
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data=f"mychats:open:{chat_id}"))
+    builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"mychats:open:{chat_id}"))
     return builder.as_markup()
 
 

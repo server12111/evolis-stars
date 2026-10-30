@@ -25,26 +25,26 @@ SETTING_LABELS = {
     "referral_reward_13_16": ("🎁 Награда за реферала (13-16 спонсоров)", "число RP⭐️"),
     "referral_reward_premium": ("💎 Награда за Premium-реферала (фикс.)", "число RP⭐️"),
     "min_sponsors_for_reward": ("📢 Мин. спонсоров для награды", "целое число"),
-    "referral_bonus_10": ("🏅 Бонус за 10 рефералов", "число RP⭐️"),
-    "referral_bonus_20": ("🏅 Бонус за 20 рефералов", "число RP⭐️"),
-    "referral_bonus_30": ("🏅 Бонус за 30 рефералов", "число RP⭐️"),
-    "referral_bonus_40": ("🏅 Бонус за 40 рефералов", "число RP⭐️"),
-    "referral_bonus_50": ("🏅 Бонус за 50 рефералов (VIP)", "число RP⭐️"),
-    "referral_bonus_65": ("🏅 Бонус за 65 рефералов", "число RP⭐️"),
-    "referral_bonus_80": ("🏅 Бонус за 80 рефералов", "число RP⭐️"),
-    "referral_bonus_90": ("🏅 Бонус за 90 рефералов", "число RP⭐️"),
-    "referral_bonus_100": ("🏅 Бонус за 100 рефералов", "число RP⭐️"),
-    "referral_bonus_120": ("🏅 Бонус за 120 рефералов", "число RP⭐️"),
-    "referral_bonus_140": ("🏅 Бонус за 140 рефералов", "число RP⭐️"),
-    "referral_bonus_145": ("🏅 Бонус за 145 рефералов", "число RP⭐️"),
-    "referral_bonus_150": ("🏅 Бонус за 150 рефералов", "число RP⭐️"),
-    "referral_bonus_155": ("🏅 Бонус за 155 рефералов", "число RP⭐️"),
-    "referral_bonus_170": ("🏅 Бонус за 170 рефералов", "число RP⭐️"),
-    "referral_bonus_190": ("🏅 Бонус за 190 рефералов", "число RP⭐️"),
-    "referral_bonus_200": ("🏅 Бонус за 200 рефералов (Premium)", "число RP⭐️"),
-    "referral_bonus_250": ("🏅 Бонус за 250 рефералов", "число RP⭐️"),
-    "referral_bonus_350": ("🏅 Бонус за 350 рефералов", "число RP⭐️"),
-    "referral_bonus_450": ("🏅 Бонус за 450 рефералов", "число RP⭐️"),
+    "referral_bonus_10": ("🏆 Бонус за 10 рефералов", "число RP⭐️"),
+    "referral_bonus_20": ("🏆 Бонус за 20 рефералов", "число RP⭐️"),
+    "referral_bonus_30": ("🏆 Бонус за 30 рефералов", "число RP⭐️"),
+    "referral_bonus_40": ("🏆 Бонус за 40 рефералов", "число RP⭐️"),
+    "referral_bonus_50": ("🏆 Бонус за 50 рефералов (VIP)", "число RP⭐️"),
+    "referral_bonus_65": ("🏆 Бонус за 65 рефералов", "число RP⭐️"),
+    "referral_bonus_80": ("🏆 Бонус за 80 рефералов", "число RP⭐️"),
+    "referral_bonus_90": ("🏆 Бонус за 90 рефералов", "число RP⭐️"),
+    "referral_bonus_100": ("🏆 Бонус за 100 рефералов", "число RP⭐️"),
+    "referral_bonus_120": ("🏆 Бонус за 120 рефералов", "число RP⭐️"),
+    "referral_bonus_140": ("🏆 Бонус за 140 рефералов", "число RP⭐️"),
+    "referral_bonus_145": ("🏆 Бонус за 145 рефералов", "число RP⭐️"),
+    "referral_bonus_150": ("🏆 Бонус за 150 рефералов", "число RP⭐️"),
+    "referral_bonus_155": ("🏆 Бонус за 155 рефералов", "число RP⭐️"),
+    "referral_bonus_170": ("🏆 Бонус за 170 рефералов", "число RP⭐️"),
+    "referral_bonus_190": ("🏆 Бонус за 190 рефералов", "число RP⭐️"),
+    "referral_bonus_200": ("🏆 Бонус за 200 рефералов (Premium)", "число RP⭐️"),
+    "referral_bonus_250": ("🏆 Бонус за 250 рефералов", "число RP⭐️"),
+    "referral_bonus_350": ("🏆 Бонус за 350 рефералов", "число RP⭐️"),
+    "referral_bonus_450": ("🏆 Бонус за 450 рефералов", "число RP⭐️"),
     "referral_recurring_200": ("♻️ Ставка за каждого с 200-го (Premium)", "число RP⭐️"),
     "referral_recurring_300": ("♻️ Ставка за каждого с 300-го (Sigma)", "число RP⭐️"),
     "referral_recurring_400": ("♻️ Ставка за каждого с 400-го", "число RP⭐️"),
@@ -60,17 +60,17 @@ SETTING_LABELS = {
     "mines_min_bet": ("💣 Мин. ставка в Минах", "число RP⭐️"),
     "mines_house_edge": ("💣 Комиссия казино в Минах", "число 0-1 (напр. 0.1 = 10%)"),
     "mines_max_coeff": ("💣 Макс. множитель в Минах", "число (напр. 10)"),
-    "rp_exchange_rate": ("🔄 Курс покупки RP⭐️ (RP⭐️ за 1 Telegram ⭐)", "число > 0, напр. 1"),
-    "door_coeff_1": ("🚪 Двери — множитель 1 уровня", "число (напр. 1.2)"),
-    "door_coeff_2": ("🚪 Двери — множитель 2 уровня", "число (напр. 2.4)"),
-    "door_coeff_3": ("🚪 Двери — множитель 3 уровня", "число (напр. 4.8)"),
-    "door_coeff_4": ("🚪 Двери — множитель 4 уровня", "число (напр. 9.6)"),
-    "door_coeff_5": ("🚪 Двери — множитель 5 уровня", "число"),
-    "door_coeff_6": ("🚪 Двери — множитель 6 уровня", "число"),
-    "door_coeff_7": ("🚪 Двери — множитель 7 уровня", "число"),
-    "door_coeff_8": ("🚪 Двери — множитель 8 уровня", "число"),
-    "door_coeff_9": ("🚪 Двери — множитель 9 уровня", "число"),
-    "door_coeff_10": ("🚪 Двери — множитель 10 уровня", "число"),
+    "rp_exchange_rate": ("🔄 Курс покупки RP⭐️ (RP⭐️ за 1 Telegram ⭐️)", "число > 0, напр. 1"),
+    "door_coeff_1": ("🏠 Двери — множитель 1 уровня", "число (напр. 1.2)"),
+    "door_coeff_2": ("🏠 Двери — множитель 2 уровня", "число (напр. 2.4)"),
+    "door_coeff_3": ("🏠 Двери — множитель 3 уровня", "число (напр. 4.8)"),
+    "door_coeff_4": ("🏠 Двери — множитель 4 уровня", "число (напр. 9.6)"),
+    "door_coeff_5": ("🏠 Двери — множитель 5 уровня", "число"),
+    "door_coeff_6": ("🏠 Двери — множитель 6 уровня", "число"),
+    "door_coeff_7": ("🏠 Двери — множитель 7 уровня", "число"),
+    "door_coeff_8": ("🏠 Двери — множитель 8 уровня", "число"),
+    "door_coeff_9": ("🏠 Двери — множитель 9 уровня", "число"),
+    "door_coeff_10": ("🏠 Двери — множитель 10 уровня", "число"),
     "vc_min_withdrawal": ("💎 Мин. вывод GRAM", "целое число, напр. 10000"),
     "vc_max_withdrawal": ("💎 Макс. вывод GRAM", "целое число, напр. 500000"),
     "vc_rate_min": ("💎 Мин. курс GRAM (при мин. сумме) — GRAM за 1 RP⭐️", "число, напр. 400"),
@@ -88,7 +88,7 @@ TEXT_SETTING_LABELS = {
 
 TOGGLE_SETTINGS = {
     "bonus_enabled": "🎁 Бонус",
-    "withdraw_enabled": "🌟 Вывод",
+    "withdraw_enabled": "⭐️ Вывод",
     "games_enabled": "🎮 Игры",
     "tasks_enabled": "📋 Задания",
     "withdraw_vc_enabled": "💎 Вывод GRAM",
@@ -120,10 +120,10 @@ async def cb_settings(callback: CallbackQuery, db_user: User, session: AsyncSess
         f"📢 Мин. спонсоров для награды: <b>{min_sponsors}</b>\n"
         f"🎁 Бонус: <b>{bonus_min:.1f}–{bonus_max:.1f} RP⭐️</b>\n"
         f"📋 Награда за задание: <b>{task_reward:.1f} RP⭐️</b>\n\n"
-        f"🎁 Бонус: {'✅' if bonus_on else '❌'} | "
-        f"🌟 Вывод: {'✅' if withdraw_on else '❌'}\n"
-        f"🎮 Игры: {'✅' if games_on else '❌'} | "
-        f"📋 Задания: {'✅' if tasks_on else '❌'}"
+        f"🎁 Бонус: {'✔️' if bonus_on else '❌️'} | "
+        f"⭐️ Вывод: {'✔️' if withdraw_on else '❌️'}\n"
+        f"🎮 Игры: {'✔️' if games_on else '❌️'} | "
+        f"📋 Задания: {'✔️' if tasks_on else '❌️'}"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=settings_menu_kb())
@@ -140,7 +140,7 @@ async def cb_set_edit(callback: CallbackQuery, db_user: User, state: FSMContext)
     if not _is_admin(db_user): return
     key = callback.data.split(":", 2)[2]
     if key not in SETTING_LABELS and key not in TEXT_SETTING_LABELS:
-        await callback.answer("❓ Неизвестная настройка.", show_alert=True)
+        await callback.answer("ℹ️ Неизвестная настройка.", show_alert=True)
         return
     label, hint = (SETTING_LABELS.get(key) or TEXT_SETTING_LABELS.get(key))
     await state.set_state(AdminSettingsStates.enter_value)
@@ -158,21 +158,21 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
     if key in TEXT_SETTING_LABELS:
         raw = (message.text or "").strip()
         if not raw:
-            await message.answer("❌ Введи непустое значение:", reply_markup=settings_cancel_kb())
+            await message.answer("❌️ Введи непустое значение:", reply_markup=settings_cancel_kb())
             return
         if key == "vc_mandatory_channel" and not raw.startswith(("http://", "https://", "tg://")):
             # Used as an InlineKeyboardButton(url=...) -- Telegram rejects
             # non-http(s)/tg URLs at send time, which would otherwise crash
             # every subscribe-gate prompt until an admin noticed.
             await message.answer(
-                "❌ Нужна полная ссылка (https://t.me/... или tg://...), а не @username:",
+                "❌️ Нужна полная ссылка (https://t.me/... или tg://...), а не @username:",
                 reply_markup=settings_cancel_kb(),
             )
             return
         await state.clear()
         await SettingsRepository(session).set(key, raw)
         label, _ = TEXT_SETTING_LABELS[key]
-        await message.answer(f"✅ <b>{label}</b> = <b>{escape(raw)}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+        await message.answer(f"✔️ <b>{label}</b> = <b>{escape(raw)}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
         return
 
     text = (message.text or "").strip().replace(",", ".")
@@ -181,7 +181,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         if not math.isfinite(val) or val < 0:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Введи корректное число:", reply_markup=settings_cancel_kb())
+        await message.answer("❌️ Введи корректное число:", reply_markup=settings_cancel_kb())
         return
     repo = SettingsRepository(session)
     integer_keys = {
@@ -196,19 +196,19 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
     }
     if key in integer_keys and not val.is_integer():
         await message.answer(
-            "❌ Для этой настройки нужно целое число:",
+            "❌️ Для этой настройки нужно целое число:",
             reply_markup=settings_cancel_kb(),
         )
         return
     if key == "sponsor_max_channels" and val > 20:
         await message.answer(
-            "❌ За один раз можно показать не больше 20 спонсоров:",
+            "❌️ За один раз можно показать не больше 20 спонсоров:",
             reply_markup=settings_cancel_kb(),
         )
         return
     if key == "duel_commission" and val > 100:
         await message.answer(
-            "❌ Комиссия должна быть от 0 до 100:",
+            "❌️ Комиссия должна быть от 0 до 100:",
             reply_markup=settings_cancel_kb(),
         )
         return
@@ -217,7 +217,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         # raw = (1/prob) * (1 - house_edge)) — a 100% house edge that
         # silently breaks the game rather than a valid extreme setting.
         await message.answer(
-            "❌ Комиссия казино в Минах — доля от 0 до 1, строго меньше 1 (напр. 0.1 = 10%):",
+            "❌️ Комиссия казино в Минах — доля от 0 до 1, строго меньше 1 (напр. 0.1 = 10%):",
             reply_markup=settings_cancel_kb(),
         )
         return
@@ -225,13 +225,13 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         # Same failure mode as above: mines_coeff() clamps every payout to
         # min(raw, max_coeff), so max_coeff == 0 zeroes everything out.
         await message.answer(
-            "❌ Макс. множитель должен быть больше 0:",
+            "❌️ Макс. множитель должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
     if key == "rp_exchange_rate" and val <= 0:
         await message.answer(
-            "❌ Курс обмена должен быть больше 0:",
+            "❌️ Курс обмена должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
@@ -239,7 +239,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_max = await repo.get_float("bonus_max", 1.0)
         if val > current_max:
             await message.answer(
-                f"❌ Мин. бонус не может быть больше макс. ({current_max}):",
+                f"❌️ Мин. бонус не может быть больше макс. ({current_max}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
@@ -247,13 +247,13 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_min = await repo.get_float("bonus_min", 0.1)
         if val < current_min:
             await message.answer(
-                f"❌ Макс. бонус не может быть меньше мин. ({current_min}):",
+                f"❌️ Макс. бонус не может быть меньше мин. ({current_min}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
     if key in ("vc_rate_min", "vc_rate_max") and val <= 0:
         await message.answer(
-            "❌ Курс GRAM должен быть больше 0:",
+            "❌️ Курс GRAM должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
@@ -261,7 +261,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_max = await repo.get_float("vc_rate_max", 800.0)
         if val > current_max:
             await message.answer(
-                f"❌ Мин. курс GRAM не может быть больше макс. ({current_max:g}):",
+                f"❌️ Мин. курс GRAM не может быть больше макс. ({current_max:g}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
@@ -269,7 +269,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_min = await repo.get_float("vc_rate_min", 400.0)
         if val < current_min:
             await message.answer(
-                f"❌ Макс. курс GRAM не может быть меньше мин. ({current_min:g}):",
+                f"❌️ Макс. курс GRAM не может быть меньше мин. ({current_min:g}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
@@ -277,7 +277,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_max = await repo.get_int("vc_max_withdrawal", 500000)
         if val > current_max:
             await message.answer(
-                f"❌ Мин. вывод GRAM не может быть больше макс. ({current_max}):",
+                f"❌️ Мин. вывод GRAM не может быть больше макс. ({current_max}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
@@ -285,19 +285,19 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
         current_min = await repo.get_int("vc_min_withdrawal", 10000)
         if val < current_min:
             await message.answer(
-                f"❌ Макс. вывод GRAM не может быть меньше мин. ({current_min}):",
+                f"❌️ Макс. вывод GRAM не может быть меньше мин. ({current_min}):",
                 reply_markup=settings_cancel_kb(),
             )
             return
     if key == "crypto_min_withdrawal" and val <= 0:
         await message.answer(
-            "❌ Мин. вывод крипты должен быть больше 0:",
+            "❌️ Мин. вывод крипты должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
     if key == "crypto_rp_usd_rate" and val <= 0:
         await message.answer(
-            "❌ Курс крипты должен быть больше 0:",
+            "❌️ Курс крипты должен быть больше 0:",
             reply_markup=settings_cancel_kb(),
         )
         return
@@ -305,7 +305,7 @@ async def msg_setting_value(message: Message, state: FSMContext, session: AsyncS
     stored_value = str(int(val)) if key in integer_keys else str(val)
     await repo.set(key, stored_value)
     label, _ = SETTING_LABELS[key]
-    await message.answer(f"✅ <b>{label}</b> = <b>{val}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✔️ <b>{label}</b> = <b>{val}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:settings_toggle:"))
@@ -313,7 +313,7 @@ async def cb_set_toggle(callback: CallbackQuery, db_user: User, session: AsyncSe
     if not _is_admin(db_user): return
     key = callback.data.split(":", 2)[2]
     if key not in TOGGLE_SETTINGS:
-        await callback.answer("❓ Неизвестная настройка.", show_alert=True)
+        await callback.answer("ℹ️ Неизвестная настройка.", show_alert=True)
         return
     repo = SettingsRepository(session)
     current = await repo.get_bool(key, True)

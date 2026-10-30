@@ -38,14 +38,14 @@ async def cb_task_view(callback: CallbackQuery, db_user: User, session: AsyncSes
     repo = TaskRepository(session)
     task = await repo.get(tid)
     if not task:
-        await callback.answer("❌ Задание не найдено.", show_alert=True)
+        await callback.answer("❌️ Задание не найдено.", show_alert=True)
         return
     text = (
         f"📌 <b>{task.title}</b>\n\n{task.description}\n\n"
         f"🔗 URL: {task.url or 'нет'}\n"
         f"💰 Награда: <b>{float(task.reward):.1f} RP⭐️</b>\n"
-        f"👥 Выполнено: <b>{task.completions_count}</b>\n"
-        f"📊 Лимит: <b>{task.max_completions or '∞'}</b>"
+        f"👥️ Выполнено: <b>{task.completions_count}</b>\n"
+        f"📈 Лимит: <b>{task.max_completions or '∞'}</b>"
     )
     kb = task_view_kb(tid, task.is_active)
     if task.photo_file_id:
@@ -79,12 +79,12 @@ async def cb_task_toggle(callback: CallbackQuery, db_user: User, session: AsyncS
     repo = TaskRepository(session)
     task = await repo.get(tid)
     if not task:
-        await callback.answer("❌ Не найдено.", show_alert=True)
+        await callback.answer("❌️ Не найдено.", show_alert=True)
         return
     task.is_active = not task.is_active
     await session.commit()
     status = "включено" if task.is_active else "отключено"
-    await callback.answer(f"{'✅' if task.is_active else '❌'} Задание {status}")
+    await callback.answer(f"{'✔️' if task.is_active else '❌️'} Задание {status}")
     try:
         await callback.message.edit_reply_markup(reply_markup=task_view_kb(tid, task.is_active))
     except Exception:
@@ -97,7 +97,7 @@ async def cb_task_del(callback: CallbackQuery, db_user: User, session: AsyncSess
     tid = int(callback.data.split(":")[2])
     repo = TaskRepository(session)
     deleted = await repo.delete(tid)
-    await callback.answer("✅ Задание удалено" if deleted else "❌ Не найдено", show_alert=True)
+    await callback.answer("✔️ Задание удалено" if deleted else "❌️ Не найдено", show_alert=True)
     if deleted:
         tasks = await repo.all_tasks()
         try:
@@ -119,7 +119,7 @@ async def msg_task_title(message: Message, state: FSMContext, db_user: User) -> 
     if not _is_admin(db_user): return
     await state.update_data(title=message.text or "")
     await state.set_state(AdminTaskStates.enter_description)
-    await message.answer("📝 Введи описание (или отправь '-' если не нужно):", reply_markup=task_cancel_kb())
+    await message.answer("✏️ Введи описание (или отправь '-' если не нужно):", reply_markup=task_cancel_kb())
 
 
 @router.message(AdminTaskStates.enter_description)
@@ -149,11 +149,11 @@ async def msg_task_reward(message: Message, state: FSMContext, db_user: User) ->
         reward = float(message.text.strip().replace(",", "."))
         if not math.isfinite(reward) or reward <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=task_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=task_cancel_kb())
         return
     await state.update_data(reward=reward)
     await state.set_state(AdminTaskStates.enter_photo)
-    await message.answer("🖼 Отправь фото для задания (или '-' если без фото):", reply_markup=task_cancel_kb())
+    await message.answer("📱 Отправь фото для задания (или '-' если без фото):", reply_markup=task_cancel_kb())
 
 
 @router.message(AdminTaskStates.enter_photo)
@@ -163,7 +163,7 @@ async def msg_task_photo(message: Message, state: FSMContext, session: AsyncSess
     if message.photo:
         photo_file_id = message.photo[-1].file_id
     elif not (message.text and message.text.strip() == "-"):
-        await message.answer("❌ Отправь фото или '-' для продолжения без фото:", reply_markup=task_cancel_kb())
+        await message.answer("❌️ Отправь фото или '-' для продолжения без фото:", reply_markup=task_cancel_kb())
         return
 
     data = await state.get_data()
@@ -178,7 +178,7 @@ async def msg_task_photo(message: Message, state: FSMContext, session: AsyncSess
         photo_file_id=photo_file_id,
     )
     await message.answer(
-        f"✅ <b>Задание создано!</b>\n\n<b>{task.title}</b>\nНаграда: {float(task.reward):.1f} RP⭐️",
+        f"✔️ <b>Задание создано!</b>\n\n<b>{task.title}</b>\nНаграда: {float(task.reward):.1f} RP⭐️",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )

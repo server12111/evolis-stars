@@ -50,6 +50,8 @@ class PiarFlowNextTaskTests(unittest.IsolatedAsyncioTestCase):
                 "bot.handlers.tasks.get_sponsors",
                 AsyncMock(),
             ) as get_sponsors,
+            patch("bot.handlers.tasks.BlockedSponsorRepository.url_key_set", AsyncMock(return_value=set())),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.domain_key_set", AsyncMock(return_value=set())),
         ):
             await _show_pf_task(
                 cb,
@@ -91,6 +93,8 @@ class PiarFlowNextTaskTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(side_effect=[[], [next_task]]),
             ) as get_sponsors,
             patch("bot.handlers.tasks.asyncio.sleep", AsyncMock()),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.url_key_set", AsyncMock(return_value=set())),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.domain_key_set", AsyncMock(return_value=set())),
         ):
             await _show_pf_task(
                 cb,
@@ -125,12 +129,48 @@ class PiarFlowNextTaskTests(unittest.IsolatedAsyncioTestCase):
                 "bot.handlers.tasks.get_sponsors",
                 AsyncMock(return_value=None),
             ),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.url_key_set", AsyncMock(return_value=set())),
+            patch("bot.handlers.tasks.BlockedSponsorRepository.domain_key_set", AsyncMock(return_value=set())),
         ):
             await _show_pf_task(cb, db_user, SimpleNamespace())
 
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("Все задания выполнены", rendered)
         self.assertNotIn("временно не ответил", rendered)
+
+    async def test_blocked_domain_is_skipped_in_favor_of_the_next_task(self) -> None:
+        """Regression: this screen used to never consult the admin
+        blocklist at all -- a domain blocked there (e.g. via the sponsor
+        wall's own blocklist UI) kept being offered here regardless, since
+        task selection here is a completely separate code path."""
+        cb = callback()
+        db_user = SimpleNamespace(user_id=1, tasks_completed_count=1)
+        blocked_task = {"name": "Blocked", "link": "https://bad-domain.example/x?sign=abc"}
+        allowed_task = sponsor("Allowed")
+
+        with (
+            patch("bot.handlers.tasks.SettingsRepository.get_float", AsyncMock(return_value=0.3)),
+            patch("bot.handlers.tasks.SettingsRepository.get_int", AsyncMock(return_value=100)),
+            patch("bot.handlers.tasks.SettingsRepository.get", AsyncMock(return_value="")),
+            patch("bot.handlers.tasks.SettingsRepository.set", AsyncMock()),
+            patch("bot.handlers.tasks.get_sponsors", AsyncMock()) as get_sponsors,
+            patch(
+                "bot.handlers.tasks.BlockedSponsorRepository.url_key_set",
+                AsyncMock(return_value=set()),
+            ),
+            patch(
+                "bot.handlers.tasks.BlockedSponsorRepository.domain_key_set",
+                AsyncMock(return_value={"bad-domain.example"}),
+            ),
+        ):
+            await _show_pf_task(
+                cb, db_user, SimpleNamespace(), pf_tasks=[blocked_task, allowed_task],
+            )
+
+        get_sponsors.assert_not_awaited()
+        rendered = cb.message.edit_text.await_args.args[0]
+        self.assertIn("Allowed", rendered)
+        self.assertNotIn("Blocked", rendered)
 
     async def test_reward_requires_explicit_check_even_if_task_list_is_empty(self) -> None:
         cb = callback()

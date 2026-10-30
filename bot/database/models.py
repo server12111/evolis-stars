@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -13,14 +14,31 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from bot.database.engine import Base
+
+def _to_money(value):
+    """Handlers assign floats (round(float(balance) - bet, 2)) to Numeric
+    columns, and expire_on_commit=False keeps that float in memory after
+    commit -- a later `balance += some_decimal` in the same request would
+    then raise TypeError. Coerce to Decimal at assignment time instead."""
+    if value is None or isinstance(value, Decimal):
+        return value
+    return Decimal(str(round(float(value), 2)))
+
 
 # ─── User ─────────────────────────────────────────────────────────────────────
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # referrer_id has no index at all otherwise -- every "how many/
+        # which referrals did this user bring in" query (referral tier
+        # backfill, the withdrawal activity gate in withdraw.py, admin
+        # stats) was a full scan of the whole users table.
+        Index("idx_users_referrer_created", "referrer_id", "created_at"),
+    )
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -46,6 +64,16 @@ class User(Base):
     pending_reactivation_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     referral_counted: Mapped[bool] = mapped_column(Boolean, default=False)
     referral_insufficient_notified: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set the first time ANY sponsor subscription of this user's is ever
+    # flagged fraudulent by a provider (Traffy "rejected", tgrass
+    # /check.is_fake -- see sponsor_wall.py's _persist_item_fraud_flags).
+    # Permanent and account-wide by product decision: once any integration
+    # has called this account fake, their referrer is never paid for them
+    # again, even if OTHER legitimate sponsors would otherwise have been
+    # more than enough to clear the top reward tier on their own (see
+    # check_referral_reward/reward_returning_referral, both of which hard-
+    # block on this before even computing a sponsor count).
+    referral_fraud_flagged: Mapped[bool] = mapped_column(Boolean, default=False)
     sponsors_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     tos_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     tos_gate_shown: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -84,14 +112,17 @@ class User(Base):
     slots_777_count: Mapped[int] = mapped_column(Integer, default=0)
     darts_bullseye_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    # "Вирус" game: when this user last attempted a "Вирус <ставка>" attack
-    # (successful or not) -- the 24h cooldown is measured from this,
-    # regardless of outcome, since the stake is charged before the roll.
-    virus_last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # One-time cooldown bypass earned by a successful ammo purchase after a
-    # failed attack -- consumed (reset to False) the next time "Вирус" is
-    # used, whether or not that use succeeds.
-    virus_bonus_attempt: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Set by referral_reminder_scheduler.py the moment it sends the "you
+    # haven't referred anyone in a day" nudge, to the timestamp of this
+    # user's own most-recent referral at that moment -- lets the next tick
+    # tell "already reminded for this exact inactivity streak" apart from
+    # "a NEW referral streak also went stale since then", without
+    # re-notifying on every single scheduler tick after the 24h mark.
+    last_referral_reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    @validates("stars_balance")
+    def _validate_stars_balance(self, _key, value):
+        return _to_money(value)
 
 
 class ReferralReactivation(Base):
@@ -139,6 +170,17 @@ class BotSettings(Base):
 
 class GameSession(Base):
     __tablename__ = "game_sessions"
+    __table_args__ = (
+        # Every game play checks daily_count(user_id, game_type) and
+        # user_chat_count(user_id, chat_id) before/after recording the
+        # result (see GameRepository) -- without these this table (the
+        # highest-write-volume one in the whole schema) gets scanned in
+        # full on every single bet as it grows.
+        Index("idx_game_sessions_user_type_played", "user_id", "game_type", "played_at"),
+        Index("idx_game_sessions_user_chat", "user_id", "chat_id"),
+        Index("idx_game_sessions_chat", "chat_id"),
+        Index("idx_game_sessions_played_at", "played_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
@@ -156,6 +198,16 @@ class GameSession(Base):
 
 class Duel(Base):
     __tablename__ = "duels"
+    __table_args__ = (
+        # duel_scheduler.py polls "waiting"/"confirming"/"active" duels
+        # every ~15s forever, and duel.py's matchmaking browse + the
+        # creator's own pending-duel lookups filter by status just as
+        # often -- finished/cancelled rows are never deleted, so this
+        # table only grows, and every one of those queries was a full
+        # scan without this.
+        Index("idx_duels_status", "status"),
+        Index("idx_duels_status_creator", "status", "creator_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     creator_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
@@ -167,6 +219,10 @@ class Duel(Base):
     winner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    @validates("amount")
+    def _validate_amount(self, _key, value):
+        return _to_money(value)
 
 
 # ─── Lottery ──────────────────────────────────────────────────────────────────
@@ -194,6 +250,13 @@ class Lottery(Base):
 
 class LotteryTicket(Base):
     __tablename__ = "lottery_tickets"
+    __table_args__ = (
+        # user_ticket_count(lottery_id, user_id) and get_participants/
+        # draw_random(lottery_id) all scan the whole ticket history
+        # without this -- tickets accumulate forever across every past
+        # lottery, and every user buys one row per ticket.
+        Index("idx_lottery_tickets_lottery_user", "lottery_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lottery_id: Mapped[int] = mapped_column(Integer, ForeignKey("lotteries.id", ondelete="CASCADE"))
@@ -207,6 +270,13 @@ class LotteryTicket(Base):
 
 class Withdrawal(Base):
     __tablename__ = "withdrawals"
+    __table_args__ = (
+        # Admin panel counts pending/approved/rejected repeatedly
+        # (WithdrawalRepository) -- indexed so that stays cheap as the
+        # ledger grows instead of a full-table scan per call.
+        Index("idx_withdrawals_status", "status"),
+        Index("idx_withdrawals_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
@@ -252,6 +322,10 @@ class Withdrawal(Base):
 
 class VcWithdrawal(Base):
     __tablename__ = "vc_withdrawals"
+    __table_args__ = (
+        Index("idx_vc_withdrawals_status", "status"),
+        Index("idx_vc_withdrawals_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
@@ -284,6 +358,10 @@ class VcWithdrawal(Base):
 
 class CryptoWithdrawal(Base):
     __tablename__ = "crypto_withdrawals"
+    __table_args__ = (
+        Index("idx_crypto_withdrawals_status", "status"),
+        Index("idx_crypto_withdrawals_user_id", "user_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
@@ -466,6 +544,12 @@ class AuctionRound(Base):
 
 class AuctionBid(Base):
     __tablename__ = "auction_bids"
+    __table_args__ = (
+        # get_bids(round_id) is a full scan of the whole bid history
+        # without this -- cheap now with one round at a time, but bids
+        # accumulate forever across every past round as usage grows.
+        Index("idx_auction_bids_round_id", "round_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     round_id: Mapped[int] = mapped_column(Integer, ForeignKey("auction_rounds.id", ondelete="CASCADE"))
@@ -812,23 +896,3 @@ class ChatBroadcastMessage(Base):
     # handlers can edit it in place to show the decision.
     moderation_channel_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-
-
-class VirusInfection(Base):
-    """A currently-active "Вирус" infection. infected_user_id is the PK --
-    at most one active infection per person at a time (enforced at the DB
-    level, matching the game's "не заражён ли выбранный пользователь"
-    rule), deleted on cure."""
-
-    __tablename__ = "virus_infections"
-
-    infected_user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True,
-    )
-    infector_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"))
-    virus_type: Mapped[str] = mapped_column(String(16))  # light / normal / dangerous
-    infected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    # Advanced by virus_income_loop as it pays out whole elapsed hours to
-    # infector_user_id -- tracked per-infection (not just "now") so a
-    # restart or a slow tick never loses or double-pays a fractional hour.
-    last_payout_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

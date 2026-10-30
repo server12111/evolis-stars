@@ -97,12 +97,12 @@ async def msg_bonus_code(message: Message, state: FSMContext, session: AsyncSess
 
     code = (message.text or "").strip()
     if not code:
-        await message.reply("❌ Название не может быть пустым.")
+        await message.reply("❌️ Название не может быть пустым.")
         return
 
     existing = await ChatBonusRepository(session).get_by_code(chat_id, code)
     if existing:
-        await message.reply("❌ Бонусный код с таким названием уже существует.")
+        await message.reply("❌️ Бонусный код с таким названием уже существует.")
         return
 
     await state.update_data(code=code)
@@ -117,7 +117,7 @@ async def msg_bonus_reward(message: Message, state: FSMContext) -> None:
         if reward <= 0:
             raise ValueError
     except (ValueError, ArithmeticError):
-        await message.reply("❌ Введите положительное число:")
+        await message.reply("❌️ Введите положительное число:")
         return
     await state.update_data(reward=str(reward))
     await state.set_state(ChatOwnerBonusStates.enter_limit)
@@ -134,7 +134,7 @@ async def msg_bonus_limit(message: Message, state: FSMContext) -> None:
         if limit <= 0:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.reply("❌ Введите целое положительное число:")
+        await message.reply("❌️ Введите целое положительное число:")
         return
     await state.update_data(limit=limit)
     await state.set_state(ChatOwnerBonusStates.choose_mode)
@@ -193,7 +193,7 @@ async def _start_new_sponsor_flow(
         data = await state.get_data()
         sponsors = data.get("sponsors") or []
         if len(sponsors) >= MAX_BONUS_SPONSORS:
-            await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+            await callback.answer(f"❌️ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
             return
 
     pending = _pending_sponsor_state(state.storage, bot.id, callback.from_user.id)
@@ -271,7 +271,7 @@ async def cb_bonus_add_sponsor_start(
     data = await state.get_data()
     sponsors = data.get("sponsors") or []
     if len(sponsors) >= MAX_BONUS_SPONSORS:
-        await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+        await callback.answer(f"❌️ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
         return
 
     # A channel/chat already used as a sponsor in one of this owner's
@@ -319,7 +319,7 @@ async def cb_bonus_add_sponsor_reuse(callback: CallbackQuery, state: FSMContext,
     data = await state.get_data()
     sponsors = data.get("sponsors") or []
     if len(sponsors) >= MAX_BONUS_SPONSORS:
-        await callback.answer(f"❌ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
+        await callback.answer(f"❌️ Максимум {MAX_BONUS_SPONSORS} спонсора на бонус.", show_alert=True)
         return
     if any(s["chat_id"] == chat_id for s in sponsors):
         await callback.answer("⚠️ Этот чат уже добавлен как спонсор.", show_alert=True)
@@ -348,7 +348,7 @@ async def cb_bonus_add_sponsor_reuse(callback: CallbackQuery, state: FSMContext,
     sponsors.append({"chat_id": chat_id, "type": sponsor_type, "title": title, "username": username})
     await state.update_data(sponsors=sponsors)
     await callback.message.answer(
-        f"✅ Спонсор «{title or chat_id}» добавлен ({len(sponsors)}/{MAX_BONUS_SPONSORS}).",
+        f"✔️ Спонсор «{title or chat_id}» добавлен ({len(sponsors)}/{MAX_BONUS_SPONSORS}).",
         reply_markup=bonus_sponsors_kb(len(sponsors)),
     )
     await callback.answer()
@@ -380,7 +380,7 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
     debited = await debit_stars_if_enough(session, callback.from_user.id, total_charged)
     if not debited:
         await callback.message.answer(
-            f"❌ Недостаточно звёзд на балансе. Нужно <b>{total_charged} RP⭐️</b> "
+            f"❌️ Недостаточно звёзд на балансе. Нужно <b>{total_charged} RP⭐️</b> "
             f"({reward} RP⭐️ × {limit} активаций + {int(commission_rate * 100)}% комиссии).",
             parse_mode="HTML",
         )
@@ -405,7 +405,7 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
         # already debited above, so it must be refunded since no bonus
         # was actually created.
         await credit_stars(session, callback.from_user.id, total_charged)
-        await callback.message.answer("❌ Бонусный код с таким названием уже существует.")
+        await callback.message.answer("❌️ Бонусный код с таким названием уже существует.")
         await callback.answer()
         return
 
@@ -426,7 +426,7 @@ async def cb_bonus_sponsors_done(callback: CallbackQuery, state: FSMContext, ses
         names = ", ".join(s.get("title") or "спонсор" for s in sponsors[:MAX_BONUS_SPONSORS])
         sponsors_line = f"\nСпонсоры: {names}"
     await callback.message.answer(
-        f"✅ <b>{mode_label} создан!</b>\n\n"
+        f"✔️ <b>{mode_label} создан!</b>\n\n"
         f"Код: <code>{bonus.code}</code>\n"
         f"Награда: <b>{reward} RP⭐️</b> × {limit} активаций\n"
         f"Списано с баланса: <b>{total_charged} RP⭐️</b>{sponsors_line}\n\n"
@@ -529,13 +529,13 @@ async def try_link_pending_sponsor(
         # intrusive/public, so that one stays silent and only the owner
         # gets notified back in the bonus-creation chat below.
         try:
-            await bot.send_message(event.chat.id, "✅ Этот чат добавлен как спонсор бонуса.")
+            await bot.send_message(event.chat.id, "✔️ Этот чат добавлен как спонсор бонуса.")
         except Exception:
             pass
     try:
         await bot.send_message(
             origin_chat_id,
-            f"✅ Спонсор «{event.chat.title or event.chat.username}» добавлен ({len(sponsors)}/{MAX_BONUS_SPONSORS}).",
+            f"✔️ Спонсор «{event.chat.title or event.chat.username}» добавлен ({len(sponsors)}/{MAX_BONUS_SPONSORS}).",
             reply_markup=bonus_sponsors_kb(len(sponsors)),
         )
     except Exception:
@@ -654,14 +654,14 @@ async def msg_bonus_redeem(message: Message, session: AsyncSession, bot: Bot) ->
     repo = ChatBonusRepository(session)
     bonus = await repo.get_by_code(chat_id, code)
     if not bonus or not bonus.is_active or bonus.mode != "self_serve":
-        await message.reply("❌ Такой бонусный код не найден.")
+        await message.reply("❌️ Такой бонусный код не найден.")
         return
 
     reason = await eligibility_reason(
         session, chat_id, message.from_user.id, bonus.min_days_in_chat, bonus.min_messages
     )
     if reason:
-        await message.reply(f"❌ Бонус недоступен: {reason}.")
+        await message.reply(f"❌️ Бонус недоступен: {reason}.")
         return
 
     sponsors = await ChatBonusSponsorRepository(session).list_for_bonus(bonus.id)
@@ -709,9 +709,9 @@ async def _finalize_bonus_redeem(session: AsyncSession, bonus, user_id: int, not
     repo = ChatBonusRepository(session)
     ok = await repo.redeem(bonus, user_id)
     text = (
-        f"✅ Бонус получен! Начислено <b>{bonus.reward_amount} RP⭐️</b>."
+        f"✔️ Бонус получен! Начислено <b>{bonus.reward_amount} RP⭐️</b>."
         if ok
-        else "❌ Бонус уже получен тобой или лимит активаций исчерпан."
+        else "❌️ Бонус уже получен тобой или лимит активаций исчерпан."
     )
     if ok:
         await credit_stars(session, user_id, bonus.reward_amount)
@@ -732,7 +732,7 @@ async def cb_bonus_check_sponsors(callback: CallbackQuery, session: AsyncSession
     repo = ChatBonusRepository(session)
     bonus = await repo.get_by_id(bonus_id)
     if not bonus or not bonus.is_active or bonus.mode != "self_serve":
-        await callback.answer("❌ Бонус больше недоступен.", show_alert=True)
+        await callback.answer("❌️ Бонус больше недоступен.", show_alert=True)
         return
 
     user = await session.get(User, callback.from_user.id)
@@ -747,7 +747,7 @@ async def cb_bonus_check_sponsors(callback: CallbackQuery, session: AsyncSession
         return
 
     if bonus.used_count >= bonus.usage_limit:
-        await callback.answer("❌ Лимит активаций исчерпан.", show_alert=True)
+        await callback.answer("❌️ Лимит активаций исчерпан.", show_alert=True)
         return
 
     async def _notify(text: str) -> None:
@@ -774,13 +774,13 @@ async def msg_bonus_pick_winner(message: Message, session: AsyncSession) -> None
     repo = ChatBonusRepository(session)
     bonus = await repo.get_by_code(chat_id, code)
     if not bonus or not bonus.is_active or bonus.mode != "contest":
-        await message.reply("❌ Такой конкурс не найден.")
+        await message.reply("❌️ Такой конкурс не найден.")
         return
 
     winner = message.reply_to_message.from_user
     ok = await repo.redeem(bonus, winner.id, awarded_by=message.from_user.id)
     if not ok:
-        await message.reply("❌ Не удалось начислить: лимит исчерпан или этот участник уже выигрывал.")
+        await message.reply("❌️ Не удалось начислить: лимит исчерпан или этот участник уже выигрывал.")
         return
 
     await credit_stars(session, winner.id, bonus.reward_amount)

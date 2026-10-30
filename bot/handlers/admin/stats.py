@@ -32,10 +32,10 @@ def _is_admin(user: User) -> bool:
 @router.message(Command("admin"))
 async def cmd_admin(message: Message, db_user: User) -> None:
     if not _is_admin(db_user):
-        await message.answer("❌ Нет доступа.")
+        await message.answer("❌️ Нет доступа.")
         return
     await message.answer(
-        "🔐 <b>Админ-панель</b>\n\nВыбери раздел:",
+        "🔒 <b>Админ-панель</b>\n\nВыбери раздел:",
         parse_mode="HTML",
         reply_markup=admin_main_kb(),
     )
@@ -44,26 +44,26 @@ async def cmd_admin(message: Message, db_user: User) -> None:
 @router.callback_query(lambda c: c.data == "admin:main")
 async def cb_admin_main(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.clear()
     try:
         await callback.message.edit_text(
-            "🔐 <b>Админ-панель</b>\n\nВыбери раздел:",
+            "🔒 <b>Админ-панель</b>\n\nВыбери раздел:",
             parse_mode="HTML",
             reply_markup=admin_main_kb(),
         )
     except Exception:
-        await callback.message.answer("🔐 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=admin_main_kb())
+        await callback.message.answer("🔒 <b>Админ-панель</b>", parse_mode="HTML", reply_markup=admin_main_kb())
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "admin:stats")
 async def cb_admin_stats(callback: CallbackQuery, db_user: User) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
-    text = "📊 <b>Статистика</b>\n\nВыбери раздел:"
+    text = "📈 <b>Статистика</b>\n\nВыбери раздел:"
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=stats_scope_kb())
     except Exception:
@@ -74,7 +74,7 @@ async def cb_admin_stats(callback: CallbackQuery, db_user: User) -> None:
 @router.callback_query(lambda c: c.data == "admin:stats:bot")
 async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
 
     u_repo = UserRepository(session)
@@ -97,7 +97,7 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
 
     lines = [
         "🤖 <b>Статистика бота</b>\n",
-        "👥 <b>Пользователи</b>",
+        "👥️ <b>Пользователи</b>",
         f"  Всего: <b>{total_users}</b>",
         f"  Новых сегодня: <b>{today_users}</b>",
         f"  Общий баланс: <b>{total_balance:.2f} RP⭐️</b>\n",
@@ -108,7 +108,7 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
         "💸 <b>Выплаты</b>",
         f"  В ожидании: <b>{pending}</b>",
         f"  Заявок всего: <b>{total_withdrawal_requests}</b>",
-        f"  Выведено: <b>{approved_sum:.2f} Telegram ⭐</b>",
+        f"  Выведено: <b>{approved_sum:.2f} Telegram ⭐️</b>",
         f"  Отклонено: <b>{rejected}</b>\n",
         "🎮 <b>Игры</b>",
         f"  Всего игр: <b>{total_games}</b>",
@@ -136,7 +136,7 @@ async def cb_admin_stats_bot(callback: CallbackQuery, db_user: User, session: As
 @router.callback_query(lambda c: c.data == "admin:stats:chats")
 async def cb_admin_stats_chats(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
 
     status_rows = await session.execute(select(Chat.status, func.count()).group_by(Chat.status))
@@ -163,7 +163,7 @@ async def cb_admin_stats_chats(callback: CallbackQuery, db_user: User, session: 
         "🎁 <b>Промо/бонусы</b>",
         f"  Промокодов активировано: <b>{promo_uses}</b>",
         f"  Бонусов выдано: <b>{bonus_uses}</b>\n",
-        "📣 <b>Реклама</b>",
+        "📢 <b>Реклама</b>",
         f"  Показов (ЛС) отправлено: <b>{ad_sends}</b>",
         f"  Кликов по кнопкам: <b>{clicks}</b>\n",
         "🎮 <b>Заработок с игр в чатах</b>",

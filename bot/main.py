@@ -22,7 +22,6 @@ from bot.middlewares.group_activity import GroupActivityMiddleware
 from bot.middlewares.sponsor_wall import SponsorWallMiddleware
 from bot.middlewares.tos_gate import TosGateMiddleware
 from bot.middlewares.user import UserMiddleware
-from bot.middlewares.virus_interference import VirusInterferenceMiddleware
 from bot.services.auction_scheduler import auction_loop
 from bot.services.background import spawn_background, stop_background_tasks
 from bot.services.chat_ad_scheduler import chat_ad_loop
@@ -36,8 +35,8 @@ from bot.services.instance_lock import (
 )
 from bot.services.lottery_scheduler import lottery_time_check_loop
 from bot.services.premium_emoji import PremiumEmojiMiddleware
+from bot.services.referral_reminder_scheduler import referral_reminder_loop
 from bot.services.sponsor_recheck_scheduler import sponsor_recheck_loop
-from bot.services.virus_scheduler import virus_income_loop
 
 _log_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
 _log_stream_handler = logging.StreamHandler()
@@ -83,7 +82,7 @@ async def on_startup(bot: Bot) -> None:
     spawn_background(chat_ad_loop(bot), name="chat-ad-scheduler")
     spawn_background(chat_broadcast_loop(bot), name="chat-broadcast-scheduler")
     spawn_background(chat_game_timeout_loop(bot), name="chat-game-timeout-scheduler")
-    spawn_background(virus_income_loop(), name="virus-income-scheduler")
+    spawn_background(referral_reminder_loop(bot), name="referral-reminder-scheduler")
     logger.info("Database initialized. Background tasks started.")
 
 
@@ -121,7 +120,6 @@ async def main() -> None:
         dp.update.middleware(ChatSponsorWallMiddleware())
         dp.update.middleware(TosGateMiddleware())
         dp.update.middleware(SponsorWallMiddleware())
-        dp.update.middleware(VirusInterferenceMiddleware())
 
         dp.include_router(router)
         dp.include_router(group_router)

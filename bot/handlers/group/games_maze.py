@@ -42,9 +42,9 @@ def _current_multiplier(step: int, bonus: float, house_edge: float, max_coeff: f
 def _status_text(bet: float, step: int, shields: int, multiplier: float, extra: str = "") -> str:
     payout = round(bet * multiplier, 2)
     return (
-        f"🌀 <b>Лабиринт</b>\n\n"
+        f"✨️ <b>Лабиринт</b>\n\n"
         f"Ставка: <b>{bet:.2f} RP⭐️</b> | Шаг: <b>{step}</b>\n"
-        f"🛡 Щитов: <b>{shields}</b>\n"
+        f"🔒 Щитов: <b>{shields}</b>\n"
         f"Множитель: <b>×{multiplier:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>"
         f"{extra}"
     )
@@ -59,7 +59,7 @@ async def msg_maze_start(message: Message, session: AsyncSession, chat: Chat | N
 
     settings_repo = SettingsRepository(session)
     if not await settings_repo.get_bool("maze_enabled", True):
-        await message.reply("🌀 Лабиринт временно недоступен.")
+        await message.reply("✨️ Лабиринт временно недоступен.")
         return
     if chat is not None and not chat.games_enabled:
         await message.reply("🎮 Игры отключены в этом чате.")
@@ -110,7 +110,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
     if tile == "trap":
         if state["shields"] > 0:
             state["shields"] -= 1
-            note = "🛡 Ловушка! Щит поглотил удар."
+            note = "🔒 Ловушка! Щит поглотил удар."
         else:
             bet = float(round_.bet)
             if not await round_repo.delete(round_):
@@ -129,7 +129,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
             return
     elif tile == "shield":
         state["shields"] = min(MAZE_MAX_SHIELDS, state["shields"] + 1)
-        note = "🛡 Найден щит!"
+        note = "🔒 Найден щит!"
     elif tile == "treasure":
         state["bonus"] = round(state["bonus"] + MAZE_TREASURE_BONUS, 4)
         note = "💰 Найдено сокровище!"
@@ -137,7 +137,7 @@ async def cb_maze_continue(callback: CallbackQuery, session: AsyncSession) -> No
         state["bonus"] = round(state["bonus"] + MAZE_JACKPOT_BONUS, 4)
         note = "💎 Джекпот!"
     else:
-        note = "⬜ Пустая клетка."
+        note = "⬜️ Пустая клетка."
 
     new_step = round_.level + 1
     house_edge, max_coeff = await get_maze_params(session)

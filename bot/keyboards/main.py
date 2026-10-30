@@ -12,7 +12,7 @@ def main_menu_kb(has_chats: bool = False) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🔥 Задания", callback_data="menu:tasks", style="primary"),
     )
     builder.row(
-        InlineKeyboardButton(text="🌟 Вывести", callback_data="menu:withdraw", style="primary"),
+        InlineKeyboardButton(text="⭐️ Вывести", callback_data="menu:withdraw", style="primary"),
         InlineKeyboardButton(text="💎 Профиль", callback_data="menu:profile", style="primary"),
     )
     builder.row(

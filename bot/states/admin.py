@@ -66,3 +66,9 @@ class AdminOwnSponsorStates(StatesGroup):
 class AdminBlockedSponsorStates(StatesGroup):
     enter_url = State()
     choose_scope = State()
+
+
+class AdminGiftStates(StatesGroup):
+    enter_description = State()
+    enter_target = State()
+    confirm = State()

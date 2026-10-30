@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timedelta
 from decimal import Decimal
 from html import escape
 
@@ -11,6 +12,7 @@ from bot.config import get_settings
 from bot.database.models import User
 from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.settings import SettingsRepository
+from bot.database.repositories.user import UserRepository
 from bot.database.repositories.withdrawal import WithdrawalRepository
 from bot.keyboards.main import back_to_menu_kb
 from bot.keyboards.withdraw import (
@@ -49,6 +51,12 @@ _RP_PER_STAR = 3
 # keep the original single-screen flow with a default method.
 _METHOD_CHOICE_THRESHOLD = 50
 _DEFAULT_METHOD = "fragment"
+
+# Anti-abuse gate on the withdrawal entry point itself (all three
+# currencies -- Stars/GRAM/crypto all fork off cb_withdraw_menu below):
+# must have brought in at least this many referrals in the last 24h.
+_WITHDRAW_MIN_RECENT_REFERRALS = 3
+_WITHDRAW_RECENT_REFERRALS_WINDOW = timedelta(hours=24)
 _METHOD_LABELS_USER = {"fragment": "Через Fragment", "gift": "Подарком"}
 _METHOD_LABELS_ADMIN = {"fragment": "Fragment", "gift": "Подарок"}
 
@@ -62,7 +70,7 @@ def _confirm_text(amount: int, recipient_username: str, emoji: str, method: str 
         f"{emoji} Получатель: @{escape(recipient_username)}",
         "",
         f"Будет списано: <b>{_rp_cost(amount)} RP⭐️</b>",
-        f"Пользователь получит: <b>{amount} Telegram ⭐</b>",
+        f"Пользователь получит: <b>{amount} Telegram ⭐️</b>",
     ]
     if method:
         lines.append(f"Способ: {_METHOD_LABELS_USER[method]}")
@@ -94,12 +102,26 @@ def _normalize_username(raw: str) -> str | None:
 
 
 @router.callback_query(lambda c: c.data == "menu:withdraw")
-async def cb_withdraw_menu(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_withdraw_menu(callback: CallbackQuery, db_user: User, session: AsyncSession, state: FSMContext) -> None:
     """Top-level withdrawal entry — choose currency. Telegram Stars keeps
     its exact original flow (see cb_withdraw_stars_menu below), untouched;
     this is just a new screen in front of it. GRAM (internal module/key
     names still say "vc", the currency was renamed in user-facing text
-    only) is a wholly separate flow, see bot/handlers/vc_withdraw.py."""
+    only) is a wholly separate flow, see bot/handlers/vc_withdraw.py.
+
+    Gated on recent referral activity -- applies uniformly to all three
+    currencies since they all fork off this one entry screen, so a user
+    can't reach any of them without clearing it first."""
+    since = datetime.utcnow() - _WITHDRAW_RECENT_REFERRALS_WINDOW
+    recent_referrals = await UserRepository(session).referrals_count_since(db_user.user_id, since)
+    if recent_referrals < _WITHDRAW_MIN_RECENT_REFERRALS:
+        await callback.answer(
+            "Для вывода средств необходимо пригласить минимум "
+            f"{_WITHDRAW_MIN_RECENT_REFERRALS} рефералов за последние сутки.",
+            show_alert=True,
+        )
+        return
+
     await state.clear()
     text = "💸 <b>Вывод средств</b>\n\nВыберите способ вывода:"
     try:
@@ -129,7 +151,7 @@ async def cb_withdraw_stars_menu(callback: CallbackQuery, db_user: User, session
         text = template.format(balance=balance_str) if "{" in template else template
     except (KeyError, ValueError, IndexError):
         text = DEFAULT_TEXTS["withdraw"].format(balance=balance_str)
-    text += "\n\nВыбери сумму для вывода (в Telegram ⭐):"
+    text += "\n\nВыбери сумму для вывода (в Telegram ⭐️):"
     photo = await c_repo.get_photo("withdraw")
     kb = withdraw_amounts_kb(_WITHDRAW_AMOUNTS)
     if photo:
@@ -156,7 +178,7 @@ async def cb_withdraw_amount(
     try:
         amount = int(callback.data.split(":")[2])
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
 
     repo = SettingsRepository(session)
@@ -164,13 +186,13 @@ async def cb_withdraw_amount(
         await callback.answer("💸 Вывод временно недоступен.", show_alert=True)
         return
     if amount not in _WITHDRAW_AMOUNTS:
-        await callback.answer("❌ Неверная сумма.", show_alert=True)
+        await callback.answer("❌️ Неверная сумма.", show_alert=True)
         return
 
     rp_needed = _rp_cost(amount)
     if db_user.stars_balance < rp_needed:
         await callback.answer(
-            f"❌ Недостаточно RP⭐️. Нужно {rp_needed} RP⭐️, баланс: {float(db_user.stars_balance):.2f} RP⭐️",
+            f"❌️ Недостаточно RP⭐️. Нужно {rp_needed} RP⭐️, баланс: {float(db_user.stars_balance):.2f} RP⭐️",
             show_alert=True,
         )
         return
@@ -179,7 +201,7 @@ async def cb_withdraw_amount(
     await state.update_data(amount=amount)
 
     text = (
-        f"💫 Получите: <b>{amount} Telegram ⭐</b>\n"
+        f"💫 Получите: <b>{amount} Telegram ⭐️</b>\n"
         f"🔄 Спишется: <b>{rp_needed} RP⭐️</b>\n\n"
         f"Кому вывести?"
     )
@@ -246,14 +268,14 @@ async def msg_recipient_username(message: Message, db_user: User, state: FSMCont
     username = _normalize_username(message.text or "")
     if not username:
         await message.answer(
-            "❌ Некорректный username. Введи его ещё раз (с @ или без):",
+            "❌️ Некорректный username. Введи его ещё раз (с @ или без):",
             reply_markup=withdraw_recipient_cancel_kb(),
         )
         return
 
     if db_user.username and username.lower() == db_user.username.lower():
         await message.answer(
-            "❌ Это твой собственный username — для вывода себе используй «Себе». "
+            "❌️ Это твой собственный username — для вывода себе используй «Себе». "
             "Введи другой username или отмени:",
             reply_markup=withdraw_recipient_cancel_kb(),
         )
@@ -308,8 +330,8 @@ async def cb_withdraw_confirm(callback: CallbackQuery, state: FSMContext) -> Non
     await state.update_data(captcha_answer=answer)
 
     text = (
-        f"🔐 <b>Подтверждение вывода</b>\n\n"
-        f"Списание: <b>{_rp_cost(amount)} RP⭐️</b> → получите <b>{amount} Telegram ⭐</b>\n\n"
+        f"🔒 <b>Подтверждение вывода</b>\n\n"
+        f"Списание: <b>{_rp_cost(amount)} RP⭐️</b> ➡️ получите <b>{amount} Telegram ⭐️</b>\n\n"
         f"Решите пример для подтверждения:\n\n"
         f"<b>{question} = ?</b>"
     )
@@ -339,11 +361,11 @@ async def msg_captcha(
     try:
         user_answer = int(message.text.strip())
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи число:", reply_markup=withdraw_captcha_kb())
+        await message.answer("❌️ Введи число:", reply_markup=withdraw_captcha_kb())
         return
 
     if user_answer != correct:
-        await message.answer("❌ Неверный ответ. Попробуй ещё раз:", reply_markup=withdraw_captcha_kb())
+        await message.answer("❌️ Неверный ответ. Попробуй ещё раз:", reply_markup=withdraw_captcha_kb())
         return
 
     s_repo = SettingsRepository(session)
@@ -357,13 +379,13 @@ async def msg_captcha(
         or not recipient_username
     ):
         await state.clear()
-        await message.answer("❌ Параметры вывода изменились. Выберите сумму заново.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Параметры вывода изменились. Выберите сумму заново.", reply_markup=back_to_menu_kb())
         return
 
     rp_needed = _rp_cost(amount)
     if db_user.stars_balance < rp_needed:
         await state.clear()
-        await message.answer("❌ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
         return
 
     payments_channel_id = settings.payments_channel_id or await s_repo.get("payments_channel_id")
@@ -393,7 +415,7 @@ async def msg_captcha(
     user_id = db_user.user_id
 
     if not await debit_stars_if_enough(session, user_id, rp_needed):
-        await message.answer("❌ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
+        await message.answer("❌️ Недостаточно RP⭐️.", reply_markup=back_to_menu_kb())
         return
 
     w_repo = WithdrawalRepository(session)
@@ -414,14 +436,14 @@ async def msg_captcha(
     # (see _advance_after_recipient) — showing it for a smaller withdrawal
     # would misleadingly imply the user picked something they were never asked.
     method_line = (
-        f"🔧 Способ вывода: <b>{_METHOD_LABELS_ADMIN[withdrawal_method]}</b>\n"
+        f"🔨 Способ вывода: <b>{_METHOD_LABELS_ADMIN[withdrawal_method]}</b>\n"
         if amount >= _METHOD_CHOICE_THRESHOLD else ""
     )
     request_text = (
         f"📌 <b>Новая заявка на вывод #{withdrawal.display_number}</b>{vip_badge}\n\n"
         f"👤 Пользователь: @{escape(db_user.username) if db_user.username else db_user.user_id} | ID: <code>{db_user.user_id}</code>\n"
         f"🎁 Получатель: {username_display}{gift_note}\n"
-        f"💫 Получит: <b>{amount} Telegram ⭐</b>\n"
+        f"💫 Получит: <b>{amount} Telegram ⭐️</b>\n"
         f"{method_line}"
         f"⏳ Статус: На рассмотрении"
     )
@@ -478,8 +500,8 @@ async def msg_captcha(
 
     kb = payments_channel_kb(payments_link) if payments_link else back_to_menu_kb()
     await message.answer(
-        f"✅ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
-        f"Получите: <b>{amount} Telegram ⭐</b>\n"
+        f"✔️ <b>Заявка #{withdrawal.display_number} создана!</b>\n\n"
+        f"Получите: <b>{amount} Telegram ⭐️</b>\n"
         f"Ожидайте рассмотрения администратором.",
         parse_mode="HTML",
         reply_markup=kb,

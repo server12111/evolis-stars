@@ -31,7 +31,7 @@ def tail_log_lines(path: str, n: int = TAIL_LINES) -> str:
 async def cb_logs_menu(callback: CallbackQuery, db_user: User) -> None:
     if not _is_admin(db_user): return
     text = (
-        "📄 <b>Логи бота</b>\n\n"
+        "📋 <b>Логи бота</b>\n\n"
         "«Последние 300 строк» — быстрый срез для разбора текущей проблемы. "
         "«Весь файл» — полный текущий лог (ротация: до 10 МБ, старые версии не прикладываются)."
     )

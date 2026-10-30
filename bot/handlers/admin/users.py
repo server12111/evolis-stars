@@ -26,33 +26,33 @@ logger = logging.getLogger(__name__)
 @router.callback_query(lambda c: c.data == "admin:users")
 async def cb_users(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.clear()
     try:
         await callback.message.edit_text(
-            "👥 <b>Управление пользователями</b>\n\nНайди пользователя по ID или Username:",
+            "👥️ <b>Управление пользователями</b>\n\nНайди пользователя по ID или Username:",
             parse_mode="HTML",
             reply_markup=users_menu_kb(),
         )
     except Exception:
-        await callback.message.answer("👥 Управление пользователями", reply_markup=users_menu_kb())
+        await callback.message.answer("👥️ Управление пользователями", reply_markup=users_menu_kb())
     await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "admin:user_search")
 async def cb_user_search(callback: CallbackQuery, db_user: User, state: FSMContext) -> None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return
     await state.set_state(AdminUserStates.search)
     try:
         await callback.message.edit_text(
-            "🔍 Введи ID или @username пользователя:",
+            "🔎 Введи ID или @username пользователя:",
             reply_markup=cancel_kb("admin:users"),
         )
     except Exception:
-        await callback.message.answer("🔍 Введи ID или @username:", reply_markup=cancel_kb("admin:users"))
+        await callback.message.answer("🔎 Введи ID или @username:", reply_markup=cancel_kb("admin:users"))
     await callback.answer()
 
 
@@ -89,7 +89,7 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
             target = await u_repo.find_by_username(query)
 
     if not target:
-        await message.answer("❌ Пользователь не найден.", reply_markup=back_to_admin_kb())
+        await message.answer("❌️ Пользователь не найден.", reply_markup=back_to_admin_kb())
         return
 
     username_display = f"@{target.username}" if target.username else "нет"
@@ -99,14 +99,14 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
         f"Имя: <b>{html.escape(target.first_name)}</b>\n"
         f"Username: {username_display}\n"
         f"💰 Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>\n"
-        f"👥 Рефералов: <b>{target.referrals_count}</b>\n"
+        f"👥️ Рефералов: <b>{target.referrals_count}</b>\n"
         f"📋 Заданий: <b>{target.tasks_completed_count}</b>\n"
-        f"🚫 Заблокирован: {'Да' if target.is_blocked else 'Нет'}"
+        f"❌️ Заблокирован: {'Да' if target.is_blocked else 'Нет'}"
     )
 
     if target.referrer_id:
         if target.referral_reward_given:
-            referral_status = "✅ выплачена"
+            referral_status = "✔️ выплачена"
         elif target.referral_insufficient_notified:
             referral_status = "⚠️ недостаточно спонсоров"
         elif not target.sponsors_verified:
@@ -124,8 +124,8 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
     text += (
         f"\n\n🔗 Реферер: <code>{referrer_line}</code>\n"
         f"🎯 Реф. награда: {referral_status}\n"
-        f"🛡 Спонсоры подтверждены: {'Да' if target.sponsors_verified else 'Нет'}\n"
-        f"📡 Волна: {target.sponsor_wave}\n"
+        f"🔒 Спонсоры подтверждены: {'Да' if target.sponsors_verified else 'Нет'}\n"
+        f"🔗 Волна: {target.sponsor_wave}\n"
         f"📋 Закреплённые спонсоры:\n{wave_display}"
     )
 
@@ -134,12 +134,12 @@ async def msg_user_search(message: Message, state: FSMContext, session: AsyncSes
 
 async def _get_target_and_check(callback: CallbackQuery, session: AsyncSession, db_user: User, user_id: int) -> User | None:
     if not _is_admin(db_user):
-        await callback.answer("❌ Нет доступа.", show_alert=True)
+        await callback.answer("❌️ Нет доступа.", show_alert=True)
         return None
     u_repo = UserRepository(session)
     target = await u_repo.get(user_id)
     if not target:
-        await callback.answer("❌ Пользователь не найден.", show_alert=True)
+        await callback.answer("❌️ Пользователь не найден.", show_alert=True)
     return target
 
 
@@ -150,7 +150,7 @@ async def cb_user_block(callback: CallbackQuery, session: AsyncSession, db_user:
     if not target: return
     target.is_blocked = True
     await session.commit()
-    await callback.answer("✅ Пользователь заблокирован.", show_alert=True)
+    await callback.answer("✔️ Пользователь заблокирован.", show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=user_actions_kb(uid, True))
     except Exception:
@@ -164,7 +164,7 @@ async def cb_user_unblock(callback: CallbackQuery, session: AsyncSession, db_use
     if not target: return
     target.is_blocked = False
     await session.commit()
-    await callback.answer("✅ Пользователь разблокирован.", show_alert=True)
+    await callback.answer("✔️ Пользователь разблокирован.", show_alert=True)
     try:
         await callback.message.edit_reply_markup(reply_markup=user_actions_kb(uid, False))
     except Exception:
@@ -190,12 +190,12 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
         amount = float(message.text.strip().replace(",", "."))
         if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число.")
+        await message.answer("❌️ Введи положительное число.")
         return
     u_repo = UserRepository(session)
     target = await u_repo.get(data["target_id"])
     if not target:
-        await message.answer("❌ Пользователь не найден.")
+        await message.answer("❌️ Пользователь не найден.")
         return
     amount_dec = Decimal(str(amount))
     await session.execute(
@@ -203,7 +203,7 @@ async def msg_add_stars(message: Message, state: FSMContext, session: AsyncSessi
     )
     await session.commit()
     await session.refresh(target)
-    await message.answer(f"✅ Начислено <b>+{amount:.2f} RP⭐️</b> пользователю <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✔️ Начислено <b>+{amount:.2f} RP⭐️</b> пользователю <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:user_sub:"))
@@ -212,7 +212,7 @@ async def cb_user_sub_stars(callback: CallbackQuery, state: FSMContext, db_user:
     uid = int(callback.data.split(":")[2])
     await state.set_state(AdminUserStates.sub_stars)
     await state.update_data(target_id=uid)
-    await callback.message.answer(f"➖ Введи кол-во RP⭐️ для списания у пользователя {uid}:", reply_markup=cancel_kb("admin:users"))
+    await callback.message.answer(f"− Введи кол-во RP⭐️ для списания у пользователя {uid}:", reply_markup=cancel_kb("admin:users"))
     await callback.answer()
 
 
@@ -225,12 +225,12 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
         amount = float(message.text.strip().replace(",", "."))
         if not math.isfinite(amount) or amount <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число.")
+        await message.answer("❌️ Введи положительное число.")
         return
     u_repo = UserRepository(session)
     target = await u_repo.get(data["target_id"])
     if not target:
-        await message.answer("❌ Пользователь не найден.")
+        await message.answer("❌️ Пользователь не найден.")
         return
     amount_dec = Decimal(str(amount))
     await session.execute(
@@ -243,7 +243,7 @@ async def msg_sub_stars(message: Message, state: FSMContext, session: AsyncSessi
     )
     await session.commit()
     await session.refresh(target)
-    await message.answer(f"✅ Списано <b>-{amount:.2f} RP⭐️</b> у пользователя <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✔️ Списано <b>-{amount:.2f} RP⭐️</b> у пользователя <code>{target.user_id}</code>. Баланс: <b>{float(target.stars_balance):.2f} RP⭐️</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("admin:user_refs:"))
@@ -252,7 +252,7 @@ async def cb_user_add_refs(callback: CallbackQuery, state: FSMContext, db_user: 
     uid = int(callback.data.split(":")[2])
     await state.set_state(AdminUserStates.add_refs)
     await state.update_data(target_id=uid)
-    await callback.message.answer(f"👥 Введи кол-во рефералов для начисления пользователю {uid}:", reply_markup=cancel_kb("admin:users"))
+    await callback.message.answer(f"👥️ Введи кол-во рефералов для начисления пользователю {uid}:", reply_markup=cancel_kb("admin:users"))
     await callback.answer()
 
 
@@ -265,13 +265,13 @@ async def msg_add_refs(message: Message, state: FSMContext, session: AsyncSessio
         amount = int(message.text.strip())
         if amount <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи целое положительное число.")
+        await message.answer("❌️ Введи целое положительное число.")
         return
     u_repo = UserRepository(session)
     target = await u_repo.get(data["target_id"])
     if not target:
-        await message.answer("❌ Пользователь не найден.")
+        await message.answer("❌️ Пользователь не найден.")
         return
     target.referrals_count += amount
     await session.commit()
-    await message.answer(f"✅ Начислено <b>+{amount}</b> рефералов. Итого: <b>{target.referrals_count}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✔️ Начислено <b>+{amount}</b> рефералов. Итого: <b>{target.referrals_count}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())

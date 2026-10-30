@@ -10,13 +10,16 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bot.config import get_settings
 from bot.database.models import ReferralReactivation, User
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.user import UserRepository
+from bot.services.premium_emoji import FAKE_BADGE_EN, FAKE_BADGE_RU, premium
 from bot.services.sponsor_waves import classify_sponsor_type, total_sponsor_count, wave_in_progress
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 REFERRAL_RETURN_DAYS = 7
 _STAR_STEP = Decimal("0.01")
@@ -73,7 +76,7 @@ REFERRAL_TIERS: list[tuple[int, str]] = [
 REFERRAL_TIER_BADGES: dict[str, str] = {
     "premium": " 👑 Premium",
     "sigma": " 🐺 Sigma",
-    "good": " 🌟 Good",
+    "good": " ⭐️ Good",
 }
 
 
@@ -171,6 +174,22 @@ async def get_min_sponsors_for_reward(session: AsyncSession) -> int:
     return await SettingsRepository(session).get_int("min_sponsors_for_reward", 3)
 
 
+def effective_min_sponsors_for_reward(min_sponsors: int) -> int:
+    """The TRUE minimum sponsor count needed for any referral payout at
+    all -- can be higher than the raw min_sponsors_for_reward setting
+    whenever the lowest sponsor-count tier itself pays 0 (see
+    _REFERRAL_REWARD_TIERS -- by default the 0-3 bucket, so with the
+    default min_sponsors_for_reward=3 a referral genuinely needs 4+ to
+    ever earn anything, not 3). Single source of truth for both the actual
+    payout gate (check_referral_reward/reward_returning_referral) and any
+    UI describing the requirement (earn.py's "Заработать" screen) -- kept
+    as one function specifically because these two drifted out of sync
+    before: the UI hardcoded "0-{min_sponsors-1}" (showing "0-2 не
+    засчитывается") while the real gate already required 4+, silently
+    telling users a lower, wrong number."""
+    return max(min_sponsors, _REFERRAL_REWARD_TIERS[0][0] + 1)
+
+
 async def get_milestone_bonus(session: AsyncSession, new_referrals_count: int) -> Decimal:
     """One-time bonus for the exact milestone (if any) PLUS the recurring
     per-referral bonus for the highest tier reached (if any) — both can
@@ -212,7 +231,15 @@ def _current_sponsor_urls(user: User) -> tuple[list[str], list[str]]:
         except (TypeError, ValueError):
             continue
         for item in items:
-            url = item.get("url", "") if isinstance(item, dict) else ""
+            # fraud=True means a provider flagged this specific
+            # subscription as invalid (Traffy "rejected", tgrass
+            # /check.is_fake -- see sponsor_wall.py's _persist_item_fraud_
+            # flags) -- it resolved off the wall so the user isn't stuck on
+            # something they can't fix, but must never count toward a
+            # payout the provider itself won't pay us for.
+            if not isinstance(item, dict) or item.get("fraud"):
+                continue
+            url = item.get("url", "")
             if not url:
                 continue
             (tg_urls if classify_sponsor_type(url) == "tg" else web_urls).append(url)
@@ -323,6 +350,13 @@ async def reward_returning_referral(
 ) -> Decimal | None:
     if not _reactivation_eligible(user, requested_referrer_id, previous_last_seen_at):
         return None
+    if user.referral_fraud_flagged:
+        # Permanent, account-wide (see check_referral_reward's own
+        # comment) -- a returning referral whose account was ever flagged
+        # fraudulent never earns their referrer a reactivation reward
+        # either, regardless of how the fresh wave they just cleared
+        # looks this time.
+        return None
 
     now = datetime.utcnow()
     referrer = await UserRepository(session).get(requested_referrer_id)
@@ -343,19 +377,37 @@ async def reward_returning_referral(
     sponsor_count = len(tg_urls) + len(web_urls)
 
     min_sponsors = await get_min_sponsors_for_reward(session)
-    if sponsor_count < min_sponsors:
+    # Computed before the gate (mirrors check_referral_reward) so a
+    # sponsor-count bucket that itself pays 0 (see _REFERRAL_REWARD_TIERS
+    # -- by default the 0-3 bucket) is caught by the SAME branch as
+    # sponsor_count < min_sponsors, instead of silently falling through to
+    # a bare `return None` with no notification at all -- premium
+    # referrals must NOT be gated on this too: get_referral_reward already
+    # returns a flat, always-positive amount for them regardless of
+    # sponsor_count, so `reward <= 0` alone correctly never fires for a
+    # premium referral that cleared the raw min_sponsors floor above.
+    base_reward = await get_referral_reward(session, sponsor_count, is_premium=bool(user.is_premium))
+    reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
+
+    if sponsor_count < min_sponsors or reward <= 0:
         # Unlike check_referral_reward's insufficient-sponsors branch, this
         # has no persisted "already notified" flag to dedupe repeats -- not
         # needed here, since resolve_pending_reactivation only clears the
         # pending columns AFTER this call returns, so a failed/incomplete
         # attempt is retried wholesale (including this notification) rather
         # than silently resumed partway through.
+        #
+        # effective_min (not the raw setting) only for the DISPLAYED
+        # number -- previously this branch didn't exist at all for the
+        # "cleared the raw minimum but still in the 0-reward tier" case,
+        # so it silently returned None with no notification to either side.
+        effective_min = effective_min_sponsors_for_reward(min_sponsors)
         if bot:
             try:
                 await bot.send_message(
                     user.user_id,
                     f"⚠️ Подписался(-ась) на недостаточное количество спонсоров "
-                    f"({sponsor_count} из {min_sponsors}) — награда твоему другу "
+                    f"({sponsor_count} из {effective_min}) — награда твоему другу "
                     f"за это возвращение не начислена.",
                 )
             except Exception:
@@ -363,17 +415,11 @@ async def reward_returning_referral(
             try:
                 await bot.send_message(
                     requested_referrer_id,
-                    f"⚠️ Вернувшийся по вашей ссылке реферал подписался на "
-                    f"недостаточное количество спонсоров — повторная награда не начислена.",
+                    "⚠️ Вернувшийся по вашей ссылке реферал подписался на "
+                    "недостаточное количество спонсоров — повторная награда не начислена.",
                 )
             except Exception:
                 pass
-        return None
-
-    base_reward = await get_referral_reward(session, sponsor_count, is_premium=bool(user.is_premium))
-    reward = (base_reward / Decimal("2")).quantize(_STAR_STEP, rounding=ROUND_HALF_UP)
-
-    if reward <= 0:
         return None
 
     session.add(
@@ -415,6 +461,80 @@ async def reward_returning_referral(
     return reward
 
 
+async def notify_fraud_sponsors(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
+    """Sends the "this subscription didn't count" notice (to the referred
+    user and, if any, their referrer) for every sponsor a provider flagged
+    fraudulent (see sponsor_wall.py's _persist_item_fraud_flags) that
+    hasn't been notified about yet. Deliberately called only once the
+    whole /start flow has settled (sponsors_verified=True -- both the paid
+    provider wave AND our own mandatory sponsors, see
+    own_sponsor_wall.py) rather than the moment fraud is detected mid-wave,
+    so this notice never jumps ahead of a step the user hasn't even
+    reached yet. Idempotent via each item's own fraud_notified marker
+    (pop_unnotified_fraud_items sets it), so safe to call on every
+    check_referral_reward pass."""
+    from bot.services.sponsor_waves import pop_unnotified_fraud_items
+
+    fraud_items = pop_unnotified_fraud_items(user)
+    if not fraud_items:
+        return
+    await session.commit()
+    if not bot:
+        return
+    # The wrapped text MUST be this id's own verified fallback ("👎") --
+    # not the word "ФЕЙК" -- Telegram rejects the whole message
+    # (ENTITY_TEXT_INVALID) otherwise. Clients that support custom emoji
+    # (the vast majority) still show the actual "ФЕЙК" badge artwork
+    # regardless; only an unsupported client ever sees the fallback text.
+    fake_badge = premium("👎", FAKE_BADGE_RU)
+    try:
+        await bot.send_message(
+            user.user_id,
+            f"{fake_badge} ⚠️ Твои подписки на спонсоров не засчитались — сервис "
+            "определил аккаунт как невалидный (похоже на фейковый/повторный), "
+            "поэтому они не учитываются.",
+        )
+    except Exception:
+        pass
+    if user.referrer_id:
+        username_display = (
+            f"@{escape(user.username)}"
+            if user.username
+            else escape(user.first_name or str(user.user_id))
+        )
+        try:
+            await bot.send_message(
+                user.referrer_id,
+                f"{fake_badge} ⚠️ Подписки вашего реферала {username_display} помечены сервисом как "
+                "недействительные (похоже на фейковый аккаунт) и не будут "
+                "учтены при начислении реферальной награды.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    admin_channel_id = settings.admin_channel_id or await SettingsRepository(session).get("admin_channel_id")
+    if admin_channel_id:
+        flagged_display = escape(
+            f"@{user.username}" if user.username else (user.first_name or str(user.user_id))
+        )
+        # English badge here (FAKE_BADGE_EN) rather than the RU one used
+        # above for the user-facing notices -- this is an internal admin
+        # audit log, and the pack ships both language variants of the same
+        # artwork, so this is the one natural spot for the EN one.
+        admin_fake_badge = premium("👎", FAKE_BADGE_EN)
+        try:
+            await bot.send_message(
+                int(admin_channel_id),
+                f"{admin_fake_badge} Аккаунт {flagged_display} (ID <code>{user.user_id}</code>) помечен "
+                f"провайдером как фейковый/невалидный ({len(fraud_items)} шт. спонсоров). "
+                "Реферальная награда не будет начислена.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+
 async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | None = None) -> None:
     """Pay the referrer exactly once per referred user. All of the referred
     user's TG sponsor subscriptions are independently confirmed via the
@@ -427,6 +547,16 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
     if not user.referrer_id:
         return
     if not user.sponsors_verified:
+        return
+    await notify_fraud_sponsors(user, session, bot)
+    if user.referral_fraud_flagged:
+        # Per product decision: any fraud verdict on this account, on ANY
+        # single sponsor, permanently disqualifies the referrer from ever
+        # being paid for them -- not just an exclusion of that one item
+        # from the count (which alone would still let a large-enough set
+        # of OTHER legitimate sponsors pay out fine, see
+        # _current_sponsor_urls). notify_fraud_sponsors above already told
+        # both sides why; nothing more to do here.
         return
     if user.referral_reward_given:
         return
@@ -472,7 +602,7 @@ async def check_referral_reward(user: User, session: AsyncSession, bot: Bot | No
         # but the 0-3 tier pays 0 RP⭐️, so a referral genuinely needs 4+ to
         # ever earn anything) -- shown here instead of the raw setting so
         # this message is never self-contradictory ("minimum 3, had 3").
-        effective_min = max(min_sponsors, _REFERRAL_REWARD_TIERS[0][0] + 1)
+        effective_min = effective_min_sponsors_for_reward(min_sponsors)
         logger.info(
             "REFERRAL outcome=insufficient referred_uid=%s referrer_uid=%s tg_pre=%d tg_post=%d web=%d total=%d min=%d reward=%s",
             referred_user_id, referrer_id, tg_pre, tg_post, web_count, total, effective_min, reward,
@@ -633,7 +763,7 @@ async def notify_user_sponsors_verified(user: User, session: AsyncSession, bot: 
     try:
         await bot.send_message(
             user.user_id,
-            f"✅ <b>Вы подписались на {count} {sponsors_word(count)}!</b>",
+            f"✔️ <b>Вы подписались на {count} {sponsors_word(count)}!</b>",
             parse_mode="HTML",
         )
     except Exception:
@@ -650,7 +780,7 @@ async def notify_referrer_joined(referrer_id: int, new_user: User, session: Asyn
     try:
         await bot.send_message(
             referrer_id,
-            f"⚡ Пользователь {username_display}{premium_tag} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
+            f"⚡️ Пользователь {username_display}{premium_tag} присоединился по вашей ссылке!\n\nВы получите награду когда он подпишется на всех спонсоров.",
             parse_mode="HTML",
         )
     except Exception:

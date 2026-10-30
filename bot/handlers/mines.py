@@ -62,7 +62,7 @@ async def cb_mines_bet(callback: CallbackQuery, state: FSMContext, session: Asyn
         if not math.isfinite(bet) or bet < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверная ставка.", show_alert=True)
+        await callback.answer("❌️ Неверная ставка.", show_alert=True)
         return
     await _ask_mines_count(callback, state, session, db_user, bet)
 
@@ -85,22 +85,22 @@ async def msg_mines_bet_custom(message: Message, state: FSMContext, session: Asy
         if not math.isfinite(bet) or bet <= 0:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=mines_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=mines_cancel_kb())
         return
 
     s_repo = SettingsRepository(session)
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     if bet < min_bet:
-        await message.answer(f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
+        await message.answer(f"❌️ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
     max_bet = await s_repo.get_float("mines_max_bet", 500.0)
     if bet > max_bet:
-        await message.answer(f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
+        await message.answer(f"❌️ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>", parse_mode="HTML", reply_markup=mines_cancel_kb())
         return
 
     if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
-        await message.answer("❌ Недостаточно звёзд.", reply_markup=mines_cancel_kb())
+        await message.answer("❌️ Недостаточно звёзд.", reply_markup=mines_cancel_kb())
         return
 
     await state.set_state(MinesStates.choose_mines)
@@ -116,14 +116,14 @@ async def _ask_mines_count(callback: CallbackQuery, state: FSMContext, session: 
     s_repo = SettingsRepository(session)
     min_bet = await s_repo.get_float("mines_min_bet", 1.0)
     if bet < min_bet:
-        await callback.answer(f"❌ Мин. ставка: {min_bet:.0f} RP⭐️", show_alert=True)
+        await callback.answer(f"❌️ Мин. ставка: {min_bet:.0f} RP⭐️", show_alert=True)
         return
     max_bet = await s_repo.get_float("mines_max_bet", 500.0)
     if bet > max_bet:
-        await callback.answer(f"❌ Макс. ставка: {max_bet:.0f} RP⭐️", show_alert=True)
+        await callback.answer(f"❌️ Макс. ставка: {max_bet:.0f} RP⭐️", show_alert=True)
         return
     if float(db_user.stars_balance) < bet and not await has_free_game_credit_for(session, db_user, bet):
-        await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
+        await callback.answer("❌️ Недостаточно звёзд.", show_alert=True)
         return
 
     await state.set_state(MinesStates.choose_mines)
@@ -143,7 +143,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
         if mines_count not in (3, 5, 10, 15):
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверное значение.", show_alert=True)
+        await callback.answer("❌️ Неверное значение.", show_alert=True)
         return
 
     data = await state.get_data()
@@ -151,7 +151,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
 
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and float(db_user.stars_balance) < bet:
-        await callback.answer("❌ Недостаточно звёзд.", show_alert=True)
+        await callback.answer("❌️ Недостаточно звёзд.", show_alert=True)
         await state.clear()
         return
 
@@ -176,7 +176,7 @@ async def cb_mines_count(callback: CallbackQuery, state: FSMContext, session: As
         f"💣 <b>Мины</b> — {mines_count} мин на поле 5×5\n\n"
         f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
         f"Текущий коэф: <b>×{coeff:.2f}</b>\n"
-        f"Нажми ⬜ чтобы открыть клетку. Избегай 💣!"
+        f"Нажми ⬜️ чтобы открыть клетку. Избегай 💣!"
     )
     try:
         await callback.message.edit_text(
@@ -227,7 +227,7 @@ async def cb_mines_open(callback: CallbackQuery, state: FSMContext, session: Asy
         await state.clear()
 
         text = (
-            f"💥 <b>Мина! Игра окончена.</b>\n\n"
+            f"💣 <b>Мина! Игра окончена.</b>\n\n"
             f"Ставка: <b>{bet:.2f} RP⭐️</b>\n"
             f"Потеря: <b>-{bet:.2f} RP⭐️</b>\n"
             f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>"

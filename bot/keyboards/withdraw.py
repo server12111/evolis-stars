@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def withdraw_method_choice_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="withdraw:choose:stars"))
+    builder.row(InlineKeyboardButton(text="⭐️ Telegram Stars", callback_data="withdraw:choose:stars"))
     builder.row(InlineKeyboardButton(text="💎 GRAM", callback_data="withdraw:choose:vc"))
     builder.row(InlineKeyboardButton(text="🪙 Крипта", callback_data="withdraw:choose:crypto"))
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
@@ -14,7 +14,7 @@ def withdraw_method_choice_kb() -> InlineKeyboardMarkup:
 def withdraw_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     buttons = [
-        InlineKeyboardButton(text=f"💫 {a} ⭐", callback_data=f"withdraw:amount:{a}", style="success")
+        InlineKeyboardButton(text=f"💫 {a} ⭐️", callback_data=f"withdraw:amount:{a}", style="success")
         for a in amounts
     ]
     for i in range(0, len(buttons), 2):
@@ -25,7 +25,7 @@ def withdraw_amounts_kb(amounts: list[int]) -> InlineKeyboardMarkup:
 
 def withdraw_captcha_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:withdraw"),
     ]])
 
 
@@ -33,13 +33,13 @@ def withdraw_recipient_choice_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="👤 Себе", callback_data="withdraw:recipient:self"))
     builder.row(InlineKeyboardButton(text="🎁 Другому пользователю", callback_data="withdraw:recipient:other"))
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:withdraw"))
     return builder.as_markup()
 
 
 def withdraw_recipient_cancel_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"),
+        InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:withdraw"),
     ]])
 
 
@@ -47,14 +47,14 @@ def withdraw_method_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💎 Через Fragment", callback_data="withdraw:method:fragment"))
     builder.row(InlineKeyboardButton(text="🎁 Подарком", callback_data="withdraw:method:gift"))
-    builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="menu:withdraw"))
+    builder.row(InlineKeyboardButton(text="❌️ Отмена", callback_data="menu:withdraw"))
     return builder.as_markup()
 
 
 def withdraw_confirm_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Подтвердить", callback_data="withdraw:confirm", style="success"),
-        InlineKeyboardButton(text="❌ Отменить", callback_data="menu:withdraw", style="danger"),
+        InlineKeyboardButton(text="✔️ Подтвердить", callback_data="withdraw:confirm", style="success"),
+        InlineKeyboardButton(text="❌️ Отменить", callback_data="menu:withdraw", style="danger"),
     ]])
 
 
@@ -67,6 +67,6 @@ def payments_channel_kb(link: str) -> InlineKeyboardMarkup:
 
 def admin_withdraw_kb(withdrawal_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Принять", callback_data=f"admin:withdraw_approve:{withdrawal_id}", style="success"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin:withdraw_reject:{withdrawal_id}", style="danger"),
+        InlineKeyboardButton(text="✔️ Принять", callback_data=f"admin:withdraw_approve:{withdrawal_id}", style="success"),
+        InlineKeyboardButton(text="❌️ Отклонить", callback_data=f"admin:withdraw_reject:{withdrawal_id}", style="danger"),
     ]])

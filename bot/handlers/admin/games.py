@@ -75,7 +75,7 @@ async def cb_game_toggle(callback: CallbackQuery, db_user: User, session: AsyncS
     current = await repo.get_bool(f"game_{game_type}_enabled", True)
     await repo.set(f"game_{game_type}_enabled", "0" if current else "1")
     new_state = not current
-    await callback.answer(f"{'✅ Включено' if new_state else '❌ Отключено'}")
+    await callback.answer(f"{'✔️ Включено' if new_state else '❌️ Отключено'}")
     await cb_games(callback, db_user, session, state)
 
 
@@ -90,7 +90,7 @@ async def cb_game_edit(callback: CallbackQuery, db_user: User, session: AsyncSes
 
     lines = [
         f"⚙️ <b>{game_type.title()}</b>\n",
-        f"Статус: {'✅ включена' if enabled else '❌ отключена'}",
+        f"Статус: {'✔️ включена' if enabled else '❌️ отключена'}",
     ]
     if coeff_keys:
         for suffix, label in coeff_keys:
@@ -118,7 +118,7 @@ async def cb_game_coeffs(callback: CallbackQuery, db_user: User) -> None:
     game_type = callback.data.split(":")[2]
     coeff_keys = GAME_COEFF_KEYS.get(game_type, [])
     if not coeff_keys:
-        await callback.answer("❌ У этой игры нет настраиваемых коэффициентов.", show_alert=True)
+        await callback.answer("❌️ У этой игры нет настраиваемых коэффициентов.", show_alert=True)
         return
     try:
         await callback.message.edit_text(
@@ -167,7 +167,7 @@ async def msg_game_value(message: Message, state: FSMContext, session: AsyncSess
         value = float(message.text.strip().replace(",", "."))
         if not math.isfinite(value) or value <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:")
+        await message.answer("❌️ Введи положительное число:")
         return
     data = await state.get_data()
     if data.get("param") != "min_bet" and value > 100:
@@ -176,12 +176,12 @@ async def msg_game_value(message: Message, state: FSMContext, session: AsyncSess
         # this codebase tops out around 42x (slots jackpot), so >100x is
         # almost certainly a typo (e.g. "200" meant as "2.00") rather than
         # an intentional setting, and would pay players 100x+ their bet.
-        await message.answer("❌ Коэффициент больше 100x — проверь, не опечатка ли (например, 200 вместо 2.00):")
+        await message.answer("❌️ Коэффициент больше 100x — проверь, не опечатка ли (например, 200 вместо 2.00):")
         return
     await state.clear()
     repo = SettingsRepository(session)
     await repo.set(f"game_{data['game_type']}_{data['param']}", str(value))
-    await message.answer(f"✅ Сохранено: <b>{data['game_type']}.{data['param']} = {value}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
+    await message.answer(f"✔️ Сохранено: <b>{data['game_type']}.{data['param']} = {value}</b>", parse_mode="HTML", reply_markup=back_to_admin_kb())
 
 
 # ---- Lottery admin ----
@@ -228,7 +228,7 @@ async def msg_lottery_price(message: Message, state: FSMContext, db_user: User) 
         if price <= 0:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=lottery_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=lottery_cancel_kb())
         return
     await state.update_data(ticket_price=price)
     await state.set_state(AdminLotteryStates.enter_ticket_limit)
@@ -242,11 +242,11 @@ async def msg_lottery_limit(message: Message, state: FSMContext, db_user: User) 
         limit = int(message.text.strip())
         if limit < 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи неотрицательное целое:", reply_markup=lottery_cancel_kb())
+        await message.answer("❌️ Введи неотрицательное целое:", reply_markup=lottery_cancel_kb())
         return
     await state.update_data(ticket_limit=limit)
     await state.set_state(AdminLotteryStates.choose_end_type)
-    await message.answer("⏱ Выбери условие завершения лотереи:", reply_markup=lottery_end_type_kb())
+    await message.answer("⏱️ Выбери условие завершения лотереи:", reply_markup=lottery_end_type_kb())
 
 
 @router.callback_query(AdminLotteryStates.choose_end_type, lambda c: c.data and c.data.startswith("lottery_end:"))
@@ -256,7 +256,7 @@ async def cb_lottery_end_type(callback: CallbackQuery, db_user: User, state: FSM
     await state.update_data(end_type=end_type)
     prompts = {
         "tickets": "🎟 Введи кол-во билетов для розыгрыша:",
-        "time": "⏰ Введи кол-во часов до розыгрыша:",
+        "time": "⏱️ Введи кол-во часов до розыгрыша:",
         "commission": "💰 Введи общую сумму сбора для розыгрыша (RP⭐️):",
     }
     await state.set_state(AdminLotteryStates.enter_end_value)
@@ -271,20 +271,20 @@ async def msg_lottery_end_value(message: Message, state: FSMContext, session: As
         val = float(message.text.strip().replace(",", "."))
         if not math.isfinite(val) or val <= 0: raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=lottery_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=lottery_cancel_kb())
         return
     data = await state.get_data()
     if data["end_type"] == "tickets":
         if not val.is_integer():
             await message.answer(
-                "❌ Количество билетов должно быть целым числом:",
+                "❌️ Количество билетов должно быть целым числом:",
                 reply_markup=lottery_cancel_kb(),
             )
             return
         ticket_limit = int(data["ticket_limit"])
         if ticket_limit > 0 and int(val) > ticket_limit:
             await message.answer(
-                f"❌ Условие розыгрыша не может превышать лимит {ticket_limit} билетов:",
+                f"❌️ Условие розыгрыша не может превышать лимит {ticket_limit} билетов:",
                 reply_markup=lottery_cancel_kb(),
             )
             return
@@ -298,7 +298,7 @@ async def msg_lottery_end_value(message: Message, state: FSMContext, session: As
         end_value=end_value,
     )
     await message.answer(
-        f"✅ <b>Лотерея #{lottery.id} создана!</b>\n\nЦена билета: {float(lottery.ticket_price):.1f} RP⭐️",
+        f"✔️ <b>Лотерея #{lottery.id} создана!</b>\n\nЦена билета: {float(lottery.ticket_price):.1f} RP⭐️",
         parse_mode="HTML",
         reply_markup=back_to_admin_kb(),
     )
@@ -310,11 +310,11 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
     repo = LotteryRepository(session)
     active = await repo.get_active()
     if not active:
-        await callback.answer("❌ Нет активной лотереи.", show_alert=True)
+        await callback.answer("❌️ Нет активной лотереи.", show_alert=True)
         return
     winner_id = await repo.draw_random(active)
     if not winner_id:
-        await callback.answer("❌ Нет участников.", show_alert=True)
+        await callback.answer("❌️ Нет участников.", show_alert=True)
         return
     prize = float(active.prize_pool)
     winner = await session.get(User, winner_id)
@@ -343,7 +343,7 @@ async def cb_lottery_draw(callback: CallbackQuery, db_user: User, session: Async
         )
     except Exception:
         pass
-    await callback.answer(f"✅ Победитель: {winner_id}", show_alert=True)
+    await callback.answer(f"✔️ Победитель: {winner_id}", show_alert=True)
     await cb_lottery(callback, db_user, session, state)
 
 
@@ -353,19 +353,19 @@ async def cb_lottery_cancel_active(callback: CallbackQuery, db_user: User, sessi
     repo = LotteryRepository(session)
     active = await repo.get_active()
     if not active:
-        await callback.answer("❌ Нет активной лотереи.", show_alert=True)
+        await callback.answer("❌️ Нет активной лотереи.", show_alert=True)
         return
     if active.tickets_sold > 0:
         await callback.answer(
-            "❌ Нельзя отменить лотерею с купленными билетами. Проведите розыгрыш.",
+            "❌️ Нельзя отменить лотерею с купленными билетами. Проведите розыгрыш.",
             show_alert=True,
         )
         return
     if not await repo.cancel(active):
         await callback.answer(
-            "❌ Лотерея уже изменилась; отмена невозможна.",
+            "❌️ Лотерея уже изменилась; отмена невозможна.",
             show_alert=True,
         )
         return
-    await callback.answer("✅ Лотерея отменена.")
+    await callback.answer("✔️ Лотерея отменена.")
     await cb_lottery(callback, db_user, session, state)

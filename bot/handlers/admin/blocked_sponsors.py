@@ -25,9 +25,9 @@ _MAX_URL_LENGTH = 500
 async def _show_list(message: Message, session: AsyncSession) -> None:
     entries = await BlockedSponsorRepository(session).all()
     text = (
-        "🚫 <b>Заблокированные спонсоры</b>\n\n"
+        "❌️ <b>Заблокированные спонсоры</b>\n\n"
         f"Всего: <b>{len(entries)}</b>\n\n"
-        "🔗 — заблокирована конкретная ссылка. 🌐 — заблокирован весь домен "
+        "🔗 — заблокирована конкретная ссылка. 🔗 — заблокирован весь домен "
         "(полезно для спонсоров с одноразовыми подписанными ссылками, "
         "например FlyerHub-ссылки вида .../search?sign=...).\n\n"
         "Ссылки/домены в этом списке никогда не попадут в стену ОП ни от "
@@ -65,7 +65,7 @@ async def msg_blocked_sponsor_url(message: Message, state: FSMContext, db_user: 
     url = (message.text or "").strip()
     if not url or len(url) > _MAX_URL_LENGTH:
         await message.answer(
-            "❌ Пришли одну ссылку (не длиннее 500 символов):",
+            "❌️ Пришли одну ссылку (не длиннее 500 символов):",
             reply_markup=blocked_sponsor_cancel_kb(),
         )
         return
@@ -98,14 +98,14 @@ async def cb_blocked_sponsor_scope(callback: CallbackQuery, db_user: User, sessi
     url = data.get("url", "")
     await state.clear()
     if not url:
-        await callback.answer("❌ Устарело, начни заново.", show_alert=True)
+        await callback.answer("❌️ Устарело, начни заново.", show_alert=True)
         return
 
     entry = await BlockedSponsorRepository(session).create(url, match_type=match_type)
     if match_type == "domain":
-        confirmation = f"✅ <b>Домен заблокирован</b>\n\n🌐 {escape(entry.url_key)}"
+        confirmation = f"✔️ <b>Домен заблокирован</b>\n\n🔗 {escape(entry.url_key)}"
     else:
-        confirmation = f"✅ <b>Заблокировано</b>\n\n🔗 {escape(entry.url)}"
+        confirmation = f"✔️ <b>Заблокировано</b>\n\n🔗 {escape(entry.url)}"
     await callback.message.answer(
         f"{confirmation}\n\nБольше не будет показываться в стене ОП ни от одного провайдера.",
         parse_mode="HTML",
@@ -119,7 +119,7 @@ async def cb_blocked_sponsor_del_confirm(callback: CallbackQuery, db_user: User,
     if not _is_admin(db_user): return
     entry_id = int(callback.data.split(":")[2])
     deleted = await BlockedSponsorRepository(session).delete(entry_id)
-    await callback.answer("✅ Разблокировано" if deleted else "❌ Не найдено", show_alert=True)
+    await callback.answer("✔️ Разблокировано" if deleted else "❌️ Не найдено", show_alert=True)
     await _show_list(callback.message, session)
 
 
@@ -129,11 +129,11 @@ async def cb_blocked_sponsor_del(callback: CallbackQuery, db_user: User, session
     entry_id = int(callback.data.split(":")[2])
     entry = await BlockedSponsorRepository(session).get(entry_id)
     if not entry:
-        await callback.answer("❌ Не найдено.", show_alert=True)
+        await callback.answer("❌️ Не найдено.", show_alert=True)
         return
     scope_label = f"домен {entry.url_key}" if entry.match_type == "domain" else entry.url
     await callback.message.answer(
-        f"🗑 Убрать из блок-листа?\n\n🔗 {escape(scope_label)}\n\n"
+        f"❌️ Убрать из блок-листа?\n\n🔗 {escape(scope_label)}\n\n"
         "Спонсор сможет снова появляться в стене ОП, если провайдер продолжает его предлагать.",
         reply_markup=blocked_sponsor_delete_confirm_kb(entry_id),
     )

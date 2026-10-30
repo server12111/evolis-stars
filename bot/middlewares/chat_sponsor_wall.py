@@ -70,10 +70,10 @@ class ChatSponsorWallMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         # A real Telegram Stars payment confirmation must always reach its
-        # handler -- same money-safety carve-out SponsorWallMiddleware/
-        # VirusInterferenceMiddleware already make. Service messages (join/
-        # leave notices etc.) are left alone too -- deleting those would be
-        # bizarre and they're not something a member "wrote".
+        # handler -- same money-safety carve-out SponsorWallMiddleware
+        # already makes. Service messages (join/leave notices etc.) are
+        # left alone too -- deleting those would be bizarre and they're
+        # not something a member "wrote".
         if (
             message.successful_payment is not None
             or message.new_chat_members

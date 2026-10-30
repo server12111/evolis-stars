@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.config import get_settings
 from bot.database.models import User
 import time
+from bot.database.repositories.blocked_sponsor import BlockedSponsorRepository
 from bot.database.repositories.content import DEFAULT_TEXTS, ContentRepository
 from bot.database.repositories.settings import SettingsRepository
 from bot.database.repositories.task import TaskRepository
@@ -26,6 +27,7 @@ from bot.services.piarflow import check_sponsors, get_sponsors
 from bot.services.flyerhub import fh_get_tasks, fh_check_task, fh_get_completed_tasks
 from bot.services.linkni import check_linkni_subscription, linkni_link
 from bot.services.referral import check_referral_reward
+from bot.services.sponsor_waves import is_sponsor_blocked
 from bot.services.telegram_chat import is_subscribed, telegram_chat_id
 
 router = Router()
@@ -52,7 +54,7 @@ async def _show_tasks_exhausted_screen(callback: CallbackQuery, db_user: User) -
     builder.row(InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu:main"))
     text = (
         f"📋 <b>Задания</b>\n\n"
-        f"✅ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
+        f"✔️ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
         "🎉 Все задания выполнены! Загляни позже."
     )
     try:
@@ -65,9 +67,9 @@ async def _show_tasks_exhausted_screen(callback: CallbackQuery, db_user: User) -
 
 async def _show_linkni_task(callback: CallbackQuery, db_user: User, session: AsyncSession) -> None:
     text = (
-        "✨ <b>Новое задание!</b> ✨\n\n"
+        "<b>Новое задание!</b>\n\n"
         "Перейди по кнопке ниже и выполни задание, затем вернись сюда и "
-        "нажми «✅ Проверить выполнение»."
+        "нажми «✔️ Проверить выполнение»."
     )
     kb = linkni_kb(linkni_link(settings.linkni_code))
     try:
@@ -113,14 +115,14 @@ async def cb_linkni_check(callback: CallbackQuery, db_user: User, session: Async
         db_user.tasks_completed_count += 1
         await session.commit()
         await check_referral_reward(db_user, session, bot)
-        await callback.answer(f"✅ Задание выполнено! +{tasks_reward:.1f} RP⭐️", show_alert=True)
+        await callback.answer(f"✔️ Задание выполнено! +{tasks_reward:.1f} RP⭐️", show_alert=True)
         await _show_tasks_exhausted_screen(callback, db_user)
     elif status == "no_sponsors":
         await s_repo.set(key, "1")
-        await callback.answer("❌ Сейчас нет доступных спонсоров.", show_alert=True)
+        await callback.answer("❌️ Сейчас нет доступных спонсоров.", show_alert=True)
         await _show_tasks_exhausted_screen(callback, db_user)
     elif status == "not_subscribed":
-        await callback.answer("❌ Вы не подписались. Перейдите по ссылке и попробуйте снова.", show_alert=True)
+        await callback.answer("❌️ Вы не подписались. Перейдите по ссылке и попробуйте снова.", show_alert=True)
     else:
         await callback.answer("⏳ Ещё не зафиксировали переход. Попробуйте через минуту.", show_alert=True)
 
@@ -134,12 +136,25 @@ async def cb_linkni_skip(callback: CallbackQuery, db_user: User, session: AsyncS
     await _show_tasks_exhausted_screen(callback, db_user)
 
 
-async def _find_next_pf_task(s_repo: SettingsRepository, db_user: User, pf_tasks: list, skip_link: str = ""):
+async def _find_next_pf_task(
+    s_repo: SettingsRepository,
+    db_user: User,
+    pf_tasks: list,
+    skip_link: str = "",
+    blocked_urls: frozenset[str] = frozenset(),
+    blocked_domains: frozenset[str] = frozenset(),
+):
     """Returns (idx, sponsor) for next uncompleted PiarFlow task, or (None, None).
     skip_link: temporarily skip tasks whose link starts with this prefix (used for Skip button)."""
     for idx, sp in enumerate(pf_tasks):
         link = sp.get("link", "")
         if not link:
+            continue
+        if is_sponsor_blocked(link, blocked_urls, blocked_domains):
+            # This screen (unlike the mandatory sponsor wall) never checked
+            # the admin blocklist at all -- confirmed live: a domain
+            # blocked there kept showing up here regardless, since this is
+            # a completely separate code path with its own task selection.
             continue
         link_id = pf_task_id(link)
         if skip_link and link.startswith(skip_link[:30]):
@@ -228,7 +243,7 @@ async def _show_next_task(callback: CallbackQuery, db_user: User, session: Async
             intro = DEFAULT_TEXTS["tasks"].format(tasks_reward=reward_str)
         text = (
             f"{intro}\n"
-            f"✅ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
+            f"✔️ Выполнено: <b>{db_user.tasks_completed_count}</b>\n\n"
             f"🎉 Все доступные задания выполнены!"
         )
         kb = tasks_list_kb(all_tasks, completed_ids)
@@ -283,11 +298,11 @@ async def cb_task_view(callback: CallbackQuery, db_user: User, session: AsyncSes
     task_repo = TaskRepository(session)
     task = await task_repo.get(task_id)
     if not task:
-        await callback.answer("❌ Задание не найдено.", show_alert=True)
+        await callback.answer("❌️ Задание не найдено.", show_alert=True)
         return
 
     completed = await task_repo.is_completed(task_id, db_user.user_id)
-    status = "✅ Выполнено" if completed else "⏳ Не выполнено"
+    status = "✔️ Выполнено" if completed else "⏳ Не выполнено"
     text = (
         f"📌 <b>{task.title}</b>\n\n"
         f"{task.description}\n\n"
@@ -337,12 +352,12 @@ async def cb_task_check(callback: CallbackQuery, db_user: User, session: AsyncSe
     task_repo = TaskRepository(session)
     task = await task_repo.get(task_id)
     if not task:
-        await callback.answer("❌ Задание не найдено.", show_alert=True)
+        await callback.answer("❌️ Задание не найдено.", show_alert=True)
         return
 
     already = await task_repo.is_completed(task_id, db_user.user_id)
     if already:
-        await callback.answer("✅ Задание уже выполнено!", show_alert=True)
+        await callback.answer("✔️ Задание уже выполнено!", show_alert=True)
         return
 
     if task.task_type == "channel_sub" and task.url:
@@ -356,7 +371,7 @@ async def cb_task_check(callback: CallbackQuery, db_user: User, session: AsyncSe
         try:
             member = await bot.get_chat_member(chat_id, db_user.user_id)
             if not is_subscribed(member):
-                await callback.answer("❌ Вы не подписаны на канал. Подпишитесь и попробуйте ещё раз.", show_alert=True)
+                await callback.answer("❌️ Вы не подписаны на канал. Подпишитесь и попробуйте ещё раз.", show_alert=True)
                 return
         except Exception:
             await callback.answer(
@@ -371,7 +386,7 @@ async def cb_task_check(callback: CallbackQuery, db_user: User, session: AsyncSe
         db_user.stars_balance = round(float(db_user.stars_balance) + reward, 2)
         db_user.tasks_completed_count += 1
         await session.commit()
-        await callback.answer(f"✅ Задание выполнено! +{reward:.1f} RP⭐️", show_alert=True)
+        await callback.answer(f"✔️ Задание выполнено! +{reward:.1f} RP⭐️", show_alert=True)
         await check_referral_reward(db_user, session, bot)
         await _show_next_task(callback, db_user, session, current_task_id=task_id)
     else:
@@ -394,7 +409,7 @@ async def cb_task_skip(callback: CallbackQuery, db_user: User, session: AsyncSes
 
 @router.callback_query(lambda c: c.data == "task:already_done")
 async def cb_task_already_done(callback: CallbackQuery) -> None:
-    await callback.answer("✅ Это задание уже выполнено!", show_alert=True)
+    await callback.answer("✔️ Это задание уже выполнено!", show_alert=True)
 
 
 # ── PiarFlow task handlers (one-by-one flow) ───────────────────────────────
@@ -413,6 +428,9 @@ async def _show_pf_task(
     s_repo = SettingsRepository(session)
     tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
     max_sponsors = await s_repo.get_int("piarflow_max_sponsors", 100)
+    blocked_repo = BlockedSponsorRepository(session)
+    blocked_urls = frozenset(await blocked_repo.url_key_set())
+    blocked_domains = frozenset(await blocked_repo.domain_key_set())
     if pf_tasks is None:
         pf_tasks = await get_sponsors(
             settings.piarflow_key,
@@ -424,7 +442,10 @@ async def _show_pf_task(
             await _show_tasks_exhausted_screen(callback, db_user)
             return
 
-    idx, sponsor = await _find_next_pf_task(s_repo, db_user, pf_tasks, skip_link=skip_link)
+    idx, sponsor = await _find_next_pf_task(
+        s_repo, db_user, pf_tasks, skip_link=skip_link,
+        blocked_urls=blocked_urls, blocked_domains=blocked_domains,
+    )
 
     if sponsor is None and retry_if_empty:
         # PiarFlow can briefly return an empty list immediately after it
@@ -446,6 +467,8 @@ async def _show_pf_task(
                 db_user,
                 refreshed,
                 skip_link=skip_link,
+                blocked_urls=blocked_urls,
+                blocked_domains=blocked_domains,
             )
             if sponsor is not None:
                 pf_tasks = refreshed
@@ -470,10 +493,10 @@ async def _show_pf_task(
     await s_repo.set(f"pf_link:{db_user.user_id}:{link_id}", link)
     name = escape(str(sponsor.get("name", "Канал")))
     text = (
-        f"✨ <b>Новое задание!</b> ✨\n\n"
+        f"<b>Новое задание!</b>\n\n"
         f"• Подпишись на канал <b>{name}</b>\n\n"
         f"Награда: <b>{tasks_reward:.1f} RP⭐️</b>\n\n"
-        f"После выполнения жми «✅ Проверить выполнение»"
+        f"После выполнения жми «✔️ Проверить выполнение»"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=pf_task_detail_kb(link))
@@ -582,10 +605,10 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
     )
 
     if not subscribed:
-        await callback.answer("❌ Вы не подписаны. Подпишитесь и нажмите «Проверить».", show_alert=True)
+        await callback.answer("❌️ Вы не подписаны. Подпишитесь и нажмите «Проверить».", show_alert=True)
         try:
             await callback.message.edit_text(
-                "❌ Вы не подписаны на канал. Подпишитесь и нажмите «Проверить».",
+                "❌️ Вы не подписаны на канал. Подпишитесь и нажмите «Проверить».",
                 parse_mode="HTML",
                 reply_markup=pf_task_detail_kb(full_link),
             )
@@ -600,13 +623,13 @@ async def cb_pf_task_check(callback: CallbackQuery, db_user: User, session: Asyn
     await check_referral_reward(db_user, session, bot)
     
     try:
-        await callback.message.edit_text("✅ Подписка подтверждена!\nЗагружаем следующее задание...", parse_mode="HTML")
+        await callback.message.edit_text("✔️ Подписка подтверждена!\nЗагружаем следующее задание...", parse_mode="HTML")
     except Exception:
         pass
 
     # Показываем флешку «Задание выполнено» сверху экрана
     try:
-        await callback.answer("✅ Задание выполнено!", show_alert=True)
+        await callback.answer("✔️ Задание выполнено!", show_alert=True)
     except Exception:
         pass
     if pf_tasks is None:
@@ -648,10 +671,10 @@ async def _show_fh_webapp(callback: CallbackQuery, db_user: User, session: Async
         else ""
     )
     text = (
-        f"✨ <b>Новое задание!</b> ✨\n\n"
+        f"<b>Новое задание!</b>\n\n"
         f"{count_line}"
         "Перейди по кнопке ниже и выполни задание, затем вернись сюда и "
-        "нажми «✅ Проверить выполнение»."
+        "нажми «✔️ Проверить выполнение»."
     )
     kb = fh_webapp_kb(settings.flyerhub_webapp_url)
     try:
@@ -694,11 +717,11 @@ async def cb_fh_webapp_check(callback: CallbackQuery, db_user: User, session: As
         await session.commit()
         await check_referral_reward(db_user, session, bot)
         await callback.answer(
-            f"✅ Засчитано новых заданий: {len(new_signatures)} (+{reward:.2f} RP⭐️)",
+            f"✔️ Засчитано новых заданий: {len(new_signatures)} (+{reward:.2f} RP⭐️)",
             show_alert=True,
         )
     else:
-        await callback.answer("❌ Новых выполненных заданий не найдено.", show_alert=True)
+        await callback.answer("❌️ Новых выполненных заданий не найдено.", show_alert=True)
 
     await _show_fh_webapp(callback, db_user, session)
 
@@ -731,6 +754,9 @@ async def _show_fh_task(
 
     s_repo = SettingsRepository(session)
     tasks_reward = await s_repo.get_float("tasks_reward", 0.3)
+    blocked_repo = BlockedSponsorRepository(session)
+    blocked_urls = frozenset(await blocked_repo.url_key_set())
+    blocked_domains = frozenset(await blocked_repo.domain_key_set())
 
     if fh_tasks is None:
         fh_tasks = await fh_get_tasks(
@@ -749,15 +775,26 @@ async def _show_fh_task(
             continue
         if sig == skip_signature:
             continue
+        links = task.get("links", [])
+        link = links[0] if links else ""
+        if is_sponsor_blocked(link, blocked_urls, blocked_domains):
+            # This screen (unlike the mandatory sponsor wall) never checked
+            # the admin blocklist at all -- confirmed live: a domain
+            # blocked there (e.g. api.flyerpartners.com, which FlyerHub
+            # reissues under a freshly-signed URL every time -- see
+            # is_sponsor_blocked's own domain-match branch) kept showing up
+            # here regardless, since this is a completely separate task-
+            # selection path from the wall's.
+            continue
         key = f"fh_done:{db_user.user_id}:{sig}"
         if await s_repo.get(key, "") == "1":
             continue
-            
+
         skip_key = f"fh_skipped:{db_user.user_id}:{sig}"
         skipped = await s_repo.get(skip_key, "")
         if skipped.isdigit() and int(time.time()) - int(skipped) < 900:
             continue
-            
+
         sponsor = task
         break
 
@@ -775,10 +812,10 @@ async def _show_fh_task(
     link = links[0] if links else ""
     name = escape(str(sponsor.get("name", "Задание")))
     text = (
-        f"✨ <b>Новое задание!</b> ✨\n\n"
+        f"<b>Новое задание!</b>\n\n"
         f"• Выполни задание: <b>{name}</b>\n\n"
         f"Награда: <b>{tasks_reward:.1f} RP⭐️</b>\n\n"
-        f"После выполнения жми «✅ Проверить выполнение»"
+        f"После выполнения жми «✔️ Проверить выполнение»"
     )
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=fh_task_detail_kb(link, sig))
@@ -842,12 +879,12 @@ async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         await check_referral_reward(db_user, session, bot)
 
         try:
-            await callback.answer("✅ Задание выполнено!", show_alert=True)
+            await callback.answer("✔️ Задание выполнено!", show_alert=True)
         except Exception:
             pass
 
         try:
-            await callback.message.edit_text("✅ Задание подтверждено! Загружаем следующее...", parse_mode="HTML")
+            await callback.message.edit_text("✔️ Задание подтверждено! Загружаем следующее...", parse_mode="HTML")
         except Exception:
             pass
 
@@ -870,7 +907,7 @@ async def cb_fh_task_check(callback: CallbackQuery, db_user: User, session: Asyn
         await _show_fh_task(callback, db_user, session)
     else:
         try:
-            await callback.answer("❌ Задание ещё не выполнено. Попробуйте снова.", show_alert=True)
+            await callback.answer("❌️ Задание ещё не выполнено. Попробуйте снова.", show_alert=True)
         except Exception:
             pass
         await _show_fh_task(callback, db_user, session)

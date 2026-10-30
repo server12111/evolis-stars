@@ -41,7 +41,7 @@ class WithdrawAmountGateTests(unittest.IsolatedAsyncioTestCase):
             async with self.sessions() as session:
                 with patch("bot.handlers.withdraw.SettingsRepository.get_bool", AsyncMock(return_value=True)):
                     await cb_withdraw_amount(cb, db_user, state, session)
-            cb.answer.assert_awaited_with("❌ Неверная сумма.", show_alert=True)
+            cb.answer.assert_awaited_with("❌️ Неверная сумма.", show_alert=True)
 
     async def test_insufficient_rp_shows_clear_message_not_bypassed(self) -> None:
         db_user = SimpleNamespace(stars_balance=Decimal("10"))  # needs 45 for the 15-star tier
@@ -64,7 +64,7 @@ class WithdrawAmountGateTests(unittest.IsolatedAsyncioTestCase):
         state.set_state.assert_awaited_once()
         rendered = cb.message.edit_text.await_args.args[0]
         self.assertIn("300 RP⭐️", rendered)
-        self.assertIn("100 Telegram ⭐", rendered)
+        self.assertIn("100 Telegram ⭐️", rendered)
 
 
 if __name__ == "__main__":

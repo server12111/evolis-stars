@@ -24,13 +24,13 @@ def tower_playing_kb(
                 if slot in mine_positions:
                     tiles.append(InlineKeyboardButton(text="💣", callback_data="chattower:noop"))
                 elif slot == chosen:
-                    tiles.append(InlineKeyboardButton(text="✅", callback_data="chattower:noop"))
+                    tiles.append(InlineKeyboardButton(text="✔️", callback_data="chattower:noop"))
                 else:
-                    tiles.append(InlineKeyboardButton(text="⬜", callback_data="chattower:noop"))
+                    tiles.append(InlineKeyboardButton(text="⬜️", callback_data="chattower:noop"))
             builder.row(*tiles)
         elif active_level is not None and lvl == active_level:
             builder.row(
-                *[InlineKeyboardButton(text="🟩", callback_data=f"chattower:pick:{i}") for i in range(3)]
+                *[InlineKeyboardButton(text="✔️", callback_data=f"chattower:pick:{i}") for i in range(3)]
             )
         else:
             builder.row(*[InlineKeyboardButton(text="🔒", callback_data="chattower:noop") for _ in range(3)])

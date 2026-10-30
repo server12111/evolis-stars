@@ -72,6 +72,20 @@ class UserRepository(BaseRepository):
         )
         return list(result.scalars().all()), int(total), int(contactable)
 
+    async def referrals_count_since(self, referrer_id: int, since: datetime) -> int:
+        """How many users this referrer brought in (referrer_id set,
+        User.created_at >= since) -- counts signups via their link, not
+        only ones that already cleared the sponsor wall/earned a reward
+        (which can lag behind signup by however long the wall takes).
+        Used by the withdrawal activity gate (see withdraw.py)."""
+        result = await self.session.execute(
+            select(func.count(User.user_id)).where(
+                User.referrer_id == referrer_id,
+                User.created_at >= since,
+            )
+        )
+        return result.scalar() or 0
+
     async def total_count(self) -> int:
         result = await self.session.execute(select(func.count(User.user_id)))
         return result.scalar() or 0

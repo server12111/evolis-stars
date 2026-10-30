@@ -31,12 +31,12 @@ async def cb_tower_menu(callback: CallbackQuery, db_user: User, state: FSMContex
     await state.clear()
     s_repo = SettingsRepository(session)
     if not await s_repo.get_bool("tower_enabled", True):
-        await callback.answer("🗼 Башня временно недоступна.", show_alert=True)
+        await callback.answer("🏰 Башня временно недоступна.", show_alert=True)
         return
 
     min_bet = await s_repo.get_float("tower_min_bet", 1.0)
     text = (
-        f"🗼 <b>Башня</b>\n\n"
+        f"🏰 <b>Башня</b>\n\n"
         f"💰 Баланс: <b>{float(db_user.stars_balance):.2f} RP⭐️</b>\n"
         f"Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>\n\n"
         "8 уровней, 3 плитки/уровень, 1 мина/уровень.\n"
@@ -58,7 +58,7 @@ async def cb_tower_bet(callback: CallbackQuery, state: FSMContext, session: Asyn
         if not math.isfinite(bet) or bet < 1:
             raise ValueError
     except (IndexError, ValueError):
-        await callback.answer("❌ Неверная ставка.", show_alert=True)
+        await callback.answer("❌️ Неверная ставка.", show_alert=True)
         return
     await _start_tower(callback, None, state, session, db_user, bet)
 
@@ -66,9 +66,9 @@ async def cb_tower_bet(callback: CallbackQuery, state: FSMContext, session: Asyn
 @router.callback_query(TowerStates.choose_bet, lambda c: c.data == "tower:bet:custom")
 async def cb_tower_custom(callback: CallbackQuery, state: FSMContext) -> None:
     try:
-        await callback.message.edit_text("🗼 Введи сумму ставки:", reply_markup=tower_cancel_kb())
+        await callback.message.edit_text("🏰 Введи сумму ставки:", reply_markup=tower_cancel_kb())
     except Exception:
-        await callback.message.answer("🗼 Введи сумму ставки:", reply_markup=tower_cancel_kb())
+        await callback.message.answer("🏰 Введи сумму ставки:", reply_markup=tower_cancel_kb())
     await callback.answer()
 
 
@@ -79,7 +79,7 @@ async def msg_tower_bet(message: Message, state: FSMContext, session: AsyncSessi
         if not math.isfinite(bet) or bet <= 0:
             raise ValueError
     except (ValueError, AttributeError):
-        await message.answer("❌ Введи положительное число:", reply_markup=tower_cancel_kb())
+        await message.answer("❌️ Введи положительное число:", reply_markup=tower_cancel_kb())
         return
     await _start_tower(None, message, state, session, db_user, bet)
 
@@ -99,7 +99,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
             await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
     if bet < min_bet:
-        txt = f"❌ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>"
+        txt = f"❌️ Мин. ставка: <b>{min_bet:.0f} RP⭐️</b>"
         await _reply(txt, tower_cancel_kb())
         if callback:
             await callback.answer()
@@ -107,7 +107,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
 
     max_bet = await s_repo.get_float("tower_max_bet", 500.0)
     if bet > max_bet:
-        txt = f"❌ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>"
+        txt = f"❌️ Макс. ставка: <b>{max_bet:.0f} RP⭐️</b>"
         await _reply(txt, tower_cancel_kb())
         if callback:
             await callback.answer()
@@ -115,7 +115,7 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
 
     free = await try_consume_free_game_credit(session, db_user, bet)
     if not free and float(db_user.stars_balance) < bet:
-        await _reply("❌ Недостаточно звёзд.", tower_cancel_kb())
+        await _reply("❌️ Недостаточно звёзд.", tower_cancel_kb())
         if callback:
             await callback.answer()
         return
@@ -136,10 +136,10 @@ async def _start_tower(callback, message, state: FSMContext, session: AsyncSessi
     payout = round(bet * coeff, 2)
 
     text = (
-        f"🗼 <b>Башня</b>\n\n"
+        f"🏰 <b>Башня</b>\n\n"
         f"Ставка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>1/{max_levels}</b>\n"
         f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
-        "Выбери плитку 🟩:"
+        "Выбери плитку ✔️:"
     )
     kb = tower_playing_kb(0, max_levels, mines, [], coeff, payout, bet)
     await _reply(text, kb)
@@ -229,10 +229,10 @@ async def cb_tower_pick(callback: CallbackQuery, state: FSMContext, session: Asy
             payout = round(bet * coeff, 2)
 
             text = (
-                f"🗼 <b>Башня</b>\n\n"
+                f"🏰 <b>Башня</b>\n\n"
                 f"Ставка: <b>{bet:.2f} RP⭐️</b> | Уровень: <b>{new_level + 1}/{max_levels}</b>\n"
                 f"Коэф: <b>×{coeff:.2f}</b> | Возможный выигрыш: <b>{payout:.2f} RP⭐️</b>\n\n"
-                "Выбери плитку 🟩:"
+                "Выбери плитку ✔️:"
             )
             kb = tower_playing_kb(new_level, max_levels, mines, history, coeff, payout, bet)
             try:

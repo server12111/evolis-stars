@@ -126,6 +126,13 @@ async def evaluate_and_credit_integration_wave(
             # blocklisted, not because the user actually subscribed --
             # must never be paid for.
             continue
+        if item.get("fraud"):
+            # Provider flagged this specific conversion as invalid (Traffy
+            # "rejected", tgrass /check.is_fake) -- it resolved off the
+            # wall so the user isn't stuck on it forever, but paying 1
+            # RP⭐️ for a subscription the provider itself won't pay us for
+            # is exactly the leak this flag exists to plug.
+            continue
         provider = str(item.get("provider", ""))
         item_key = integration_item_key(item)
         if await repo.mark_completed(user.user_id, provider, item_key):
