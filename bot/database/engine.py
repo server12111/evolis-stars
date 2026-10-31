@@ -101,6 +101,13 @@ def _add_missing_user_columns(connection) -> None:
         "referral_fraud_flagged": "BOOLEAN NOT NULL DEFAULT 0",
     }
     referral_counted_added = "referral_counted" not in columns
+    # The removed "Вирус" game left NOT NULL columns on pre-existing
+    # databases (virus_bonus_attempt has no SQL default there) -- the User
+    # model no longer sets them, so every INSERT of a new user would fail
+    # with "NOT NULL constraint failed: users.virus_bonus_attempt".
+    for legacy_column in ("virus_bonus_attempt", "virus_last_used_at"):
+        if legacy_column in columns:
+            connection.execute(text(f"ALTER TABLE users DROP COLUMN {legacy_column}"))
     reminder_column_added = "last_referral_reminder_sent_at" not in columns
     for name, definition in additions.items():
         if name not in columns:
